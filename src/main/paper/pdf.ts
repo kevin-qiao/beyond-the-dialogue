@@ -9,10 +9,9 @@ let pdfjsPromise: Promise<PdfJsModule> | null = null
 
 function getPdfjs(): Promise<PdfJsModule> {
   if (!pdfjsPromise) {
-    pdfjsPromise = import('pdfjs-dist/legacy/build/pdf.mjs').then((m) => {
-      m.GlobalWorkerOptions.workerSrc = ''
-      return m
-    })
+    // The legacy build runs a fake worker on the main thread in Node;
+    // setting workerSrc to '' would break that, so leave it unset.
+    pdfjsPromise = import('pdfjs-dist/legacy/build/pdf.mjs')
   }
   return pdfjsPromise
 }

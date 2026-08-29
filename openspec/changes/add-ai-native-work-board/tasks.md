@@ -32,16 +32,16 @@
 
 ## 5. Paper-reading enrichment (spec: paper-reading)
 
-- [ ] 5.1 Implement paper-reading task creation form (name + link required) and detail panel shell; verify missing link is rejected
-- [ ] 5.2 Implement link resolution (arXiv API full support; DOI/Crossref and citation_* meta-tag fallback; record analysis_level); verify against real arXiv link and a paywalled link
-- [ ] 5.3 Implement PDF fetch and pdf.js text extraction with scanned-PDF detection and abstract-only fallback; verify extraction on an open-access arXiv PDF
-- [ ] 5.4 Implement custom agent tools (`fetch_url`, `extract_pdf_text`) exposing deterministic steps to the analysis agent; verify agent can complete a job using them
-- [ ] 5.5 Implement analysis agent (structured output: tldr, contributions, method, results, prerequisites, reading suggestions) with token-budget map-reduce fallback; verify real arXiv paper produces complete result set
-- [ ] 5.6 Implement My Day trigger (analysis starts on add; no re-analysis when already analyzed); verify both scenarios per spec
-- [ ] 5.7 Implement manual PDF attach + re-analysis upgrade clearing the abstract-only label; verify with a local PDF on a paywalled task
-- [ ] 5.8 Implement title/link mismatch warning flow (confirm, correct link, or attach PDF before results finalize); verify with a deliberately mismatched link
-- [ ] 5.9 Implement analysis results panel (summary + suggestion cards, progress view while running); verify all three UI states (running / ready / abstract-only)
-- [ ] 5.10 Implement markdown notes editor (CodeMirror 6 + preview, autosave to vault, usable before analysis completes); verify autosave and restart persistence
+- [x] 5.1 Implement paper-reading task creation form (name + link required) and detail panel shell; verify missing link is rejected
+- [x] 5.2 Implement link resolution (arXiv API full support; DOI/Crossref and citation_* meta-tag fallback; record analysis_level); verify against real arXiv link and a paywalled link
+- [x] 5.3 Implement PDF fetch and pdf.js text extraction with scanned-PDF detection and abstract-only fallback; verify extraction on an open-access arXiv PDF
+- [x] 5.4 Implement custom agent tools (`fetch_url`, `extract_pdf_text`) exposing deterministic steps to the analysis agent; verify agent can complete a job using them
+- [x] 5.5 Implement analysis agent (structured output: tldr, contributions, method, results, prerequisites, reading suggestions) with token-budget map-reduce fallback; verify real arXiv paper produces complete result set
+- [x] 5.6 Implement My Day trigger (analysis starts on add; no re-analysis when already analyzed); verify both scenarios per spec
+- [x] 5.7 Implement manual PDF attach + re-analysis upgrade clearing the abstract-only label; verify with a local PDF on a paywalled task
+- [x] 5.8 Implement title/link mismatch warning flow (confirm, correct link, or attach PDF before results finalize); verify with a deliberately mismatched link
+- [x] 5.9 Implement analysis results panel (summary + suggestion cards, progress view while running); verify all three UI states (running / ready / abstract-only)
+- [x] 5.10 Implement markdown notes editor (CodeMirror 6 + preview, autosave to vault, usable before analysis completes); verify autosave and restart persistence
 
 ## 6. Wiki ingestion (spec: wiki-ingest)
 

@@ -43,15 +43,19 @@ export function classifyLink(raw: string): { type: 'arxiv' | 'doi' | 'meta' | 'u
 
 function parseXml(xml: string): Record<string, string> {
   const out: Record<string, string> = {}
-  const get = (tag: string): string => {
-    const m = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))
+  const get = (tag: string, scope?: string): string => {
+    const src = scope ?? xml
+    const m = src.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))
     return m && m[1] ? m[1].trim() : ''
   }
-  out.title = get('title')
-  out.summary = get('summary')
-  out.id = get('id')
+  // arXiv API responses have a feed-level <title> (the query echo) followed by
+  // per-entry <title>/<summary>. Prefer the first <entry> block.
+  const entry = get('entry') || xml
+  out.title = get('title', entry)
+  out.summary = get('summary', entry)
+  out.id = get('id', entry)
   out.pdf = ''
-  out.authors = (xml.match(/<name>([\s\S]*?)<\/name>/g) ?? [])
+  out.authors = (entry.match(/<name>([\s\S]*?)<\/name>/g) ?? [])
     .map((s) => s.replace(/<\/?name>/g, '').trim())
     .join(' | ')
   return out
