@@ -13,11 +13,12 @@ export interface JobContext {
 
 export type JobHandler = (ctx: JobContext) => Promise<void>
 
-const RETRYABLE = ['rate_limit', 'overloaded', 'insufficient_quota', 'timeout', 'connection']
+const RETRYABLE = ['rate_limit', 'rate limit', 'overloaded', 'insufficient_quota', 'insufficient quota', 'timeout', 'connection', '503', '429']
 
 export function isTransientError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
-  return RETRYABLE.some((k) => msg.toLowerCase().includes(k))
+  const lower = msg.toLowerCase()
+  return RETRYABLE.some((k) => lower.includes(k.toLowerCase()))
 }
 
 export interface IngestStartSignal {
@@ -28,15 +29,19 @@ export class JobQueue extends EventEmitter {
   private handlers = new Map<JobKind, JobHandler>()
   private running = 0
   private maxConcurrent: number
+  private maxAttempts: number
+  private baseRetryMs: number
   private queue: string[] = []
   private processing = false
   private db: DatabaseSync
   private ingestActive = new Set<string>()
 
-  constructor(db: DatabaseSync, maxConcurrent = 2) {
+  constructor(db: DatabaseSync, maxConcurrent = 2, opts: { maxAttempts?: number; baseRetryMs?: number } = {}) {
     super()
     this.db = db
     this.maxConcurrent = maxConcurrent
+    this.maxAttempts = opts.maxAttempts ?? 3
+    this.baseRetryMs = opts.baseRetryMs ?? 2000
   }
 
   register(kind: JobKind, handler: JobHandler): void {
@@ -167,10 +172,11 @@ export class JobQueue extends EventEmitter {
       this.emit('progress', getJob(this.db, jobId))
     } catch (e: any) {
       const msg = e?.message ?? String(e)
-      if (isTransientError(msg) && (job.attempts + 1) < 3) {
+      const attemptNo = getJob(this.db, jobId)?.attempts ?? job.attempts + 1
+      if (isTransientError(msg) && attemptNo < this.maxAttempts) {
         // schedule retry with backoff
         updateJob(this.db, jobId, { state: 'queued', error: msg })
-        const delay = 2000 * Math.pow(2, job.attempts)
+        const delay = this.baseRetryMs * Math.pow(2, attemptNo - 1)
         setTimeout(() => {
           this.queue.push(jobId)
           this.emit('retried', getJob(this.db, jobId))

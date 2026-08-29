@@ -151,14 +151,23 @@ function registerIpc(): void {
     return task
   })
   ipcMain.handle(IPC.setMyDay, (_e, args) => {
+    const before = getTask(d(), args.id)
     const task = serviceSetMyDay(d(), args.id, args.inMyDay)
     broadcast(IPC.evTaskUpdated, task)
-    // Trigger analysis for paper-reading tasks newly added to My Day,
-    // unless already analyzed (spec: no re-analysis without explicit request).
-    if (args.inMyDay && task.type === 'paper_reading' && task.analysisStatus === 'none') {
+    // Analysis triggers on add to My Day (spec 5.6). Never re-analyze a task
+    // already analyzed (ready/abstract_only); a failed analysis may retry.
+    if (args.inMyDay && task.type === 'paper_reading' && !task.link) {
+      // nothing to analyze
+    } else if (
+      args.inMyDay &&
+      task.type === 'paper_reading' &&
+      task.analysisStatus !== 'ready' &&
+      task.analysisStatus !== 'abstract_only'
+    ) {
       queue!.enqueue('analysis', task.id)
     }
-    if (args.inMyDay) {
+    // Suggestions fire when the task is newly added (not on repeat adds).
+    if (args.inMyDay && before && !before.inMyDay) {
       queue!.enqueue('suggestion', task.id)
     }
     return task

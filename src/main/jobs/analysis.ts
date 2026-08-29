@@ -4,7 +4,7 @@ import { getTask, updateTask, saveAnalysis, getAnalysis, loadSettings } from '..
 import type { ReadingSuggestion } from '../../shared/types'
 import { extractTextFromPdf, fetchPdf } from '../paper/pdf'
 import { resolvePaper } from '../paper/resolve'
-import { pdfPathFor } from '../vault'
+import { pdfPathFor, jobWorkspaceFor } from '../vault'
 import { createAgentSession, defineTool } from '@earendil-works/pi-coding-agent'
 import { DefaultResourceLoader, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent'
 import { getRuntime, resolveModel } from '../agent-runtime'
@@ -203,15 +203,17 @@ async function runAnalysisAgent(
   })
 
   const taskId = job.taskId ?? ''
+  const workspace = jobWorkspaceFor(taskId)
   const tools = [fetchUrlTool(), extractPdfTool(taskId, level)]
 
   const { session } = await createAgentSession({
+    cwd: workspace,
     modelRuntime: runtime,
     model,
     thinkingLevel: 'medium',
     resourceLoader: loader,
-    sessionManager: SessionManager.inMemory(process.cwd()),
-    settingsManager: SettingsManager.create(process.cwd(), piAgentDir()),
+    sessionManager: SessionManager.inMemory(workspace),
+    settingsManager: SettingsManager.create(workspace, piAgentDir()),
     tools: tools.map((t) => t.name),
     customTools: tools,
     noTools: 'builtin'

@@ -22,6 +22,12 @@ export function analysisDirFor(taskId: string): string {
   return dir
 }
 
+export function jobWorkspaceFor(taskId: string): string {
+  const dir = path.join(analysisDirFor(taskId), 'workspace')
+  fs.mkdirSync(dir, { recursive: true })
+  return dir
+}
+
 export function summaryPathFor(taskId: string): string {
   return path.join(analysisDirFor(taskId), 'summary.md')
 }
