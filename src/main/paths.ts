@@ -1,11 +1,19 @@
-import { app } from 'electron'
 import * as path from 'node:path'
 import * as os from 'node:os'
 
 // Central location for app-private paths. Everything the app writes lives
 // under userData; the wiki path is the single user-configurable exception.
 
+let rootOverride: string | null = null
+
+// Tests (and any non-Electron context) can point the app root elsewhere.
+export function setUserDataRoot(root: string): void {
+  rootOverride = root
+}
+
 export function userDataDir(): string {
+  if (rootOverride) return rootOverride
+  const { app } = require('electron') as typeof import('electron')
   return app.getPath('userData')
 }
 

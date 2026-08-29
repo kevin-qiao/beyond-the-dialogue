@@ -40,8 +40,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   updated_at TEXT NOT NULL,
   deleted_at TEXT
 );
-CREATE INDEX idx_tasks_list ON tasks(list_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_tasks_mine ON tasks(in_my_day) WHERE deleted_at IS NULL AND in_my_day = 1;
+CREATE INDEX IF NOT EXISTS idx_tasks_list ON tasks(list_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_tasks_mine ON tasks(in_my_day) WHERE deleted_at IS NULL AND in_my_day = 1;
 
 CREATE TABLE IF NOT EXISTS enrichment_jobs (
   id TEXT PRIMARY KEY,
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS enrichment_jobs (
   started_at TEXT,
   finished_at TEXT
 );
-CREATE INDEX idx_jobs_state ON enrichment_jobs(state);
+CREATE INDEX IF NOT EXISTS idx_jobs_state ON enrichment_jobs(state);
 
 CREATE TABLE IF NOT EXISTS paper_analysis (
   task_id TEXT PRIMARY KEY REFERENCES tasks(id),
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS suggestions (
   dismissed INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
-CREATE INDEX idx_suggestions_task ON suggestions(task_id);
+CREATE INDEX IF NOT EXISTS idx_suggestions_task ON suggestions(task_id);
 
 CREATE TABLE IF NOT EXISTS ingest_ledger (
   id TEXT PRIMARY KEY,
@@ -301,17 +301,18 @@ export function createTask(
     listId: string
     title: string
     notes?: string
-    type: 'plain' | 'paper_reading'
+    type?: 'plain' | 'paper_reading'
     link?: string
   }
 ): Task {
   const now = new Date().toISOString()
   const id = randomUUID()
+  const type = data.type ?? 'plain'
   db.prepare(
     `INSERT INTO tasks (id, list_id, title, notes, type, in_my_day, analysis_status, mismatch_state, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, 0, 'none', 'none', ?, ?)`
-  ).run(id, data.listId, data.title, data.notes ?? '', data.type, now, now)
-  if (data.type === 'paper_reading' && data.link) {
+  ).run(id, data.listId, data.title, data.notes ?? '', type, now, now)
+  if (type === 'paper_reading' && data.link) {
     db.prepare('UPDATE tasks SET link = ? WHERE id = ?').run(data.link, id)
   }
   return getTask(db, id)!
