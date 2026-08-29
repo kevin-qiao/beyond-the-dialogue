@@ -11,6 +11,18 @@ asarUnpack:
 npmRebuild: false
 electronLanguages:
   - en-US
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Utility
+  maintainer: monster
+  synopsis: AI-Native Work Board
+deb:
+  depends:
+    - libgtk-3-0
+    - libnss3
+    - libasound2
 win:
   target:
     - nsis
@@ -19,11 +31,6 @@ mac:
     - dmg
     - zip
   category: public.app-category.productivity
-linux:
-  target:
-    - AppImage
-    - deb
-  category: Utility
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
