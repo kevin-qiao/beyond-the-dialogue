@@ -9,7 +9,7 @@ import { NewTaskForm } from './components/NewTaskForm'
 import { useState } from 'react'
 
 export function App() {
-  const { loading, snapshot, activeView, selectedTaskId, selectedListId, taskById } = useApp()
+  const { loading, snapshot, activeView, selectedTaskId, selectedListId, taskById, toast, dismissToast } = useApp()
   const [showNewTask, setShowNewTask] = useState(false)
 
   if (loading || !snapshot) {
@@ -35,6 +35,11 @@ export function App() {
           {selectedTask ? <TaskDetail task={selectedTask} /> : <div className="detail-empty">Select a task to see details</div>}
         </aside>
       </main>
+      {toast && (
+        <div className="toast" onClick={dismissToast}>
+          {toast}
+        </div>
+      )}
     </div>
   )
 }

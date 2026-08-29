@@ -17,6 +17,8 @@ interface AppContextValue extends AppState {
   selectList: (listId: string | null) => void
   selectTask: (taskId: string | null) => void
   refresh: () => Promise<void>
+  toast: string | null
+  dismissToast: () => void
   createList: (name: string) => Promise<List>
   renameList: (id: string, name: string) => Promise<List>
   deleteList: (id: string) => Promise<void>
@@ -48,6 +50,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [selectedListId, setSelectedListId] = useState<string | null>(null)
   const [jobSteps, setJobSteps] = useState<Record<string, { stepLabel: string | null; state: string }>>({})
+  const [toast, setToast] = useState<string | null>(null)
   const snapshotRef = useRef<AppSnapshot | null>(null)
 
   useEffect(() => {
@@ -104,11 +107,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })
     const offList = window.api.onListUpdated(() => void refresh())
     const offJob = window.api.onJobProgress((e) => {
-      setJobSteps((prev) => ({ ...prev, [e.jobId]: { stepLabel: e.stepLabel, state: e.state } }))
+      const key = e.taskId ?? e.jobId
+      setJobSteps((prev) => ({ ...prev, [key]: { stepLabel: e.stepLabel, state: e.state } }))
       if (e.state === 'done' || e.state === 'failed') {
         setJobSteps((prev) => {
           const next = { ...prev }
-          delete next[e.jobId]
+          delete next[key]
           return next
         })
       }
@@ -125,12 +129,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { ...prev, suggestions: s }
       })
     })
+    const offToast = window.api.onToast((message) => {
+      setToast(message)
+      setTimeout(() => setToast(null), 4000)
+    })
     return () => {
       offTask()
       offList()
       offJob()
       offAnalysis()
       offSug()
+      offToast()
     }
   }, [mutateTask, refresh])
 
@@ -143,6 +152,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       selectedTaskId,
       selectedListId,
       jobSteps,
+      toast,
+      dismissToast: () => setToast(null),
       setActiveView,
       selectList,
       selectTask,
@@ -227,6 +238,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     selectedTaskId,
     selectedListId,
     jobSteps,
+    toast,
     setActiveView,
     selectList,
     selectTask,

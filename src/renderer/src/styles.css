@@ -687,3 +687,18 @@ button {
   font: inherit;
   margin-top: 8px;
 }
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: var(--accent);
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  cursor: pointer;
+  max-width: 320px;
+}

@@ -234,7 +234,7 @@ ${paperText.slice(0, 800_000)}`
 
   try {
     await session.prompt(prompt, { expandPromptTemplates: false })
-    const messages = (session as any).getMessages?.() ?? []
+    const messages = session.messages as any[]
     const last = [...messages].reverse().find((m: any) => m.role === 'assistant' && m.content?.length)
     const text = extractAssistantText(last)
     if (!text) throw new Error('analysis agent produced no output')

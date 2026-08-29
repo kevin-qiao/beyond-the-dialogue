@@ -33,7 +33,8 @@ export const IPC = {
   evJobProgress: 'ev:job-progress',
   evAnalysisUpdated: 'ev:analysis-updated',
   evSuggestionsUpdated: 'ev:suggestions-updated',
-  evSnapshot: 'ev:snapshot'
+  evSnapshot: 'ev:snapshot',
+  evToast: 'ev:toast'
 } as const
 
 export interface JobProgressEvent {
@@ -108,4 +109,5 @@ export interface RendererApi {
   onJobProgress: (cb: (e: JobProgressEvent) => void) => () => void
   onAnalysisUpdated: (cb: (a: PaperAnalysis) => void) => () => void
   onSuggestionsUpdated: (cb: (s: Suggestion[]) => void) => () => void
+  onToast: (cb: (message: string) => void) => () => void
 }

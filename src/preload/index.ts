@@ -50,6 +50,11 @@ const api: RendererApi = {
     const h = (_e: unknown, s: Suggestion[]) => cb(s)
     ipcRenderer.on(IPC.evSuggestionsUpdated, h)
     return () => ipcRenderer.removeListener(IPC.evSuggestionsUpdated, h)
+  },
+  onToast: (cb) => {
+    const h = (_e: unknown, data: { message: string }) => cb(data.message)
+    ipcRenderer.on(IPC.evToast, h)
+    return () => ipcRenderer.removeListener(IPC.evToast, h)
   }
 }
 

@@ -221,7 +221,7 @@ function registerIpc(): void {
     // Enqueue ingestion job (deposit-first happens inside the job).
     queue!.enqueueIngest(args.id, task.title, [])
     broadcast(IPC.evTaskUpdated, task)
-    broadcast('ev:toast', { message: 'Task finished — wiki ingestion started in the background' })
+    broadcast(IPC.evToast, { message: 'Task finished — wiki ingestion started in the background' })
     return task
   })
   ipcMain.handle(IPC.choosePdf, async () => {
