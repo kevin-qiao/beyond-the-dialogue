@@ -5,6 +5,7 @@ import type { ThinkingLevel } from '@earendil-works/pi-ai'
 import type { Settings } from '../shared/types'
 import { piAgentDir, piAuthPath, piModelsPath } from './paths'
 import * as fs from 'node:fs'
+import { isConfigured } from './ai-config'
 
 // Thin adapter around the Pi SDK. All Pi usage outside this module goes
 // through this wrapper so SDK upgrades touch exactly one place.
@@ -74,9 +75,7 @@ export function listProviders(): string[] {
   }
 }
 
-export function isConfigured(settings: Settings): boolean {
-  return !!(settings.apiKey && settings.model && settings.provider)
-}
+export { isConfigured } from './ai-config'
 
 export async function configureRuntimeFromSettings(settings: Settings): Promise<{ ok: boolean; error?: string }> {
   try {

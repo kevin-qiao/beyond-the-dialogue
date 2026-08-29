@@ -1,6 +1,6 @@
 import type { JobContext } from '../job-queue'
 import { getTask, addSuggestion, listSuggestions, loadSettings } from '../db'
-import { runSimplePrompt, isConfigured } from '../agent-runtime'
+import { isConfigured } from '../ai-config'
 
 // My Day suggestion job: a single non-looping LLM call that produces 2-3
 // dismissible suggestion chips based on the task, its list, My Day titles,
@@ -45,7 +45,7 @@ Local time: ${localTime}
 
 Return your answer as a JSON array of 2 to 3 strings. Each string must be a single, specific, helpful suggestion (max ~12 words). Output ONLY the JSON array, nothing else.`
 
-  const raw = await runSimplePrompt(settings, prompt, { reasoning: 'minimal' })
+  const raw = await (await import('../agent-runtime')).runSimplePrompt(settings, prompt, { reasoning: 'minimal' })
   const cleaned = raw.replace(/```(?:json)?/g, '').trim()
   const start = cleaned.indexOf('[')
   const end = cleaned.lastIndexOf(']')
