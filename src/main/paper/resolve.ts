@@ -21,8 +21,7 @@ export type ResolveError =
   | { kind: 'parse'; message: string }
   | { kind: 'unsupported'; message: string }
 
-export function classifyLink(raw: string): { type: 'arxiv' | 'doi' | 'meta' | 'unknown'; id?: string } {
-  const url = raw.trim()
+export function classifyLink(raw: string): { type: 'arxiv' | 'doi' | 'meta' | 'unknown'; id?: string } {  const url = raw.trim()
   if (!url) return { type: 'unknown' }
   // arXiv: arxiv.org/abs/..., arxiv.org/pdf/..., arxiv.org/...., or bare ID
   let m = url.match(/arxiv\.org\/(?:abs|pdf)\/([0-9]{4}\.[0-9]{4,5}(?:v[0-9]+)?)/i)
@@ -69,7 +68,15 @@ async function fetchText(url: string, headers: Record<string, string> = {}): Pro
   return res.text()
 }
 
+let resolverOverride: ((raw: string) => Promise<ResolvedPaper | ResolveError>) | null = null
+
+// Tests inject a scripted resolver to avoid network calls.
+export function setResolverOverride(f: ((raw: string) => Promise<ResolvedPaper | ResolveError>) | null): void {
+  resolverOverride = f
+}
+
 export async function resolvePaper(raw: string): Promise<ResolvedPaper | ResolveError> {
+  if (resolverOverride) return resolverOverride(raw)
   const link = classifyLink(raw)
   try {
     if (link.type === 'arxiv' && link.id) {

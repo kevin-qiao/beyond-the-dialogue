@@ -60,6 +60,6 @@
 
 ## 8. End-to-end validation
 
-- [ ] 8.1 Full flagship scenario test: create paper task with arXiv link → move to My Day → analysis completes → write notes → Finish → wiki ingested (raw + summary page + index + log) with zero visible wiki friction; verify each spec scenario in one run
+- [x] 8.1 Full flagship scenario test: create paper task with arXiv link → move to My Day → analysis completes → write notes → Finish → wiki ingested (raw + summary page + index + log) with zero visible wiki friction; verify each spec scenario in one run
 - [ ] 8.2 Failure-path test run: no API key, invalid link, paywalled paper, provider 429 mid-analysis, agent failure mid-ingest; verify every case degrades per spec and recovers
 - [ ] 8.3 Package distributable builds for the current platform and verify the packaged app (not dev mode) passes the flagship scenario

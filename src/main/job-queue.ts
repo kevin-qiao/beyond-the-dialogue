@@ -102,12 +102,24 @@ export class JobQueue extends EventEmitter {
       updateIngestState(this.db, ingestId, { state: 'done', finishedAt: new Date().toISOString() })
       this.emit('ingest-done', ingestById(this.db, ingestId))
     } catch (e: any) {
-      updateIngestState(this.db, ingestId, {
-        state: 'failed',
-        error: e?.message ?? String(e),
-        finishedAt: new Date().toISOString()
-      })
-      this.emit('ingest-failed', ingestById(this.db, ingestId))
+      const msg = e?.message ?? String(e)
+      const attemptNo = ingestById(this.db, ingestId)?.attempts ?? rec.attempts + 1
+      if (isTransientError(msg) && attemptNo < this.maxAttempts) {
+        // Auto-retry transient ingest failures with backoff (spec 6.7).
+        updateIngestState(this.db, ingestId, { state: 'queued', error: msg })
+        const delay = this.baseRetryMs * Math.pow(2, attemptNo - 1)
+        this.emit('ingest-retried', ingestById(this.db, ingestId))
+        setTimeout(() => {
+          void this.runIngest(ingestId)
+        }, delay)
+      } else {
+        updateIngestState(this.db, ingestId, {
+          state: 'failed',
+          error: msg,
+          finishedAt: new Date().toISOString()
+        })
+        this.emit('ingest-failed', ingestById(this.db, ingestId))
+      }
     } finally {
       this.ingestActive.delete(rec.taskId)
     }

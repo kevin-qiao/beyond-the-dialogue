@@ -75,6 +75,13 @@ export async function runAnalysisJob(ctx: JobContext): Promise<void> {
   if (!task) throw new Error('task not found')
   if (!task.link) throw new Error('task has no link')
 
+  const settings = loadSettingsFor(db)
+  if (!settings.apiKey) {
+    // Fail fast when no key is configured (non-blocking; task ops unaffected).
+    updateTask(db, taskId, { analysisStatus: 'failed', analysisError: 'AI not configured: no API key' })
+    throw new Error('AI not configured: no API key')
+  }
+
   // --- Resolution step ---
   ctx.setStep('Resolving link', 'Resolving paper metadata')
   const resolved = await resolvePaper(task.link)
