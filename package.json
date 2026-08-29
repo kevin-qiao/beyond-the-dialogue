@@ -1,0 +1,50 @@
+{
+  "name": "work-board",
+  "version": "0.1.0",
+  "description": "AI-Native Work Board - a desktop to-do app with embedded agent runtime and personal LLM-WiKi integration",
+  "main": "out/main/index.mjs",
+  "type": "commonjs",
+  "license": "MIT",
+  "author": "monster",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "dist": "electron-vite build && electron-builder",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test dist-test/**/*.test.js",
+    "test:main": "node --test"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.84.4",
+    "@earendil-works/pi-coding-agent": "^0.84.4",
+    "@codemirror/commands": "^6.7.1",
+    "@codemirror/lang-markdown": "^6.3.1",
+    "@codemirror/language": "^6.10.3",
+    "@codemirror/state": "^6.4.1",
+    "@codemirror/view": "^6.34.1",
+    "codemirror": "^6.0.1",
+    "markdown-it": "^14.1.0",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^24.0.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "44.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true,
+    "@google/genai@1.52.0": true,
+    "protobufjs@7.6.5": true,
+    "protobufjs@7.6.6": true
+  }
+}

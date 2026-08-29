@@ -1,0 +1,29 @@
+appId: com.workboard.app
+productName: WorkBoard
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**
+  - package.json
+asarUnpack:
+  - resources/**
+npmRebuild: false
+electronLanguages:
+  - en-US
+win:
+  target:
+    - nsis
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.productivity
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Utility
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
