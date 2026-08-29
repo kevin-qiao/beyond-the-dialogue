@@ -2,11 +2,11 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { JobContext } from '../job-queue'
-import { getTask, getAnalysis, getNotes, loadSettings } from '../db'
+import { getTask, getAnalysis, getNotes, loadSettings, updateIngest } from '../db'
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent'
 import { getRuntime, resolveModel } from '../agent-runtime'
 import { piAgentDir } from '../paths'
-import { depositTask, resolveWikiPath, snapshotWikiFiles } from '../wiki'
+import { depositTask, resolveWikiPath, snapshotWikiFiles, diffTouchedFiles } from '../wiki'
 
 const INGEST_SYSTEM_PROMPT = `You are the maintainer of a personal knowledge wiki. You will ingest a finished paper into the wiki by following the workflow in the CLAUDE.md schema file in your working directory.
 
@@ -34,9 +34,13 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   ctx.setStep('Depositing', 'Copying note + summary into raw/')
   const deposit = depositTask(db, taskId)
   if (deposit.files.length === 0) throw new Error('nothing to ingest: task has no notes or analysis')
+  // Record the deposit files in the ledger (activity view).
+  updateIngest(db, job.id, { depositFiles: deposit.files })
 
   ctx.setStep('Snapshotting', 'Backing up wiki files before changes')
   const touched = snapshotWikiFiles(wikiPath, [])
+  // Record the files we protected with .history snapshots.
+  updateIngest(db, job.id, { touchedFiles: touched })
 
   if (!settings.apiKey || !settings.model) throw new Error('AI not configured: no API key')
 
@@ -87,6 +91,8 @@ Follow the CLAUDE.md workflow. When done, list the files you created or modified
 
   try {
     await session.prompt(prompt, { expandPromptTemplates: false })
+    // Report the files the agent actually created/modified (diff vs snapshot).
+    updateIngest(db, job.id, { touchedFiles: diffTouchedFiles(wikiPath) })
     ctx.setStep('Complete', 'Wiki ingestion complete')
   } finally {
     await session.abort().catch(() => undefined)

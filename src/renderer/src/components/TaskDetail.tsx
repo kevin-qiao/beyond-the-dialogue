@@ -83,7 +83,16 @@ export function TaskDetail({ task }: { task: Task }) {
                 <button className="primary-btn" onClick={() => void resolveMismatch(task.id, 'confirm')}>
                   It's correct
                 </button>
-                <button className="secondary-btn" onClick={() => void updateTask(task.id, { link: window.prompt('Correct link:') ?? task.link! })}>
+                <button
+                  className="secondary-btn"
+                  onClick={() => {
+                    const newLink = window.prompt('Correct link:')
+                    if (newLink) {
+                      void updateTask(task.id, { link: newLink })
+                      void resolveMismatch(task.id, 'correct')
+                    }
+                  }}
+                >
                   Correct link
                 </button>
                 <button className="secondary-btn" onClick={() => setPdfPickerOpen(true)}>

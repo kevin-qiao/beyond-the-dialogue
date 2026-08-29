@@ -165,3 +165,31 @@ function listExistingWikiFiles(wikiPath: string): string[] {
   if (fs.existsSync(path.join(wikiPath, 'log.md'))) out.push('log.md')
   return out
 }
+
+// Diff current wiki files against the most recent .history snapshot to report
+// which files the ingestion actually modified (or newly created).
+export function diffTouchedFiles(wikiPath: string): string[] {
+  const histDir = path.join(wikiPath, '.history')
+  const stamps = fs.existsSync(histDir) ? fs.readdirSync(histDir).sort() : []
+  if (stamps.length === 0) return []
+  const base = path.join(histDir, stamps.at(-1)!)
+  const before = new Map<string, string>()
+  const walk = (dir: string, prefix: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      const rel = prefix ? path.posix.join(prefix, entry.name) : entry.name
+      if (entry.isDirectory()) walk(full, rel)
+      else before.set(rel, fs.readFileSync(full, 'utf-8'))
+    }
+  }
+  if (fs.existsSync(base)) walk(base, '')
+  const touched: string[] = []
+  for (const rel of listExistingWikiFiles(wikiPath)) {
+    const cur = path.join(wikiPath, rel)
+    if (!fs.existsSync(cur)) continue
+    const beforeContent = before.get(rel)
+    const curContent = fs.readFileSync(cur, 'utf-8')
+    if (beforeContent === undefined || beforeContent !== curContent) touched.push(rel)
+  }
+  return touched
+}

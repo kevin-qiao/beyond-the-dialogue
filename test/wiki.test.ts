@@ -4,7 +4,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { classifyLink } from '../src/main/paper/resolve'
-import { ensureWikiDir, resolveWikiPath, depositTask, snapshotWikiFiles } from '../src/main/wiki'
+import { ensureWikiDir, resolveWikiPath, depositTask, snapshotWikiFiles, diffTouchedFiles } from '../src/main/wiki'
 import { openDB, migrate, createList, createTask, saveAnalysis, saveNotes, listLists, listIngest, saveSettings } from '../src/main/db'
 import { setUserDataRoot } from '../src/main/paths'
 
@@ -90,4 +90,18 @@ test('resolveWikiPath defaults to documents location when unset', () => {
   const p = resolveWikiPath('')
   assert.ok(p.endsWith('WorkBoard-Wiki'))
   assert.equal(resolveWikiPath('/custom/w'), '/custom/w')
+})
+
+test('6.8 diffTouchedFiles reports modified and new files since last snapshot', () => {
+  const dir = tmpdir()
+  ensureWikiDir(dir)
+  fs.mkdirSync(path.join(dir, 'wiki', 'sources'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'index.md'), 'OLD INDEX')
+  snapshotWikiFiles(dir, ['index.md'])
+  // agent modifies index.md and creates a new page
+  fs.writeFileSync(path.join(dir, 'index.md'), 'NEW INDEX')
+  fs.writeFileSync(path.join(dir, 'wiki', 'sources', 'new-paper.md'), '# New paper summary')
+  const touched = diffTouchedFiles(dir)
+  assert.ok(touched.includes('index.md'), `index.md touched, got ${touched}`)
+  assert.ok(touched.includes('wiki/sources/new-paper.md'), `new page touched, got ${touched}`)
 })

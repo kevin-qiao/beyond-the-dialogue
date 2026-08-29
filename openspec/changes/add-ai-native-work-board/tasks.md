@@ -22,13 +22,13 @@
 
 ## 4. AI runtime (spec: ai-runtime)
 
-- [ ] 4.1 Implement shared Pi `ModelRuntime` with app-private auth paths and runtime API keys from settings; verify configured provider/model is used by a test prompt
-- [ ] 4.2 Implement job queue (SQLite-backed, states queued/running/done/failed, max 2 concurrent, restart re-queue of interrupted jobs); verify with simulated jobs
-- [ ] 4.3 Implement per-job isolated in-memory agent sessions with per-job system prompt and tool curation; verify two concurrent jobs share no context
-- [ ] 4.4 Implement auto-retry with backoff for transient provider errors; verify via mocked provider errors
-- [ ] 4.5 Implement no-key graceful degradation (non-blocking "AI not configured" indicator, task ops unaffected); verify app fully usable with no key
-- [ ] 4.6 Implement progress event forwarding (session events → IPC → task-row step label) and failure containment with retry affordance; verify per-task progress during a real analysis
-- [ ] 4.7 Implement My Day suggestion job (single prompt, no loop, context = task + list + My Day titles + local time; 2–3 dismissible chips; never mutates task); verify chips appear, dismiss, and task unchanged
+- [x] 4.1 Implement shared Pi `ModelRuntime` with app-private auth paths and runtime API keys from settings; verify configured provider/model is used by a test prompt
+- [x] 4.2 Implement job queue (SQLite-backed, states queued/running/done/failed, max 2 concurrent, restart re-queue of interrupted jobs); verify with simulated jobs
+- [x] 4.3 Implement per-job isolated in-memory agent sessions with per-job system prompt and tool curation; verify two concurrent jobs share no context
+- [x] 4.4 Implement auto-retry with backoff for transient provider errors; verify via mocked provider errors
+- [x] 4.5 Implement no-key graceful degradation (non-blocking "AI not configured" indicator, task ops unaffected); verify app fully usable with no key
+- [x] 4.6 Implement progress event forwarding (session events → IPC → task-row step label) and failure containment with retry affordance; verify per-task progress during a real analysis
+- [x] 4.7 Implement My Day suggestion job (single prompt, no loop, context = task + list + My Day titles + local time; 2–3 dismissible chips; never mutates task); verify chips appear, dismiss, and task unchanged
 
 ## 5. Paper-reading enrichment (spec: paper-reading)
 
