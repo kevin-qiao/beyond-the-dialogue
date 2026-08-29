@@ -1,10 +1,7 @@
-import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { DatabaseSync } from 'node:sqlite'
 import type { JobContext } from '../job-queue'
 import { getTask, getAnalysis, getNotes, loadSettings, updateIngest } from '../db'
-import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent'
-import { getRuntime, resolveModel } from '../agent-runtime'
+import { createJobSession } from '../session-factory'
 import { piAgentDir } from '../paths'
 import { depositTask, resolveWikiPath, snapshotWikiFiles, diffTouchedFiles } from '../wiki'
 
@@ -45,31 +42,12 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   if (!settings.apiKey || !settings.model) throw new Error('AI not configured: no API key')
 
   ctx.setStep('Ingesting', 'Agent is writing wiki pages')
-  const runtime = await getRuntime()
-  const model = resolveModel(settings.provider, settings.model)
-  if (!model) throw new Error(`no model available for provider ${settings.provider}`)
-
-  const loader = new DefaultResourceLoader({
+  const session = await createJobSession({
+    settings,
     cwd: wikiPath,
-    agentDir: piAgentDir(),
-    noContextFiles: false,
-    noExtensions: true,
-    noSkills: true,
-    noPromptTemplates: true,
-    noThemes: true,
-    systemPrompt: INGEST_SYSTEM_PROMPT
-  })
-
-  const { session } = await createAgentSession({
-    cwd: wikiPath,
-    modelRuntime: runtime,
-    model,
+    systemPrompt: INGEST_SYSTEM_PROMPT,
     thinkingLevel: 'medium',
-    resourceLoader: loader,
-    sessionManager: SessionManager.inMemory(wikiPath),
-    settingsManager: SettingsManager.create(wikiPath, piAgentDir()),
-    tools: ['read', 'write', 'edit', 'grep', 'find', 'ls'],
-    noTools: 'builtin'
+    tools: ['read', 'write', 'edit', 'grep', 'find', 'ls']
   })
 
   const note = getNotes(db, taskId)

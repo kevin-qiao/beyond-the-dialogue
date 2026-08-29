@@ -45,18 +45,18 @@
 
 ## 6. Wiki ingestion (spec: wiki-ingest)
 
-- [ ] 6.1 Implement wiki path setting with default location and validation; verify custom path is honored
-- [ ] 6.2 Implement wiki scaffolding (raw/, wiki/, index.md, log.md, app-authored CLAUDE.md schema) on first use; verify fresh scaffold and that existing structures are never overwritten
-- [ ] 6.3 Implement deposit step (note + summary + PDF → raw/ with queue entry) executed synchronously before agent runs; verify deposit survives simulated agent failure
-- [ ] 6.4 Implement `.history/<timestamp>/` snapshot of files about to be modified; verify prior contents are recoverable after an ingest
-- [ ] 6.5 Implement ingestion agent (cwd=wiki, read/write/edit/grep/find/ls only, no shell): source summary page, index update, related-page updates, log entry, following CLAUDE.md conventions; verify full ingest on a finished paper and confinement (no writes outside wiki dir)
-- [ ] 6.6 Implement Finish action (complete task, hand off to ingestion, immediate confirmation, empty-note warning); verify both scenarios per spec
-- [ ] 6.7 Implement failure handling (auto-retry, activity-view retry affordance, task unaffected); verify retry succeeds after fixing cause
-- [ ] 6.8 Implement activity view (ingest history: task, timestamp, touched files); verify entries appear for past ingestions
+- [x] 6.1 Implement wiki path setting with default location and validation; verify custom path is honored
+- [x] 6.2 Implement wiki scaffolding (raw/, wiki/, index.md, log.md, app-authored CLAUDE.md schema) on first use; verify fresh scaffold and that existing structures are never overwritten
+- [x] 6.3 Implement deposit step (note + summary + PDF → raw/ with queue entry) executed synchronously before agent runs; verify deposit survives simulated agent failure
+- [x] 6.4 Implement `.history/<timestamp>/` snapshot of files about to be modified; verify prior contents are recoverable after an ingest
+- [x] 6.5 Implement ingestion agent (cwd=wiki, read/write/edit/grep/find/ls only, no shell): source summary page, index update, related-page updates, log entry, following CLAUDE.md conventions; verify full ingest on a finished paper and confinement (no writes outside wiki dir)
+- [x] 6.6 Implement Finish action (complete task, hand off to ingestion, immediate confirmation, empty-note warning); verify both scenarios per spec
+- [x] 6.7 Implement failure handling (auto-retry, activity-view retry affordance, task unaffected); verify retry succeeds after fixing cause
+- [x] 6.8 Implement activity view (ingest history: task, timestamp, touched files); verify entries appear for past ingestions
 
 ## 7. Settings UI
 
-- [ ] 7.1 Implement settings screen (provider picker, model id, API key, wiki path) wired to settings store and ModelRuntime; verify a saved config is used by the next AI job and credentials stay in userData
+- [x] 7.1 Implement settings screen (provider picker, model id, API key, wiki path) wired to settings store and ModelRuntime; verify a saved config is used by the next AI job and credentials stay in userData
 
 ## 8. End-to-end validation
 

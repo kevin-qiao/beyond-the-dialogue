@@ -5,10 +5,7 @@ import type { ReadingSuggestion } from '../../shared/types'
 import { extractTextFromPdf, fetchPdf } from '../paper/pdf'
 import { resolvePaper } from '../paper/resolve'
 import { pdfPathFor, jobWorkspaceFor } from '../vault'
-import { createAgentSession, defineTool } from '@earendil-works/pi-coding-agent'
-import { DefaultResourceLoader, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent'
-import { getRuntime, resolveModel } from '../agent-runtime'
-import { piAgentDir } from '../paths'
+import { createJobSession } from '../session-factory'
 import { Type } from 'typebox'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -186,37 +183,19 @@ async function runAnalysisAgent(
 ): Promise<AnalysisAgentOutput> {
   const { db, job } = ctx
   const settings = loadSettingsFor(db)
-  const runtime = await getRuntime()
-  const model = resolveModel(settings.provider, settings.model)
-  if (!model) throw new Error(`no model available for provider ${settings.provider}`)
-  if (!settings.apiKey) throw new Error('AI not configured: no API key')
-
-  const loader = new DefaultResourceLoader({
-    cwd: process.cwd(),
-    agentDir: piAgentDir(),
-    noContextFiles: true,
-    noExtensions: true,
-    noSkills: true,
-    noPromptTemplates: true,
-    noThemes: true,
-    systemPrompt: SYSTEM_PROMPT
-  })
 
   const taskId = job.taskId ?? ''
   const workspace = jobWorkspaceFor(taskId)
   const tools = [fetchUrlTool(), extractPdfTool(taskId, level)]
 
-  const { session } = await createAgentSession({
+  const session = await createJobSession({
+    settings,
     cwd: workspace,
-    modelRuntime: runtime,
-    model,
+    systemPrompt: SYSTEM_PROMPT,
     thinkingLevel: 'medium',
-    resourceLoader: loader,
-    sessionManager: SessionManager.inMemory(workspace),
-    settingsManager: SettingsManager.create(workspace, piAgentDir()),
     tools: tools.map((t) => t.name),
     customTools: tools,
-    noTools: 'builtin'
+    noContextFiles: true
   })
 
   const prompt = `Analyze the paper "${title}". Analysis level available: ${level.toUpperCase()} (${level === 'full' ? 'full text' : 'abstract only'}).
@@ -234,7 +213,7 @@ ${paperText.slice(0, 800_000)}`
 
   try {
     await session.prompt(prompt, { expandPromptTemplates: false })
-    const messages = session.messages as any[]
+    const messages = session.messages
     const last = [...messages].reverse().find((m: any) => m.role === 'assistant' && m.content?.length)
     const text = extractAssistantText(last)
     if (!text) throw new Error('analysis agent produced no output')
@@ -262,44 +241,42 @@ function loadSettingsFor(db: DatabaseSync) {
 
 // ---- Custom agent tools ----
 
-const fetchUrlTool = () =>
-  defineTool({
-    name: 'fetch_url',
-    label: 'Fetch URL',
-    description: 'Fetch the text content of a URL and return it. Use for checking an external page.',
-    parameters: Type.Object({
-      url: Type.String({ description: 'The URL to fetch' })
-    }),
-    async execute(_toolCallId, params) {
-      try {
-        const res = await fetch(params.url, { headers: { 'User-Agent': 'WorkBoard/0.1' } })
-        if (!res.ok) return { content: [{ type: 'text', text: `HTTP ${res.status}` }], details: {} }
-        const text = await res.text()
-        return { content: [{ type: 'text', text: text.slice(0, 20_000) }], details: {} }
-      } catch (e: any) {
-        return { content: [{ type: 'text', text: `error: ${e?.message ?? e}` }], details: {} }
-      }
+const fetchUrlTool = () => ({
+  name: 'fetch_url',
+  label: 'Fetch URL',
+  description: 'Fetch the text content of a URL and return it. Use for checking an external page.',
+  parameters: Type.Object({
+    url: Type.String({ description: 'The URL to fetch' })
+  }),
+  async execute(_toolCallId: string, params: any) {
+    try {
+      const res = await fetch(params.url, { headers: { 'User-Agent': 'WorkBoard/0.1' } })
+      if (!res.ok) return { content: [{ type: 'text', text: `HTTP ${res.status}` }], details: {} }
+      const text = await res.text()
+      return { content: [{ type: 'text', text: text.slice(0, 20_000) }], details: {} }
+    } catch (e: any) {
+      return { content: [{ type: 'text', text: `error: ${e?.message ?? e}` }], details: {} }
     }
-  })
+  }
+})
 
-const extractPdfTool = (taskId: string, level: string) =>
-  defineTool({
-    name: 'extract_pdf_text',
-    label: 'Extract PDF text',
-    description:
-      "Extract the full text of the current task's paper PDF. Use when you need the full text that was not included inline.",
-    parameters: Type.Object({}),
-    async execute() {
-      if (level !== 'full') {
-        return {
-          content: [{ type: 'text', text: 'No full-text PDF is available for this paper; analysis is abstract-only.' }],
-          details: {}
-        }
+const extractPdfTool = (taskId: string, level: string) => ({
+  name: 'extract_pdf_text',
+  label: 'Extract PDF text',
+  description:
+    "Extract the full text of the current task's paper PDF. Use when you need the full text that was not included inline.",
+  parameters: Type.Object({}),
+  async execute() {
+    if (level !== 'full') {
+      return {
+        content: [{ type: 'text', text: 'No full-text PDF is available for this paper; analysis is abstract-only.' }],
+        details: {}
       }
-      const pdfPath = pdfPathFor(taskId)
-      if (!fs.existsSync(pdfPath)) return { content: [{ type: 'text', text: 'PDF not downloaded yet.' }], details: {} }
-      const ext = await extractTextFromPdf(pdfPath)
-      if (ext.scanned) return { content: [{ type: 'text', text: 'PDF is scanned; no extractable text.' }], details: {} }
-      return { content: [{ type: 'text', text: ext.text.slice(0, 300_000) }], details: {} }
     }
-  })
+    const pdfPath = pdfPathFor(taskId)
+    if (!fs.existsSync(pdfPath)) return { content: [{ type: 'text', text: 'PDF not downloaded yet.' }], details: {} }
+    const ext = await extractTextFromPdf(pdfPath)
+    if (ext.scanned) return { content: [{ type: 'text', text: 'PDF is scanned; no extractable text.' }], details: {} }
+    return { content: [{ type: 'text', text: ext.text.slice(0, 300_000) }], details: {} }
+  }
+})
