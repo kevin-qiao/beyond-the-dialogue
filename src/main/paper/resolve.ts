@@ -1,4 +1,8 @@
 import type { AnalysisLevel } from '../../shared/types'
+// classifyLink lives in src/shared/link.ts so the renderer's quick capture
+// can detect paper links without importing main code; re-exported here for
+// paper resolution and existing tests.
+import { classifyLink } from '../../shared/link'
 
 // Link resolution for paper-reading tasks. arXiv links get full metadata via
 // the arXiv API; DOI/Crossref and citation_* meta tags are fallbacks. The
@@ -21,24 +25,7 @@ export type ResolveError =
   | { kind: 'parse'; message: string }
   | { kind: 'unsupported'; message: string }
 
-export function classifyLink(raw: string): { type: 'arxiv' | 'doi' | 'meta' | 'unknown'; id?: string } {  const url = raw.trim()
-  if (!url) return { type: 'unknown' }
-  // arXiv: arxiv.org/abs/..., arxiv.org/pdf/..., arxiv.org/...., or bare ID
-  let m = url.match(/arxiv\.org\/(?:abs|pdf)\/([0-9]{4}\.[0-9]{4,5}(?:v[0-9]+)?)/i)
-  if (m) return { type: 'arxiv', id: m[1] }
-  m = url.match(/arxiv\.org\/abs\/([0-9]{4}\.[0-9]{4,5}(?:v[0-9]+)?)/i)
-  if (m) return { type: 'arxiv', id: m[1] }
-  m = url.match(/^([0-9]{4}\.[0-9]{4,5}(?:v[0-9]+)?)$/)
-  if (m) return { type: 'arxiv', id: m[1] }
-  // DOI
-  m = url.match(/doi\.org\/(10\.\d{4,9}\/[-._;()/:A-Z0-9]+)/i)
-  if (m) return { type: 'doi', id: m[1] }
-  m = url.match(/^10\.\d{4,9}\/[-._;()/:A-Z0-9]+$/i)
-  if (m) return { type: 'doi', id: url }
-  // Any http(s) URL -> try citation meta tags
-  if (/^https?:\/\//i.test(url)) return { type: 'meta', id: url }
-  return { type: 'unknown' }
-}
+export { classifyLink, isPaperLink, type LinkClassification, type LinkType } from '../../shared/link'
 
 function parseXml(xml: string): Record<string, string> {
   const out: Record<string, string> = {}

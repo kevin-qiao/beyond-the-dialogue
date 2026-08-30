@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { RendererApi, JobProgressEvent } from '../shared/ipc'
-import type { List, PaperAnalysis, Suggestion, Task } from '../shared/types'
+import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload } from '../shared/ipc'
+import type { IngestRecord, List, PaperAnalysis, Suggestion, Task } from '../shared/types'
 
 const api: RendererApi = {
   getSnapshot: () => ipcRenderer.invoke(IPC.getSnapshot),
@@ -23,6 +23,8 @@ const api: RendererApi = {
   retryJob: (args) => ipcRenderer.invoke(IPC.retryJob, args),
   getSettings: () => ipcRenderer.invoke(IPC.getSettings),
   saveSettings: (args) => ipcRenderer.invoke(IPC.saveSettings, args),
+  listModels: (provider) => ipcRenderer.invoke(IPC.listModels, provider),
+  testConnection: (settings) => ipcRenderer.invoke(IPC.testConnection, settings),
   dismissSuggestion: (args) => ipcRenderer.invoke(IPC.dismissSuggestion, args),
   getActivity: () => ipcRenderer.invoke(IPC.getActivity),
   retryIngest: (args) => ipcRenderer.invoke(IPC.retryIngest, args),
@@ -52,9 +54,19 @@ const api: RendererApi = {
     return () => ipcRenderer.removeListener(IPC.evSuggestionsUpdated, h)
   },
   onToast: (cb) => {
-    const h = (_e: unknown, data: { message: string }) => cb(data.message)
+    const h = (_e: unknown, data: ToastPayload) => cb(data)
     ipcRenderer.on(IPC.evToast, h)
     return () => ipcRenderer.removeListener(IPC.evToast, h)
+  },
+  onIngestUpdated: (cb) => {
+    const h = (_e: unknown, rec: IngestRecord) => cb(rec)
+    ipcRenderer.on(IPC.evIngestUpdated, h)
+    return () => ipcRenderer.removeListener(IPC.evIngestUpdated, h)
+  },
+  onIngestProgress: (cb) => {
+    const h = (_e: unknown, e: IngestProgressEvent) => cb(e)
+    ipcRenderer.on(IPC.evIngestProgress, h)
+    return () => ipcRenderer.removeListener(IPC.evIngestProgress, h)
   }
 }
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as fs from 'node:fs'
@@ -24,7 +24,8 @@ import { JobQueue } from './job-queue'
 import { runAnalysisJob } from './jobs/analysis'
 import { runSuggestionJob } from './jobs/suggestions'
 import { runIngestJob } from './jobs/ingest'
-import { configureRuntimeFromSettings, isConfigured } from './agent-runtime'
+import { configureRuntimeFromSettings, isConfigured, listModelsForProvider, testPrompt } from './agent-runtime'
+import { shouldAutoAnalyze, shouldSuggestOnMyDayAdd } from './triggers'
 import { getAnalysis, getNotes, listIngest, listSuggestions, listAllSuggestions, getTask, saveNotes, dismissSuggestion, getJob, updateTask } from './db'
 import { notePathFor } from './vault'
 import { IPC } from '../shared/ipc'
@@ -100,10 +101,14 @@ function wireJobEvents(q: JobQueue): void {
     }
   })
   q.on('ingest-done', (rec) => {
-    broadcast('ev:ingest-updated', rec)
+    broadcast(IPC.evIngestUpdated, rec)
+    broadcast(IPC.evToast, { message: `Ingested '${rec.taskTitle}' into wiki`, view: 'activity' })
   })
   q.on('ingest-failed', (rec) => {
-    broadcast('ev:ingest-updated', rec)
+    broadcast(IPC.evIngestUpdated, rec)
+  })
+  q.on('ingest-progress', (ev) => {
+    broadcast(IPC.evIngestProgress, ev)
   })
 }
 
@@ -128,6 +133,11 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.createTask, (_e, args) => {
     const task = serviceCreateTask(d(), args)
+    // Analysis auto-starts for paper tasks created with a link (spec
+    // analysis-lifecycle); never enqueued when AI is not configured.
+    if (shouldAutoAnalyze(task, loadSettings(d()))) {
+      queue!.enqueue('analysis', task.id)
+    }
     broadcast(IPC.evTaskUpdated, task)
     return task
   })
@@ -154,20 +164,9 @@ function registerIpc(): void {
     const before = getTask(d(), args.id)
     const task = serviceSetMyDay(d(), args.id, args.inMyDay)
     broadcast(IPC.evTaskUpdated, task)
-    // Analysis triggers on add to My Day (spec 5.6). Never re-analyze a task
-    // already analyzed (ready/abstract_only); a failed analysis may retry.
-    if (args.inMyDay && task.type === 'paper_reading' && !task.link) {
-      // nothing to analyze
-    } else if (
-      args.inMyDay &&
-      task.type === 'paper_reading' &&
-      task.analysisStatus !== 'ready' &&
-      task.analysisStatus !== 'abstract_only'
-    ) {
-      queue!.enqueue('analysis', task.id)
-    }
-    // Suggestions fire when the task is newly added (not on repeat adds).
-    if (args.inMyDay && before && !before.inMyDay) {
+    // My Day is planning-only (spec analysis-lifecycle): it never triggers
+    // analysis. Suggestion chips are a My Day feature and fire on first add.
+    if (shouldSuggestOnMyDayAdd(before, args.inMyDay)) {
       queue!.enqueue('suggestion', task.id)
     }
     return task
@@ -221,7 +220,7 @@ function registerIpc(): void {
     // Enqueue ingestion job (deposit-first happens inside the job).
     queue!.enqueueIngest(args.id, task.title, [])
     broadcast(IPC.evTaskUpdated, task)
-    broadcast(IPC.evToast, { message: 'Task finished — wiki ingestion started in the background' })
+    broadcast(IPC.evToast, { message: 'Task finished — wiki ingestion started', view: 'activity' })
     return task
   })
   ipcMain.handle(IPC.choosePdf, async () => {
@@ -245,12 +244,15 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.getSettings, () => loadSettings(d()))
   ipcMain.handle(IPC.saveSettings, async (_e, args: { settings: Settings }) => {
-    const s = args.settings
+    // Configuring an API key counts as completing first-run setup.
+    const s = args.settings.apiKey ? { ...args.settings, showWelcome: false } : args.settings
     saveSettings(d(), s)
     await configureRuntimeFromSettings(s)
     broadcast('ev:settings-updated', s)
     return loadSettings(d())
   })
+  ipcMain.handle(IPC.listModels, (_e, provider: string) => listModelsForProvider(provider))
+  ipcMain.handle(IPC.testConnection, async (_e, settings: Settings) => testPrompt(settings, 'Reply with exactly: OK'))
   ipcMain.handle(IPC.dismissSuggestion, (_e, args) => {
     const s = dismissSuggestion(d(), args.suggestionId)
     broadcast(IPC.evSuggestionsUpdated, listSuggestions(d(), s.taskId))
@@ -283,6 +285,9 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  // The UI is fully custom — no default menu bar (File/Edit/View/Window).
+  Menu.setApplicationMenu(null)
+
   const d = openDB(app.getPath('userData'))
   db = d
   migrate(d.db)

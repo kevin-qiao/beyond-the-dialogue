@@ -16,10 +16,6 @@ export function NewTaskForm({ listId, onClose }: { listId: string; onClose: () =
       setError('Title is required.')
       return
     }
-    if (type === 'paper_reading' && !link.trim()) {
-      setError('Paper-reading tasks require a link (arXiv, DOI, or publisher URL).')
-      return
-    }
     const t = await createTask({
       listId: list,
       title: title.trim(),
@@ -66,7 +62,7 @@ export function NewTaskForm({ listId, onClose }: { listId: string; onClose: () =
         </label>
         {type === 'paper_reading' && (
           <label>
-            Paper link <span className="muted">(arXiv / DOI / publisher URL)</span>
+            Paper link <span className="muted">(optional — attach a local PDF instead)</span>
             <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://arxiv.org/abs/…" />
           </label>
         )}

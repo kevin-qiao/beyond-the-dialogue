@@ -118,7 +118,7 @@ test('3.5 persistence across restart (reopen DB file)', () => {
 
 test('2.2 settings persist and stay in DB', () => {
   const { db } = freshDB()
-  saveSettings(db.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test', wikiPath: '/tmp/wiki', defaultListId: null, maxConcurrentJobs: 2 })
+  saveSettings(db.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test', wikiPath: '/tmp/wiki', defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
   const s = loadSettings(db.db)
   assert.equal(s.provider, 'openai')
   assert.equal(s.model, 'gpt-4o')

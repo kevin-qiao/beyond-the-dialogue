@@ -45,7 +45,7 @@ test('6.3 deposit writes note + summary into raw/', () => {
   setUserDataRoot(dir)
   const conn = openDB(dir)
   migrate(conn.db)
-  saveSettings(conn.db, { provider: 'openai', model: '', apiKey: null, wikiPath, defaultListId: null, maxConcurrentJobs: 2 })
+  saveSettings(conn.db, { provider: 'openai', model: '', apiKey: null, wikiPath, defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
   const l = listLists(conn.db)[0]!
   const t = createTask(conn.db, { listId: l.id, title: 'p', type: 'paper_reading' })
   saveNotes(conn.db, { taskId: t.id, notePath: path.join(dir, 'note.md'), content: '# my note' })

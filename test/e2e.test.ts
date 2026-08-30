@@ -107,7 +107,7 @@ test('8.1 flagship scenario: arXiv paper -> My Day -> analysis -> notes -> Finis
     apiKey: 'sk-scripted',
     wikiPath,
     defaultListId: null,
-    maxConcurrentJobs: 2
+    maxConcurrentJobs: 2, showWelcome: false
   })
   ensureVault()
 
@@ -121,15 +121,15 @@ test('8.1 flagship scenario: arXiv paper -> My Day -> analysis -> notes -> Finis
   })
   assert.equal(paper.type, 'paper_reading')
 
-  // 2. Move to My Day -> analysis + suggestion jobs start.
+  // 2. New trigger model (spec analysis-lifecycle): the createTask IPC handler
+  // enqueues analysis for paper tasks created with a link; the setMyDay
+  // handler only enqueues suggestions on first add. Simulate both paths.
   const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
   q.register('analysis', runAnalysisJob)
   q.register('suggestion', runSuggestionJob)
   q.register('ingest', runIngestJob)
-  serviceSetMyDay(conn.db, paper.id, true)
-
-  // The setMyDay IPC handler triggers the jobs; simulate that trigger here.
   const analysisJob = q.enqueue('analysis', paper.id)
+  serviceSetMyDay(conn.db, paper.id, true)
   q.enqueue('suggestion', paper.id)
   await waitForJob(conn.db, analysisJob.id, 'analysis')
 

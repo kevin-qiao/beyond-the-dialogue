@@ -1,4 +1,4 @@
-import './styles.css'
+// Ambient declarations only — never put runtime imports (CSS, JS) in a
+// .d.ts file; declaration files are type-only and bundlers ignore them.
 
-// Renderer entry: set up the window.api type reference and bootstrap React.
 export {}

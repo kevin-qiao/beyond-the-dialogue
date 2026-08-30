@@ -24,6 +24,8 @@ export const IPC = {
   retryJob: 'jobs:retry',
   getSettings: 'settings:get',
   saveSettings: 'settings:save',
+  listModels: 'ai:list-models',
+  testConnection: 'ai:test-connection',
   dismissSuggestion: 'suggestions:dismiss',
   getActivity: 'wiki:activity',
   retryIngest: 'wiki:retry-ingest',
@@ -34,7 +36,9 @@ export const IPC = {
   evAnalysisUpdated: 'ev:analysis-updated',
   evSuggestionsUpdated: 'ev:suggestions-updated',
   evSnapshot: 'ev:snapshot',
-  evToast: 'ev:toast'
+  evToast: 'ev:toast',
+  evIngestUpdated: 'ev:ingest-updated',
+  evIngestProgress: 'ev:ingest-progress'
 } as const
 
 export interface JobProgressEvent {
@@ -44,6 +48,17 @@ export interface JobProgressEvent {
   state: string
   stepLabel: string | null
   error: string | null
+}
+
+export interface IngestProgressEvent {
+  ingestId: string
+  taskId: string | null
+  stepLabel: string | null
+}
+
+export interface ToastPayload {
+  message: string
+  view?: 'activity'
 }
 
 export interface CreateListArgs {
@@ -100,6 +115,8 @@ export interface RendererApi {
   retryJob: (args: { jobId: string }) => Promise<void>
   getSettings: () => Promise<Settings>
   saveSettings: (args: SaveSettingsArgs) => Promise<Settings>
+  listModels: (provider: string) => Promise<string[]>
+  testConnection: (settings: Settings) => Promise<{ ok: boolean; text?: string; error?: string }>
   dismissSuggestion: (args: { suggestionId: string }) => Promise<Suggestion>
   getActivity: () => Promise<import('./types').IngestRecord[]>
   retryIngest: (args: { ingestId: string }) => Promise<void>
@@ -109,5 +126,7 @@ export interface RendererApi {
   onJobProgress: (cb: (e: JobProgressEvent) => void) => () => void
   onAnalysisUpdated: (cb: (a: PaperAnalysis) => void) => () => void
   onSuggestionsUpdated: (cb: (s: Suggestion[]) => void) => () => void
-  onToast: (cb: (message: string) => void) => () => void
+  onToast: (cb: (t: ToastPayload) => void) => () => void
+  onIngestUpdated: (cb: (rec: import('./types').IngestRecord) => void) => () => void
+  onIngestProgress: (cb: (e: IngestProgressEvent) => void) => () => void
 }

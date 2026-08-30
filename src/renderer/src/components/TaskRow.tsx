@@ -8,13 +8,23 @@ interface Props {
 }
 
 export function TaskRow({ task, jobStep, onSelect }: Props) {
-  const { toggleTask, setMyDay, selectTask } = useApp()
+  const { toggleTask, setMyDay, selectTask, requestReanalysis, notify } = useApp()
   const { snapshot } = useApp()
   const analysis = snapshot?.analyses[task.id]
   const suggestions = snapshot?.suggestions.filter((s) => s.taskId === task.id && !s.dismissed) ?? []
 
+  // Explicit analyze action, decoupled from My Day (spec analysis-lifecycle):
+  // shown on paper tasks that are not currently running a job.
+  const analyzeAction = () => {
+    if (!snapshot?.aiConfigured) {
+      notify('AI not configured — open Settings to enable analysis')
+      return
+    }
+    void requestReanalysis(task.id)
+  }
+
   const statusBadge = () => {
-    if (jobStep) return <span className="badge running">{jobStep.stepLabel ?? 'working…'}</span>
+    if (jobStep) return <span className="badge running">working…</span>
     if (task.type === 'paper_reading') {
       if (task.analysisStatus === 'ready') return <span className="badge ok">analyzed</span>
       if (task.analysisStatus === 'abstract_only') return <span className="badge warn">abstract-only</span>
@@ -54,11 +64,39 @@ export function TaskRow({ task, jobStep, onSelect }: Props) {
             ))}
           </div>
         )}
-        {analysis && <div className="task-tldr">{analysis.tldr}</div>}
+        {jobStep ? (
+          <div className="task-step">{jobStep.stepLabel ?? 'working…'}</div>
+        ) : (
+          analysis && <div className="task-tldr">{analysis.tldr}</div>
+        )}
       </div>
       <div className="task-meta">
         {statusBadge()}
-        {task.type === 'paper_reading' && <span className="badge type">paper</span>}
+        {task.type === 'paper_reading' && !jobStep && (task.analysisStatus === 'none' || task.analysisStatus === 'failed') && (
+          <button
+            className="mini-btn"
+            onClick={(e) => {
+              e.stopPropagation()
+              analyzeAction()
+            }}
+            title={snapshot?.aiConfigured ? 'Start analysis' : 'AI not configured'}
+          >
+            {task.analysisStatus === 'failed' ? 'Retry' : 'Analyze'}
+          </button>
+        )}
+        {task.type === 'paper_reading' && !jobStep && (task.analysisStatus === 'ready' || task.analysisStatus === 'abstract_only') && (
+          <button
+            className="mini-btn"
+            onClick={(e) => {
+              e.stopPropagation()
+              analyzeAction()
+            }}
+            title="Re-run analysis"
+          >
+            Re-analyze
+          </button>
+        )}
+        {task.type === 'paper_reading' && <span className="badge type">📄 paper</span>}
         <button
           className={`day-toggle ${task.inMyDay ? 'in' : ''}`}
           onClick={(e) => {

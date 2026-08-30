@@ -65,6 +65,7 @@ export interface Settings {
   wikiPath: string
   defaultListId: string | null
   maxConcurrentJobs: number
+  showWelcome: boolean
 }
 
 // ---- Jobs ----

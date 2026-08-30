@@ -1,12 +1,22 @@
 import { useState } from 'react'
 import { useApp } from '../store'
+import { useDialog } from './Dialog'
 
 export function Sidebar({ onNewTask }: { onNewTask: () => void }) {
-  const { snapshot, activeView, setActiveView, selectList, selectedListId, createList, renameList, deleteList, refresh } = useApp()
+  const { snapshot, activeView, setActiveView, selectList, selectedListId, createList, renameList, deleteList, liveJobs, activity, ingestSteps } =
+    useApp()
   const [newListName, setNewListName] = useState('')
   const [editing, setEditing] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const [adding, setAdding] = useState(false)
+  const { confirm, dialog } = useDialog()
+
+  // Agent presence line (spec agent-presence): idle / working (with live
+  // step) / queued count; clicking opens Activity.
+  const jobs = Object.values(liveJobs)
+  const runningJob = jobs.find((j) => j.state === 'running')
+  const runningIngest = (activity ?? []).find((r) => r.state === 'running')
+  const queuedCount = jobs.filter((j) => j.state === 'queued').length + (activity ?? []).filter((r) => r.state === 'queued').length
 
   const lists = snapshot?.lists ?? []
 
@@ -27,7 +37,14 @@ export function Sidebar({ onNewTask }: { onNewTask: () => void }) {
   }
 
   const handleDelete = async (id: string) => {
-    if (confirm('Delete this list and all its tasks?')) {
+    const list = lists.find((l) => l.id === id)
+    const ok = await confirm({
+      title: 'Delete list',
+      message: `Delete "${list?.name ?? 'this list'}" and all its tasks? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (ok) {
       await deleteList(id)
       if (selectedListId === id) selectList(null)
     }
@@ -36,9 +53,8 @@ export function Sidebar({ onNewTask }: { onNewTask: () => void }) {
   return (
     <nav className="sidebar">
       <div className="sidebar-head">
-        <span className="app-name">Work Board</span>
-        <button className="icon-btn" title="New task" onClick={onNewTask}>
-          +
+        <button className="new-task-btn" onClick={onNewTask}>
+          ＋ New task
         </button>
       </div>
 
@@ -123,17 +139,21 @@ export function Sidebar({ onNewTask }: { onNewTask: () => void }) {
         <button className={`nav-item ${activeView === 'settings' ? 'active' : ''}`} onClick={() => setActiveView('settings')}>
           Settings
         </button>
-        <div className="ai-status">
-          {snapshot?.aiConfigured ? (
-            <span className="ai-on">AI ready</span>
+        <div className="ai-status" onClick={() => setActiveView('activity')} title="Agent status — open Activity">
+          {runningJob ? (
+            <span className="ai-working">○ {runningJob.stepLabel ?? 'working…'}</span>
+          ) : runningIngest ? (
+            <span className="ai-working">○ {ingestSteps[runningIngest.id] ?? 'ingesting…'}</span>
+          ) : queuedCount > 0 ? (
+            <span className="ai-queued">○ {queuedCount} job{queuedCount > 1 ? 's' : ''} queued</span>
+          ) : snapshot?.aiConfigured ? (
+            <span className="ai-on">● AI ready — agent idle</span>
           ) : (
-            <span className="ai-off">AI not configured</span>
+            <span className="ai-off">● AI not configured</span>
           )}
         </div>
-        <button className="mini-btn" onClick={() => void refresh()}>
-          ↻
-        </button>
       </div>
+      {dialog}
     </nav>
   )
 }

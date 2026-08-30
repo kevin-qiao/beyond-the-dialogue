@@ -2,20 +2,66 @@ import { useEffect, useRef, useState } from 'react'
 import type { Task } from '../../../shared/types'
 import { useApp } from '../store'
 import { NotesEditor } from './NotesEditor'
+import { useDialog } from './Dialog'
 
 export function TaskDetail({ task }: { task: Task }) {
-  const { snapshot, toggleTask, setMyDay, deleteTask, updateTask, saveNote, requestReanalysis, attachPdf, resolveMismatch } =
+  const { snapshot, toggleTask, setMyDay, deleteTask, updateTask, saveNote, requestReanalysis, attachPdf, resolveMismatch, notify } =
     useApp()
   const analysis = snapshot?.analyses[task.id]
   const notes = snapshot?.notes[task.id]
   const [pdfPickerOpen, setPdfPickerOpen] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.title)
+  const { confirm, prompt, dialog } = useDialog()
+
+  const handleDeleteClick = async () => {
+    const ok = await confirm({
+      title: 'Delete task',
+      message: `Delete "${task.title}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (ok) void deleteTask(task.id)
+  }
+
+  const handleFinishClick = async () => {
+    const hasNote = (notes?.content ?? '').trim().length > 0
+    if (!hasNote) {
+      const ok = await confirm({
+        title: 'Finish without notes?',
+        message: 'Your reading note is empty. Nothing will be ingested to your wiki if you finish now.',
+        confirmLabel: 'Finish anyway',
+        danger: true
+      })
+      if (!ok) return
+    }
+    void handleFinish()
+  }
+
+  const handleCorrectLink = async () => {
+    const newLink = await prompt({
+      title: 'Correct link',
+      message: 'Enter the correct paper link (arXiv / DOI / publisher URL):',
+      placeholder: 'https://arxiv.org/abs/…'
+    })
+    if (newLink) {
+      void updateTask(task.id, { link: newLink })
+      void resolveMismatch(task.id, 'correct')
+    }
+  }
 
   const isPaper = task.type === 'paper_reading'
 
   const handleFinish = async () => {
     await window.api.finishTask({ id: task.id })
+  }
+
+  const runAnalysis = () => {
+    if (!snapshot?.aiConfigured) {
+      notify('AI not configured — open Settings to enable analysis')
+      return
+    }
+    void requestReanalysis(task.id)
   }
 
   const attachPdfFromFile = async () => {
@@ -51,12 +97,7 @@ export function TaskDetail({ task }: { task: Task }) {
           <button className="secondary-btn" onClick={() => void toggleTask(task.id)}>
             {task.completed ? 'Reopen' : 'Complete'}
           </button>
-          <button
-            className="danger-btn"
-            onClick={() => {
-              if (confirm('Delete this task?')) void deleteTask(task.id)
-            }}
-          >
+          <button className="danger-btn" onClick={() => void handleDeleteClick()}>
             Delete
           </button>
         </div>
@@ -83,16 +124,7 @@ export function TaskDetail({ task }: { task: Task }) {
                 <button className="primary-btn" onClick={() => void resolveMismatch(task.id, 'confirm')}>
                   It's correct
                 </button>
-                <button
-                  className="secondary-btn"
-                  onClick={() => {
-                    const newLink = window.prompt('Correct link:')
-                    if (newLink) {
-                      void updateTask(task.id, { link: newLink })
-                      void resolveMismatch(task.id, 'correct')
-                    }
-                  }}
-                >
+                <button className="secondary-btn" onClick={() => void handleCorrectLink()}>
                   Correct link
                 </button>
                 <button className="secondary-btn" onClick={() => setPdfPickerOpen(true)}>
@@ -110,7 +142,7 @@ export function TaskDetail({ task }: { task: Task }) {
                   <span className="badge running">running…</span>
                 ) : (
                   <>
-                    <button className="mini-btn" onClick={() => void requestReanalysis(task.id)}>
+                    <button className="mini-btn" onClick={runAnalysis}>
                       Re-analyze
                     </button>
                     <button className="mini-btn" onClick={() => setPdfPickerOpen(true)}>
@@ -123,7 +155,7 @@ export function TaskDetail({ task }: { task: Task }) {
             {task.analysisStatus === 'failed' && (
               <div className="warning-box">
                 <p>Analysis failed: {task.analysisError ?? 'unknown error'}</p>
-                <button className="primary-btn" onClick={() => void requestReanalysis(task.id)}>
+                <button className="primary-btn" onClick={runAnalysis}>
                   Retry
                 </button>
               </div>
@@ -190,16 +222,7 @@ export function TaskDetail({ task }: { task: Task }) {
 
           {!task.completed && (
             <div className="finish-row">
-              <button
-                className="finish-btn"
-                onClick={() => {
-                  const hasNote = (notes?.content ?? '').trim().length > 0
-                  if (!hasNote && !confirm('Your reading note is empty. Finish anyway? Nothing will be ingested to your wiki.')) {
-                    return
-                  }
-                  void handleFinish()
-                }}
-              >
+              <button className="finish-btn" onClick={() => void handleFinishClick()}>
                 Finish → ingest to wiki
               </button>
             </div>
@@ -235,6 +258,7 @@ export function TaskDetail({ task }: { task: Task }) {
           </div>
         </div>
       )}
+      {dialog}
     </div>
   )
 }

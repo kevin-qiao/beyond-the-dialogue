@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import type { JobProgressEvent, ToastPayload } from '../../shared/ipc'
 import type { AppSnapshot, IngestRecord, List, PaperAnalysis, Settings, Suggestion, Task } from '../../shared/types'
 
 interface AppState {
@@ -8,6 +9,8 @@ interface AppState {
   selectedTaskId: string | null
   selectedListId: string | null
   jobSteps: Record<string, { stepLabel: string | null; state: string }>
+  query: string
+  detailCollapsed: boolean
 }
 
 export type View = 'my-day' | 'list' | 'activity' | 'settings'
@@ -17,8 +20,14 @@ interface AppContextValue extends AppState {
   selectList: (listId: string | null) => void
   selectTask: (taskId: string | null) => void
   refresh: () => Promise<void>
-  toast: string | null
+  toast: ToastPayload | null
+  notify: (message: string, view?: 'activity') => void
   dismissToast: () => void
+  liveJobs: JobProgressEvent[]
+  ingestSteps: Record<string, string | null>
+  setQuery: (q: string) => void
+  searchTasks: (tasks: Task[]) => Task[]
+  toggleDetailCollapsed: (collapsed?: boolean) => void
   createList: (name: string) => Promise<List>
   renameList: (id: string, name: string) => Promise<List>
   deleteList: (id: string) => Promise<void>
@@ -51,6 +60,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [selectedListId, setSelectedListId] = useState<string | null>(null)
   const [jobSteps, setJobSteps] = useState<Record<string, { stepLabel: string | null; state: string }>>({})
   const [toast, setToast] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [detailCollapsed, setDetailCollapsed] = useState(false)
+  const [liveJobs, setLiveJobs] = useState<Record<string, JobProgressEvent>>({})
+  const [ingestSteps, setIngestSteps] = useState<Record<string, string | null>>({})
   const snapshotRef = useRef<AppSnapshot | null>(null)
 
   useEffect(() => {
@@ -90,7 +103,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSelectedTaskId(null)
   }, [])
 
-  const selectTask = useCallback((taskId: string | null) => setSelectedTaskId(taskId), [])
+  const selectTask = useCallback(
+    (taskId: string | null) => {
+      setSelectedTaskId(taskId)
+      // Selecting a task reopens a collapsed detail panel.
+      if (taskId) setDetailCollapsed(false)
+    },
+    []
+  )
 
   useEffect(() => {
     void refresh()
@@ -109,6 +129,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const offJob = window.api.onJobProgress((e) => {
       const key = e.taskId ?? e.jobId
       setJobSteps((prev) => ({ ...prev, [key]: { stepLabel: e.stepLabel, state: e.state } }))
+      setLiveJobs((prev) => ({ ...prev, [e.jobId]: e }))
       if (e.state === 'done' || e.state === 'failed') {
         setJobSteps((prev) => {
           const next = { ...prev }
@@ -129,9 +150,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { ...prev, suggestions: s }
       })
     })
-    const offToast = window.api.onToast((message) => {
-      setToast(message)
+    const offToast = window.api.onToast((t) => {
+      setToast({ message: t.message, view: t.view })
       setTimeout(() => setToast(null), 4000)
+    })
+    const offIngest = window.api.onIngestUpdated((rec) => {
+      setSnapshot((prev) => {
+        if (!prev) return prev
+        const exists = prev.ingestHistory.some((x) => x.id === rec.id)
+        return {
+          ...prev,
+          ingestHistory: exists ? prev.ingestHistory.map((x) => (x.id === rec.id ? rec : x)) : [rec, ...prev.ingestHistory]
+        }
+      })
+    })
+    const offIngestProgress = window.api.onIngestProgress((e) => {
+      setIngestSteps((prev) => ({ ...prev, [e.ingestId]: e.stepLabel }))
     })
     return () => {
       offTask()
@@ -140,6 +174,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       offAnalysis()
       offSug()
       offToast()
+      offIngest()
+      offIngestProgress()
     }
   }, [mutateTask, refresh])
 
@@ -153,7 +189,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       selectedListId,
       jobSteps,
       toast,
+      notify: (message, view) => {
+        setToast({ message, view })
+        setTimeout(() => setToast(null), 4000)
+      },
       dismissToast: () => setToast(null),
+      liveJobs: Object.values(liveJobs).sort((a, b) => a.jobId.localeCompare(b.jobId)),
+      ingestSteps,
       setActiveView,
       selectList,
       selectTask,
@@ -229,7 +271,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       taskById: (id) => snap?.tasks.find((t) => t.id === id),
       tasksForList: (listId) => (snap?.tasks ?? []).filter((t) => t.listId === listId),
       myDayTasks: (snap?.tasks ?? []).filter((t) => t.inMyDay),
-      activity: snap?.ingestHistory ?? []
+      activity: snap?.ingestHistory ?? [],
+      query,
+      setQuery,
+      searchTasks: (tasks) => {
+        const q = query.trim().toLowerCase()
+        if (!q) return tasks
+        return tasks.filter((t) => {
+          const a = snap?.analyses[t.id]
+          return (
+            t.title.toLowerCase().includes(q) ||
+            (t.paperTitle ?? '').toLowerCase().includes(q) ||
+            t.notes.toLowerCase().includes(q) ||
+            (a?.tldr ?? '').toLowerCase().includes(q)
+          )
+        })
+      },
+      toggleDetailCollapsed: (collapsed) => setDetailCollapsed((c) => collapsed ?? !c)
     }
   }, [
     snapshot,
@@ -239,6 +297,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     selectedListId,
     jobSteps,
     toast,
+    liveJobs,
+    ingestSteps,
+    query,
+    detailCollapsed,
     setActiveView,
     selectList,
     selectTask,

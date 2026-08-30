@@ -56,7 +56,7 @@ test('8.2a no API key: analysis fails fast, task marked failed, no corruption', 
 
 test('8.2b invalid link: analysis fails with human-readable reason, retry affordance', async () => {
   const { conn } = fresh()
-  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath: '', defaultListId: null, maxConcurrentJobs: 2 })
+  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath: '', defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
   setResolverOverride(async () => ({ kind: 'unsupported', message: 'Unsupported link. Provide an arXiv link, a DOI, or a publisher URL.' }))
   const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
   q.register('analysis', runAnalysisJob)
@@ -75,7 +75,7 @@ test('8.2b invalid link: analysis fails with human-readable reason, retry afford
 
 test('8.2c paywalled link (no open PDF) degrades to abstract-only analysis', async () => {
   const { conn } = fresh()
-  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath: '', defaultListId: null, maxConcurrentJobs: 2 })
+  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath: '', defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
   // Scripted session producing a normal analysis.
   setSessionFactory(async (_o: CreateJobSessionOptions) => ({
     subscribe: () => () => {},
@@ -118,7 +118,7 @@ test('8.2c paywalled link (no open PDF) degrades to abstract-only analysis', asy
 
 test('8.2d provider 429 mid-analysis: auto-retry with backoff then success', async () => {
   const { conn } = fresh()
-  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath: '', defaultListId: null, maxConcurrentJobs: 2 })
+  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath: '', defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
   setResolverOverride(async () => ({ ...GOOD_RESOLVE, level: 'abstract', pdfUrl: null }))
   let calls = 0
   setSessionFactory(async (_o: CreateJobSessionOptions) => {
@@ -163,7 +163,7 @@ test('8.2d provider 429 mid-analysis: auto-retry with backoff then success', asy
 test('8.2e agent failure mid-ingest: deposit survives, task complete, retry succeeds', async () => {
   const { conn, dir } = fresh()
   const wikiPath = path.join(dir, 'wiki-space')
-  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath, defaultListId: null, maxConcurrentJobs: 2 })
+  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath, defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
   ensureVault()
   const list = serviceCreateList(conn.db, 'L')
   const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'paper_reading' })
@@ -208,7 +208,7 @@ test('8.2e agent failure mid-ingest: deposit survives, task complete, retry succ
 test('8.2f permanent ingest failure: surfaced failed, deposit intact', async () => {
   const { conn, dir } = fresh()
   const wikiPath = path.join(dir, 'wiki-space')
-  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath, defaultListId: null, maxConcurrentJobs: 2 })
+  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath, defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
   ensureVault()
   const list = serviceCreateList(conn.db, 'L')
   const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'paper_reading' })

@@ -240,7 +240,8 @@ const DEFAULT_SETTINGS: Settings = {
   apiKey: null,
   wikiPath: '',
   defaultListId: null,
-  maxConcurrentJobs: 2
+  maxConcurrentJobs: 2,
+  showWelcome: true
 }
 
 export function loadSettings(db: DatabaseSync): Settings {
@@ -254,6 +255,7 @@ export function loadSettings(db: DatabaseSync): Settings {
     else if (r.key === 'wikiPath') out.wikiPath = r.value
     else if (r.key === 'defaultListId') out.defaultListId = r.value || null
     else if (r.key === 'maxConcurrentJobs') out.maxConcurrentJobs = parseInt(r.value, 10) || 2
+    else if (r.key === 'showWelcome') out.showWelcome = r.value !== '0'
   }
   return out
 }
@@ -266,6 +268,7 @@ export function saveSettings(db: DatabaseSync, s: Settings): void {
   upsert.run('wikiPath', s.wikiPath)
   upsert.run('defaultListId', s.defaultListId ?? '')
   upsert.run('maxConcurrentJobs', String(s.maxConcurrentJobs))
+  upsert.run('showWelcome', s.showWelcome ? '1' : '0')
 }
 
 // ---- Lists ----
