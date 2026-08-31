@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useApp } from '../store'
 import type { Settings } from '../../../shared/types'
 
-const PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
+const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
 
 export function SettingsView() {
   const { snapshot, saveSettings } = useApp()
@@ -11,6 +11,15 @@ export function SettingsView() {
   const [models, setModels] = useState<string[]>([])
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; text?: string; error?: string } | null>(null)
+  const [providers, setProviders] = useState<string[]>(FALLBACK_PROVIDERS)
+
+  // Provider list comes from the pi catalog (38+ providers); fall back to a
+  // curated subset if the catalog is unavailable.
+  useEffect(() => {
+    void window.api.listProviders().then((ps) => {
+      if (ps.length > 0) setProviders(ps)
+    })
+  }, [])
 
   // Model dropdown (spec first-run): populated from the provider's model
   // registry; free-text entry stays available as a fallback.
@@ -57,7 +66,7 @@ export function SettingsView() {
         <label>
           Provider
           <select value={draft.provider} onChange={(e) => update({ provider: e.target.value })}>
-            {PROVIDERS.map((p) => (
+            {providers.map((p) => (
               <option key={p} value={p}>
                 {p}
               </option>

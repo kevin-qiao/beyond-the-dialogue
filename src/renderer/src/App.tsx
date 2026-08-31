@@ -8,6 +8,7 @@ import { SettingsView } from './components/SettingsView'
 import { TaskDetail } from './components/TaskDetail'
 import { NewTaskForm } from './components/NewTaskForm'
 import { WelcomeView } from './components/WelcomeView'
+import { ChatView } from './components/ChatView'
 
 export function App() {
   const {
@@ -89,6 +90,7 @@ export function App() {
               {activeView === 'my-day' && <MyDayView />}
               {activeView === 'list' && <ListView onNewTask={() => setShowNewTask(true)} />}
               {activeView === 'activity' && <ActivityView />}
+              {activeView === 'chat' && <ChatView />}
             </>
           )}
           {showNewTask && (

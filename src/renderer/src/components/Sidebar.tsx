@@ -136,6 +136,9 @@ export function Sidebar({ onNewTask }: { onNewTask: () => void }) {
         <button className={`nav-item ${activeView === 'activity' ? 'active' : ''}`} onClick={() => setActiveView('activity')}>
           Activity
         </button>
+        <button className={`nav-item ${activeView === 'chat' ? 'active' : ''}`} onClick={() => setActiveView('chat')}>
+          💬 Chat
+        </button>
         <button className={`nav-item ${activeView === 'settings' ? 'active' : ''}`} onClick={() => setActiveView('settings')}>
           Settings
         </button>

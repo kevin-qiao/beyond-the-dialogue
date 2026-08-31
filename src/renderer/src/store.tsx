@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { JobProgressEvent, ToastPayload } from '../../shared/ipc'
-import type { AppSnapshot, IngestRecord, List, PaperAnalysis, Settings, Suggestion, Task } from '../../shared/types'
+import type { AppSnapshot, ChatMessage, IngestRecord, List, PaperAnalysis, Settings, Suggestion, Task } from '../../shared/types'
 
 interface AppState {
   snapshot: AppSnapshot | null
@@ -13,7 +13,7 @@ interface AppState {
   detailCollapsed: boolean
 }
 
-export type View = 'my-day' | 'list' | 'activity' | 'settings'
+export type View = 'my-day' | 'list' | 'activity' | 'settings' | 'chat'
 
 interface AppContextValue extends AppState {
   setActiveView: (v: View) => void
@@ -25,6 +25,12 @@ interface AppContextValue extends AppState {
   dismissToast: () => void
   liveJobs: JobProgressEvent[]
   ingestSteps: Record<string, string | null>
+  chatMessages: ChatMessage[]
+  chatStreaming: string | null
+  chatRunning: boolean
+  chatError: string | null
+  sendChat: (text: string) => Promise<void>
+  resetChat: () => Promise<void>
   setQuery: (q: string) => void
   searchTasks: (tasks: Task[]) => Task[]
   toggleDetailCollapsed: (collapsed?: boolean) => void
@@ -64,6 +70,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [detailCollapsed, setDetailCollapsed] = useState(false)
   const [liveJobs, setLiveJobs] = useState<Record<string, JobProgressEvent>>({})
   const [ingestSteps, setIngestSteps] = useState<Record<string, string | null>>({})
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatStreaming, setChatStreaming] = useState<string | null>(null)
+  const [chatRunning, setChatRunning] = useState(false)
+  const [chatError, setChatError] = useState<string | null>(null)
   const snapshotRef = useRef<AppSnapshot | null>(null)
 
   useEffect(() => {
@@ -167,6 +177,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const offIngestProgress = window.api.onIngestProgress((e) => {
       setIngestSteps((prev) => ({ ...prev, [e.ingestId]: e.stepLabel }))
     })
+    const offChatDelta = window.api.onChatDelta((e) => {
+      setChatStreaming((prev) => (prev ?? '') + e.delta)
+    })
+    const offChatDone = window.api.onChatDone((e) => {
+      setChatMessages((prev) => [...prev, { role: 'assistant', content: e.text }])
+      setChatStreaming(null)
+      setChatRunning(false)
+    })
+    const offChatError = window.api.onChatError((e) => {
+      setChatStreaming(null)
+      setChatRunning(false)
+      setChatError(e.error)
+    })
     return () => {
       offTask()
       offList()
@@ -176,6 +199,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       offToast()
       offIngest()
       offIngestProgress()
+      offChatDelta()
+      offChatDone()
+      offChatError()
     }
   }, [mutateTask, refresh])
 
@@ -196,6 +222,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dismissToast: () => setToast(null),
       liveJobs: Object.values(liveJobs).sort((a, b) => a.jobId.localeCompare(b.jobId)),
       ingestSteps,
+      chatMessages,
+      chatStreaming,
+      chatRunning,
+      chatError,
+      sendChat: async (text) => {
+        setChatError(null)
+        setChatMessages((prev) => [...prev, { role: 'user', content: text }])
+        setChatRunning(true)
+        await window.api.sendChat(text)
+      },
+      resetChat: async () => {
+        await window.api.resetChat()
+        setChatMessages([])
+        setChatStreaming(null)
+        setChatRunning(false)
+        setChatError(null)
+      },
       setActiveView,
       selectList,
       selectTask,
@@ -299,6 +342,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast,
     liveJobs,
     ingestSteps,
+    chatMessages,
+    chatStreaming,
+    chatRunning,
+    chatError,
     query,
     detailCollapsed,
     setActiveView,

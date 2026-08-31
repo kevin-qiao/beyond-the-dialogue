@@ -792,6 +792,82 @@ button {
   padding: 10px;
 }
 
+/* Debug chat */
+.chat-view {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 120px);
+  max-width: 680px;
+}
+
+.chat-sub {
+  margin-bottom: 12px;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 12px;
+  min-height: 0;
+}
+
+.chat-msg {
+  max-width: 85%;
+  padding: 9px 13px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-msg.user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-msg.assistant {
+  align-self: flex-start;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+
+.chat-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 2px;
+  background: var(--accent);
+  vertical-align: -2px;
+  animation: chat-blink 1s steps(2) infinite;
+}
+
+@keyframes chat-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.chat-error {
+  margin: 4px 0;
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.chat-input-row .search-input {
+  flex: 1;
+}
+
 /* First-run welcome */
 .welcome-title {
   font-size: 24px;

@@ -24,7 +24,8 @@ import { JobQueue } from './job-queue'
 import { runAnalysisJob } from './jobs/analysis'
 import { runSuggestionJob } from './jobs/suggestions'
 import { runIngestJob } from './jobs/ingest'
-import { configureRuntimeFromSettings, isConfigured, listModelsForProvider, testPrompt } from './agent-runtime'
+import { configureRuntimeFromSettings, isConfigured, listModelsForProvider, listProviders, testPrompt } from './agent-runtime'
+import { ChatSession } from './chat'
 import { shouldAutoAnalyze, shouldSuggestOnMyDayAdd } from './triggers'
 import { getAnalysis, getNotes, listIngest, listSuggestions, listAllSuggestions, getTask, saveNotes, dismissSuggestion, getJob, updateTask } from './db'
 import { notePathFor } from './vault'
@@ -34,6 +35,8 @@ import type { AppSnapshot, Settings } from '../shared/types'
 let mainWindow: BrowserWindow | null = null
 let db: DB | null = null
 let queue: JobQueue | null = null
+// Debug chat: one in-memory conversation against the configured model.
+const chatSession = new ChatSession()
 
 function buildSnapshot(): AppSnapshot {
   const d = db!.db
@@ -252,7 +255,20 @@ function registerIpc(): void {
     return loadSettings(d())
   })
   ipcMain.handle(IPC.listModels, (_e, provider: string) => listModelsForProvider(provider))
+  ipcMain.handle(IPC.listProviders, () => listProviders())
   ipcMain.handle(IPC.testConnection, async (_e, settings: Settings) => testPrompt(settings, 'Reply with exactly: OK'))
+  ipcMain.handle(IPC.sendChat, async (_e, text: string) => {
+    const settings = loadSettings(d())
+    try {
+      const reply = await chatSession.send(text, settings, (delta) => broadcast(IPC.evChatDelta, { delta }))
+      broadcast(IPC.evChatDone, { text: reply })
+    } catch (e: any) {
+      broadcast(IPC.evChatError, { error: e?.message ?? String(e) })
+    }
+  })
+  ipcMain.handle(IPC.resetChat, () => {
+    chatSession.reset()
+  })
   ipcMain.handle(IPC.dismissSuggestion, (_e, args) => {
     const s = dismissSuggestion(d(), args.suggestionId)
     broadcast(IPC.evSuggestionsUpdated, listSuggestions(d(), s.taskId))

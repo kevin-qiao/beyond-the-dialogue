@@ -3,7 +3,7 @@ import { useApp } from '../store'
 import type { Settings } from '../../../shared/types'
 
 const SAMPLE_PAPER_URL = 'https://arxiv.org/abs/2301.00001'
-const PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
+const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
 
 // One-time first-run welcome (spec first-run): explains the three-step flow,
 // hosts the AI config card, and offers a sample paper to try immediately.
@@ -14,6 +14,13 @@ export function WelcomeView() {
   const [models, setModels] = useState<string[]>([])
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; text?: string; error?: string } | null>(null)
+  const [providers, setProviders] = useState<string[]>(FALLBACK_PROVIDERS)
+
+  useEffect(() => {
+    void window.api.listProviders().then((ps) => {
+      if (ps.length > 0) setProviders(ps)
+    })
+  }, [])
 
   useEffect(() => {
     if (draft) void window.api.listModels(draft.provider).then(setModels)
@@ -77,7 +84,7 @@ export function WelcomeView() {
         <label>
           Provider
           <select value={draft.provider} onChange={(e) => update({ provider: e.target.value })}>
-            {PROVIDERS.map((p) => (
+            {providers.map((p) => (
               <option key={p} value={p}>
                 {p}
               </option>

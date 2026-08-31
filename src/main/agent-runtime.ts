@@ -1,8 +1,8 @@
 import { ModelRuntime, type CreateModelRuntimeOptions } from '@earendil-works/pi-coding-agent'
 import type { Model } from '@earendil-works/pi-ai/compat'
-import { getModel, getModels } from '@earendil-works/pi-ai/compat'
+import { getModel, getModels, getProviders } from '@earendil-works/pi-ai/compat'
 import type { ThinkingLevel } from '@earendil-works/pi-ai'
-import type { Settings } from '../shared/types'
+import type { ChatMessage, Settings } from '../shared/types'
 import { piAgentDir, piAuthPath, piModelsPath } from './paths'
 import * as fs from 'node:fs'
 import { isConfigured } from './ai-config'
@@ -68,11 +68,18 @@ export async function listModelsForProvider(provider: string): Promise<string[]>
 }
 
 export function listProviders(): string[] {
+  // The bundled pi catalog ships dozens of providers (see pi.dev/docs/latest/
+  // providers); expose them dynamically with a conservative fallback.
   try {
-    return getModels(undefined as any).length > 0 ? ['openai', 'anthropic', 'google', 'xai'] : ['openai', 'anthropic', 'google', 'xai']
+    const ps = getProviders() as unknown[]
+    const ids = ps
+      .map((p: any) => (typeof p === 'string' ? p : p?.id))
+      .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+    if (ids.length > 0) return ids
   } catch {
-    return ['openai', 'anthropic', 'google', 'xai']
+    // fall through
   }
+  return ['openai', 'anthropic', 'google', 'xai']
 }
 
 export { isConfigured } from './ai-config'
@@ -116,6 +123,36 @@ export async function runSimplePrompt(
   await configureRuntimeFromSettings(settings)
   const res = await r.completeSimple(model, { messages: [{ role: 'user', content: prompt, timestamp: Date.now() }] }, { reasoning: opts.reasoning ?? 'low' })
   return res.content
+    .filter((c: any) => c.type === 'text')
+    .map((c: any) => c.text)
+    .join('')
+}
+
+// Debug chat (connection check): a streaming multi-turn conversation against
+// the configured model. History is supplied by the caller (ChatSession in
+// chat.ts); deltas are pushed to onDelta as tokens arrive.
+export async function streamChat(
+  settings: Settings,
+  history: ChatMessage[],
+  onDelta: (delta: string) => void
+): Promise<string> {
+  const r = await getRuntime()
+  const model = resolveModel(settings.provider, settings.model)
+  if (!model) throw new Error(`no model available for provider ${settings.provider}`)
+  await configureRuntimeFromSettings(settings)
+  const messages = history.map((m) => ({ role: m.role, content: m.content, timestamp: Date.now() }))
+  const stream = r.streamSimple(model, { messages }, { reasoning: 'low' })
+  let text = ''
+  for await (const ev of stream) {
+    if (ev.type === 'text_delta') {
+      text += ev.delta
+      onDelta(ev.delta)
+    }
+  }
+  if (text) return text
+  // Providers that emit no deltas: fall back to the final message content.
+  const result = await stream.result()
+  return result.content
     .filter((c: any) => c.type === 'text')
     .map((c: any) => c.text)
     .join('')

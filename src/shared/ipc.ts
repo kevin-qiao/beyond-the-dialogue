@@ -25,7 +25,10 @@ export const IPC = {
   getSettings: 'settings:get',
   saveSettings: 'settings:save',
   listModels: 'ai:list-models',
+  listProviders: 'ai:list-providers',
   testConnection: 'ai:test-connection',
+  sendChat: 'chat:send',
+  resetChat: 'chat:reset',
   dismissSuggestion: 'suggestions:dismiss',
   getActivity: 'wiki:activity',
   retryIngest: 'wiki:retry-ingest',
@@ -38,7 +41,10 @@ export const IPC = {
   evSnapshot: 'ev:snapshot',
   evToast: 'ev:toast',
   evIngestUpdated: 'ev:ingest-updated',
-  evIngestProgress: 'ev:ingest-progress'
+  evIngestProgress: 'ev:ingest-progress',
+  evChatDelta: 'ev:chat-delta',
+  evChatDone: 'ev:chat-done',
+  evChatError: 'ev:chat-error'
 } as const
 
 export interface JobProgressEvent {
@@ -59,6 +65,18 @@ export interface IngestProgressEvent {
 export interface ToastPayload {
   message: string
   view?: 'activity'
+}
+
+export interface ChatDeltaEvent {
+  delta: string
+}
+
+export interface ChatDoneEvent {
+  text: string
+}
+
+export interface ChatErrorEvent {
+  error: string
 }
 
 export interface CreateListArgs {
@@ -116,7 +134,10 @@ export interface RendererApi {
   getSettings: () => Promise<Settings>
   saveSettings: (args: SaveSettingsArgs) => Promise<Settings>
   listModels: (provider: string) => Promise<string[]>
+  listProviders: () => Promise<string[]>
   testConnection: (settings: Settings) => Promise<{ ok: boolean; text?: string; error?: string }>
+  sendChat: (text: string) => Promise<void>
+  resetChat: () => Promise<void>
   dismissSuggestion: (args: { suggestionId: string }) => Promise<Suggestion>
   getActivity: () => Promise<import('./types').IngestRecord[]>
   retryIngest: (args: { ingestId: string }) => Promise<void>
@@ -129,4 +150,7 @@ export interface RendererApi {
   onToast: (cb: (t: ToastPayload) => void) => () => void
   onIngestUpdated: (cb: (rec: import('./types').IngestRecord) => void) => () => void
   onIngestProgress: (cb: (e: IngestProgressEvent) => void) => () => void
+  onChatDelta: (cb: (e: ChatDeltaEvent) => void) => () => void
+  onChatDone: (cb: (e: ChatDoneEvent) => void) => () => void
+  onChatError: (cb: (e: ChatErrorEvent) => void) => () => void
 }

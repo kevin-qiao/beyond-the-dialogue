@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload } from '../shared/ipc'
+import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent } from '../shared/ipc'
 import type { IngestRecord, List, PaperAnalysis, Suggestion, Task } from '../shared/types'
 
 const api: RendererApi = {
@@ -24,7 +24,10 @@ const api: RendererApi = {
   getSettings: () => ipcRenderer.invoke(IPC.getSettings),
   saveSettings: (args) => ipcRenderer.invoke(IPC.saveSettings, args),
   listModels: (provider) => ipcRenderer.invoke(IPC.listModels, provider),
+  listProviders: () => ipcRenderer.invoke(IPC.listProviders),
   testConnection: (settings) => ipcRenderer.invoke(IPC.testConnection, settings),
+  sendChat: (text) => ipcRenderer.invoke(IPC.sendChat, text),
+  resetChat: () => ipcRenderer.invoke(IPC.resetChat),
   dismissSuggestion: (args) => ipcRenderer.invoke(IPC.dismissSuggestion, args),
   getActivity: () => ipcRenderer.invoke(IPC.getActivity),
   retryIngest: (args) => ipcRenderer.invoke(IPC.retryIngest, args),
@@ -67,6 +70,21 @@ const api: RendererApi = {
     const h = (_e: unknown, e: IngestProgressEvent) => cb(e)
     ipcRenderer.on(IPC.evIngestProgress, h)
     return () => ipcRenderer.removeListener(IPC.evIngestProgress, h)
+  },
+  onChatDelta: (cb) => {
+    const h = (_e: unknown, e: ChatDeltaEvent) => cb(e)
+    ipcRenderer.on(IPC.evChatDelta, h)
+    return () => ipcRenderer.removeListener(IPC.evChatDelta, h)
+  },
+  onChatDone: (cb) => {
+    const h = (_e: unknown, e: ChatDoneEvent) => cb(e)
+    ipcRenderer.on(IPC.evChatDone, h)
+    return () => ipcRenderer.removeListener(IPC.evChatDone, h)
+  },
+  onChatError: (cb) => {
+    const h = (_e: unknown, e: ChatErrorEvent) => cb(e)
+    ipcRenderer.on(IPC.evChatError, h)
+    return () => ipcRenderer.removeListener(IPC.evChatError, h)
   }
 }
 

@@ -136,6 +136,13 @@ export interface IngestRecord {
   finishedAt: string | null
 }
 
+// ---- Debug chat ----
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 // ---- Views ----
 
 export interface MyDayTask extends Task {
