@@ -98,6 +98,12 @@ function wireJobEvents(q: JobQueue): void {
     }
   })
   q.on('failed', (job) => {
+    if (job.kind === 'analysis' && job.taskId) {
+      // Unstick the task: a failed job must leave analysisStatus 'failed'
+      // (with the reason) so the row/detail show Retry instead of a forever
+      // "analyzing…" state.
+      updateTask(d(), job.taskId, { analysisStatus: 'failed', analysisError: job.error ?? 'analysis failed' })
+    }
     if (job.taskId) {
       const t = getTask(d(), job.taskId)
       if (t) broadcast(IPC.evTaskUpdated, t)
@@ -233,6 +239,10 @@ function registerIpc(): void {
     })
     if (res.canceled || res.filePaths.length === 0) return null
     return res.filePaths[0]
+  })
+  ipcMain.handle(IPC.cancelJob, (_e, args) => {
+    queue!.cancel(args.jobId)
+    return undefined
   })
   ipcMain.handle(IPC.retryJob, (_e, args) => {
     const job = getJob(d(), args.jobId)

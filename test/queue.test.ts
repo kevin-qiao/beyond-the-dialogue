@@ -113,3 +113,70 @@ test('4.7 suggestion and analysis job kinds dispatch correctly', async () => {
   assert.deepEqual(kinds.sort(), ['analysis', 'suggestion'])
   db.close()
 })
+
+test('6.4 cancel: running job is failed with "cancelled by user" and onCancel fires', async () => {
+  const { db } = freshDB()
+  const q = new JobQueue(db.db, 2, { baseRetryMs: 5 })
+  let release!: () => void
+  let onCancelFired = false
+  const gate = new Promise<void>((r) => (release = r))
+  q.register('analysis', async (ctx) => {
+    ctx.onCancel(() => {
+      onCancelFired = true
+    })
+    await gate
+  })
+  const job = q.enqueue('analysis', null)
+  await sleep(30) // let it start running
+  q.cancel(job.id)
+  release()
+  await sleep(80)
+  const done = getJob(db.db, job.id)!
+  assert.equal(done.state, 'failed')
+  assert.equal(done.error, 'cancelled by user')
+  assert.equal(onCancelFired, true)
+  db.close()
+})
+
+test('6.4 cancel: queued job is failed in place and never runs', async () => {
+  const { db } = freshDB()
+  const q = new JobQueue(db.db, 1, { baseRetryMs: 5 })
+  let runs = 0
+  let release!: () => void
+  const gate = new Promise<void>((r) => (release = r))
+  q.register('analysis', async () => {
+    runs++
+    await gate
+  })
+  const first = q.enqueue('analysis', null)
+  const second = q.enqueue('analysis', null)
+  await sleep(30)
+  q.cancel(second.id)
+  release()
+  await sleep(80)
+  assert.equal(runs, 1, 'cancelled job never started')
+  assert.equal(getJob(db.db, second.id)!.state, 'failed')
+  assert.equal(getJob(db.db, second.id)!.error, 'cancelled by user')
+  assert.equal(getJob(db.db, first.id)!.state, 'done')
+  db.close()
+})
+
+test('6.4 cancel: cancelled jobs do not auto-retry', async () => {
+  const { db } = freshDB()
+  const q = new JobQueue(db.db, 2, { baseRetryMs: 5, maxAttempts: 3 })
+  let attempts = 0
+  q.register('analysis', async () => {
+    attempts++
+    await new Promise((r) => setTimeout(r, 400))
+    throw new Error('boom')
+  })
+  const job = q.enqueue('analysis', null)
+  await sleep(40) // job is running now
+  q.cancel(job.id)
+  await sleep(600)
+  assert.equal(attempts, 1, 'no auto-retry after cancel')
+  const done = getJob(db.db, job.id)!
+  assert.equal(done.state, 'failed')
+  assert.equal(done.error, 'cancelled by user')
+  db.close()
+})

@@ -47,6 +47,7 @@ interface AppContextValue extends AppState {
   requestReanalysis: (id: string) => Promise<Task>
   resolveMismatch: (id: string, action: 'confirm' | 'correct' | 'attach') => Promise<Task>
   retryJob: (jobId: string) => Promise<void>
+  cancelJob: (jobId: string) => Promise<void>
   saveSettings: (s: Settings) => Promise<Settings>
   dismissSuggestion: (suggestionId: string) => Promise<Suggestion>
   retryIngest: (ingestId: string) => Promise<void>
@@ -282,7 +283,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return t
       },
       saveNote: async (taskId, content) => {
-        await window.api.saveNote({ taskId, content })
+        const n = await window.api.saveNote({ taskId, content })
+        // Keep the snapshot's notes fresh so controlled editors (plain-task
+        // textarea) reflect what was saved.
+        setSnapshot((prev) => prev && { ...prev, notes: { ...prev.notes, [taskId]: n } })
       },
       attachPdf: async (taskId, pdfPath) => {
         const t = await window.api.attachPdf({ taskId, pdfPath })
@@ -300,6 +304,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return t
       },
       retryJob: (jobId) => window.api.retryJob({ jobId }),
+      cancelJob: (jobId) => window.api.cancelJob({ jobId }),
       saveSettings: async (s) => {
         const saved = await window.api.saveSettings({ settings: s })
         await refresh()

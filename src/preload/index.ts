@@ -21,6 +21,7 @@ const api: RendererApi = {
   finishTask: (args) => ipcRenderer.invoke(IPC.finishTask, args),
   choosePdf: () => ipcRenderer.invoke(IPC.choosePdf),
   retryJob: (args) => ipcRenderer.invoke(IPC.retryJob, args),
+  cancelJob: (args) => ipcRenderer.invoke(IPC.cancelJob, args),
   getSettings: () => ipcRenderer.invoke(IPC.getSettings),
   saveSettings: (args) => ipcRenderer.invoke(IPC.saveSettings, args),
   listModels: (provider) => ipcRenderer.invoke(IPC.listModels, provider),

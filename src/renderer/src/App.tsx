@@ -108,7 +108,7 @@ export function App() {
               <button className="collapse-btn" onClick={() => toggleDetailCollapsed(true)} title="Hide details">
                 ◀
               </button>
-              <TaskDetail task={selectedTask} />
+              <TaskDetail key={selectedTask.id} task={selectedTask} />
             </>
           )}
         </aside>

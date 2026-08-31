@@ -205,6 +205,11 @@ async function runAnalysisAgent(
     noContextFiles: true
   })
 
+  // User cancel (jobs:cancel) aborts the in-flight agent call.
+  ctx.onCancel(() => {
+    void session.abort().catch(() => undefined)
+  })
+
   const prompt = `Analyze the paper "${title}". Analysis level available: ${level.toUpperCase()} (${level === 'full' ? 'full text' : 'abstract only'}).
 
 ===PAPER TEXT===

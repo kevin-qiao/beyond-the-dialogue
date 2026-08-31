@@ -50,6 +50,11 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
     tools: ['read', 'write', 'edit', 'grep', 'find', 'ls']
   })
 
+  // User cancel (jobs:cancel) aborts the in-flight agent call.
+  ctx.onCancel(() => {
+    void session.abort().catch(() => undefined)
+  })
+
   const note = getNotes(db, taskId)
   const analysis = getAnalysis(db, taskId)
   const prompt = `Ingest this finished paper into the wiki.

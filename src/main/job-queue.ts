@@ -9,6 +9,9 @@ export interface JobContext {
   job: JobRecord
   setStep: (label: string, progress?: string) => void
   isCancelled: () => boolean
+  // Register a callback invoked when the user cancels this running job
+  // (e.g. aborting an agent session so the in-flight call stops).
+  onCancel: (cb: () => void) => void
 }
 
 export type JobHandler = (ctx: JobContext) => Promise<void>
@@ -35,6 +38,8 @@ export class JobQueue extends EventEmitter {
   private processing = false
   private db: DatabaseSync
   private ingestActive = new Set<string>()
+  private cancelled = new Set<string>()
+  private cancelCallbacks = new Map<string, () => void>()
 
   constructor(db: DatabaseSync, maxConcurrent = 2, opts: { maxAttempts?: number; baseRetryMs?: number } = {}) {
     super()
@@ -95,7 +100,8 @@ export class JobQueue extends EventEmitter {
         updateIngestState(this.db, ingestId, { state: 'running' })
         this.emit('ingest-progress', { ingestId, taskId: rec.taskId, stepLabel: label, progress: progress ?? null })
       },
-      isCancelled: () => false
+      isCancelled: () => false,
+      onCancel: () => {}
     }
     try {
       await handler(ctx)
@@ -122,6 +128,24 @@ export class JobQueue extends EventEmitter {
       }
     } finally {
       this.ingestActive.delete(rec.taskId)
+    }
+  }
+
+  // User-initiated cancellation. A running job gets its onCancel callback
+  // invoked (handlers abort agent sessions); a queued job is failed in place
+  // so it never starts. 'cancelled by user' is not a transient error, so
+  // neither path auto-retries.
+  cancel(jobId: string): void {
+    const job = getJob(this.db, jobId)
+    if (!job) return
+    if (job.state === 'running') {
+      this.cancelled.add(jobId)
+      this.cancelCallbacks.get(jobId)?.()
+    } else if (job.state === 'queued') {
+      this.cancelled.add(jobId)
+      this.queue = this.queue.filter((id) => id !== jobId)
+      updateJob(this.db, jobId, { state: 'failed', error: 'cancelled by user', finishedAt: new Date().toISOString() })
+      this.emit('failed', getJob(this.db, jobId))
     }
   }
 
@@ -175,15 +199,25 @@ export class JobQueue extends EventEmitter {
         updateJob(this.db, jobId, { state: 'running', stepLabel: label, progress: progress ?? null })
         this.emit('progress', { ...getJob(this.db, jobId)!, state: 'running' })
       },
-      isCancelled: () => cancelled
+      isCancelled: () => cancelled,
+      onCancel: (cb) => {
+        this.cancelCallbacks.set(jobId, cb)
+      }
     }
     try {
       await handler(ctx)
-      updateJob(this.db, jobId, { state: 'done', finishedAt: new Date().toISOString() })
-      this.emit('done', getJob(this.db, jobId))
+      if (this.cancelled.has(jobId)) {
+        // User cancelled mid-run; even if the handler returned normally (e.g.
+        // an abort that resolved instead of rejecting), respect the cancel.
+        updateJob(this.db, jobId, { state: 'failed', error: 'cancelled by user', finishedAt: new Date().toISOString() })
+        this.emit('failed', getJob(this.db, jobId))
+      } else {
+        updateJob(this.db, jobId, { state: 'done', finishedAt: new Date().toISOString() })
+        this.emit('done', getJob(this.db, jobId))
+      }
       this.emit('progress', getJob(this.db, jobId))
     } catch (e: any) {
-      const msg = e?.message ?? String(e)
+      const msg = this.cancelled.has(jobId) ? 'cancelled by user' : e?.message ?? String(e)
       const attemptNo = getJob(this.db, jobId)?.attempts ?? job.attempts + 1
       if (isTransientError(msg) && attemptNo < this.maxAttempts) {
         // schedule retry with backoff
@@ -202,6 +236,8 @@ export class JobQueue extends EventEmitter {
     } finally {
       this.running--
       cancelled = true
+      this.cancelCallbacks.delete(jobId)
+      this.cancelled.delete(jobId)
       this.pump()
     }
   }

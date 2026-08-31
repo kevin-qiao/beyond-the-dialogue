@@ -8,10 +8,12 @@ interface Props {
 }
 
 export function TaskRow({ task, jobStep, onSelect }: Props) {
-  const { toggleTask, setMyDay, selectTask, requestReanalysis, notify } = useApp()
-  const { snapshot } = useApp()
+  const { toggleTask, setMyDay, selectTask, requestReanalysis, cancelJob, notify } = useApp()
+  const { snapshot, liveJobs } = useApp()
   const analysis = snapshot?.analyses[task.id]
   const suggestions = snapshot?.suggestions.filter((s) => s.taskId === task.id && !s.dismissed) ?? []
+  // The job currently running/queued for this task (for the Cancel action).
+  const activeJob = liveJobs.find((j) => j.taskId === task.id && (j.state === 'running' || j.state === 'queued'))
 
   // Explicit analyze action, decoupled from My Day (spec analysis-lifecycle):
   // shown on paper tasks that are not currently running a job.
@@ -97,6 +99,18 @@ export function TaskRow({ task, jobStep, onSelect }: Props) {
           </button>
         )}
         {task.type === 'paper_reading' && <span className="badge type">📄 paper</span>}
+        {activeJob && (
+          <button
+            className="mini-btn cancel"
+            onClick={(e) => {
+              e.stopPropagation()
+              void cancelJob(activeJob.jobId)
+            }}
+            title="Stop the running job"
+          >
+            Cancel
+          </button>
+        )}
         <button
           className={`day-toggle ${task.inMyDay ? 'in' : ''}`}
           onClick={(e) => {

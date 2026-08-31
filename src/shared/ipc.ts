@@ -22,6 +22,7 @@ export const IPC = {
   finishTask: 'paper:finish',
   choosePdf: 'dialog:choose-pdf',
   retryJob: 'jobs:retry',
+  cancelJob: 'jobs:cancel',
   getSettings: 'settings:get',
   saveSettings: 'settings:save',
   listModels: 'ai:list-models',
@@ -131,6 +132,7 @@ export interface RendererApi {
   finishTask: (args: { id: string }) => Promise<Task>
   choosePdf: () => Promise<string | null>
   retryJob: (args: { jobId: string }) => Promise<void>
+  cancelJob: (args: { jobId: string }) => Promise<void>
   getSettings: () => Promise<Settings>
   saveSettings: (args: SaveSettingsArgs) => Promise<Settings>
   listModels: (provider: string) => Promise<string[]>

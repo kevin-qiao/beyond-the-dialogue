@@ -369,6 +369,16 @@ button {
   background: var(--accent-soft);
 }
 
+.mini-btn.cancel {
+  color: var(--err);
+}
+
+.mini-btn.cancel:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
 .icon-btn {
   background: none;
   border: 1px solid var(--border);

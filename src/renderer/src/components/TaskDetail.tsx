@@ -5,10 +5,11 @@ import { NotesEditor } from './NotesEditor'
 import { useDialog } from './Dialog'
 
 export function TaskDetail({ task }: { task: Task }) {
-  const { snapshot, toggleTask, setMyDay, deleteTask, updateTask, saveNote, requestReanalysis, attachPdf, resolveMismatch, notify } =
+  const { snapshot, toggleTask, setMyDay, deleteTask, updateTask, saveNote, requestReanalysis, attachPdf, resolveMismatch, notify, cancelJob, liveJobs } =
     useApp()
   const analysis = snapshot?.analyses[task.id]
   const notes = snapshot?.notes[task.id]
+  const activeJob = liveJobs.find((j) => j.taskId === task.id && (j.state === 'running' || j.state === 'queued'))
   const [pdfPickerOpen, setPdfPickerOpen] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.title)
@@ -139,7 +140,14 @@ export function TaskDetail({ task }: { task: Task }) {
               <h4>Analysis</h4>
               <div className="row">
                 {task.analysisStatus === 'queued' || task.analysisStatus === 'running' ? (
-                  <span className="badge running">running…</span>
+                  <>
+                    <span className="badge running">running…</span>
+                    {activeJob && (
+                      <button className="mini-btn cancel" onClick={() => void cancelJob(activeJob.jobId)}>
+                        Cancel
+                      </button>
+                    )}
+                  </>
                 ) : (
                   <>
                     <button className="mini-btn" onClick={runAnalysis}>
