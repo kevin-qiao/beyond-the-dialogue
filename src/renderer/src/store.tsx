@@ -10,7 +10,6 @@ interface AppState {
   selectedListId: string | null
   jobSteps: Record<string, { stepLabel: string | null; state: string }>
   query: string
-  detailCollapsed: boolean
 }
 
 export type View = 'my-day' | 'list' | 'activity' | 'settings' | 'chat'
@@ -33,12 +32,11 @@ interface AppContextValue extends AppState {
   resetChat: () => Promise<void>
   setQuery: (q: string) => void
   searchTasks: (tasks: Task[]) => Task[]
-  toggleDetailCollapsed: (collapsed?: boolean) => void
   createList: (name: string) => Promise<List>
   renameList: (id: string, name: string) => Promise<List>
   deleteList: (id: string) => Promise<void>
   createTask: (args: { listId: string; title: string; notes?: string; type: 'plain' | 'paper_reading'; link?: string }) => Promise<Task>
-  updateTask: (id: string, patch: { title?: string; notes?: string; link?: string }) => Promise<Task>
+  updateTask: (id: string, patch: { title?: string; notes?: string; link?: string; type?: 'plain' | 'paper_reading' }) => Promise<Task>
   deleteTask: (id: string) => Promise<void>
   toggleTask: (id: string) => Promise<Task>
   setMyDay: (id: string, inMyDay: boolean) => Promise<Task>
@@ -68,7 +66,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [jobSteps, setJobSteps] = useState<Record<string, { stepLabel: string | null; state: string }>>({})
   const [toast, setToast] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  const [detailCollapsed, setDetailCollapsed] = useState(false)
   const [liveJobs, setLiveJobs] = useState<Record<string, JobProgressEvent>>({})
   const [ingestSteps, setIngestSteps] = useState<Record<string, string | null>>({})
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
@@ -114,14 +111,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSelectedTaskId(null)
   }, [])
 
-  const selectTask = useCallback(
-    (taskId: string | null) => {
-      setSelectedTaskId(taskId)
-      // Selecting a task reopens a collapsed detail panel.
-      if (taskId) setDetailCollapsed(false)
-    },
-    []
-  )
+  const selectTask = useCallback((taskId: string | null) => setSelectedTaskId(taskId), [])
 
   useEffect(() => {
     void refresh()
@@ -334,8 +324,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             (a?.tldr ?? '').toLowerCase().includes(q)
           )
         })
-      },
-      toggleDetailCollapsed: (collapsed) => setDetailCollapsed((c) => collapsed ?? !c)
+      }
     }
   }, [
     snapshot,
@@ -352,7 +341,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     chatRunning,
     chatError,
     query,
-    detailCollapsed,
     setActiveView,
     selectList,
     selectTask,

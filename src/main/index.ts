@@ -151,11 +151,53 @@ function registerIpc(): void {
     return task
   })
   ipcMain.handle(IPC.updateTask, (_e, args) => {
-    const task = serviceUpdateTask(d(), args.id, {
-      title: args.title,
-      notes: args.notes,
-      link: args.link
-    })
+    const before = getTask(d(), args.id)
+    if (!before) throw new Error('task not found')
+    const patch: Partial<Task> = { title: args.title, notes: args.notes, type: args.type }
+    const newLink = args.link !== undefined ? args.link.trim() || null : undefined
+    const linkChanged = newLink !== undefined && newLink !== before.link
+    if (linkChanged) {
+      // A link edit (or clearing it) invalidates everything derived from the
+      // old link: resolved title, level, mismatch state, and any analysis
+      // result — so the panel never shows metadata from a previous paper.
+      patch.link = newLink
+      patch.paperTitle = null
+      patch.analysisLevel = null
+      patch.analysisStatus = 'none'
+      patch.mismatchState = 'none'
+      patch.analysisError = null
+    }
+    let task = serviceUpdateTask(d(), args.id, patch)
+    if (args.type && args.type !== before.type) {
+      if (args.type === 'plain') {
+        // Downgrade to plain: clear the paper enrichment fields.
+        task = serviceUpdateTask(d(), args.id, {
+          link: null,
+          paperTitle: null,
+          analysisLevel: null,
+          analysisStatus: 'none',
+          mismatchState: 'none',
+          analysisError: null,
+          pdfPath: null
+        })
+      } else if (args.type === 'paper_reading' && task.link && isConfigured(loadSettings(d()))) {
+        task = serviceUpdateTask(d(), args.id, { analysisStatus: 'queued', analysisError: null })
+        queue!.enqueue('analysis', task.id)
+      }
+    } else if (
+      task.type === 'paper_reading' &&
+      task.link &&
+      task.analysisStatus !== 'ready' &&
+      task.analysisStatus !== 'abstract_only' &&
+      isConfigured(loadSettings(d()))
+    ) {
+      // A link set (or fixed) on a paper task starts analysis: 'none' mirrors
+      // creation, 'failed' is a retry after the user corrected the link.
+      // ready/abstract_only tasks never re-run. Mark queued immediately so
+      // the UI stops showing the stale failure.
+      task = serviceUpdateTask(d(), args.id, { analysisStatus: 'queued', analysisError: null })
+      queue!.enqueue('analysis', task.id)
+    }
     broadcast(IPC.evTaskUpdated, task)
     return task
   })

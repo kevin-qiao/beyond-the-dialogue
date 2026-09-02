@@ -22,11 +22,17 @@ export function App() {
     dismissToast,
     setActiveView,
     query,
-    setQuery,
-    detailCollapsed,
-    toggleDetailCollapsed
+    setQuery
   } = useApp()
   const [showNewTask, setShowNewTask] = useState(false)
+  // Detail panel collapse is App-local state — deliberately not in the
+  // shared context (a context/memo staleness bug left it unrenderable).
+  const [detailCollapsed, setDetailCollapsed] = useState(false)
+
+  // Selecting a task reopens a collapsed panel.
+  useEffect(() => {
+    if (selectedTaskId) setDetailCollapsed(false)
+  }, [selectedTaskId])
 
   // Global shortcuts (spec task-capture / app-layout): n / Ctrl+N focuses the
   // quick-add capture, Ctrl+K focuses search. Ignored while typing.
@@ -88,7 +94,7 @@ export function App() {
           ) : (
             <>
               {activeView === 'my-day' && <MyDayView />}
-              {activeView === 'list' && <ListView onNewTask={() => setShowNewTask(true)} />}
+              {activeView === 'list' && <ListView />}
               {activeView === 'activity' && <ActivityView />}
               {activeView === 'chat' && <ChatView />}
             </>
@@ -99,13 +105,13 @@ export function App() {
         </div>
         <aside className={`detail-col ${selectedTask ? (detailCollapsed ? 'collapsed' : '') : 'hidden'}`}>
           {selectedTask && detailCollapsed && (
-            <button className="collapse-btn open" onClick={() => toggleDetailCollapsed(false)} title="Show details">
+            <button className="collapse-btn open" onClick={() => setDetailCollapsed(false)} title="Show details">
               ▶
             </button>
           )}
           {selectedTask && !detailCollapsed && (
             <>
-              <button className="collapse-btn" onClick={() => toggleDetailCollapsed(true)} title="Hide details">
+              <button className="collapse-btn" onClick={() => setDetailCollapsed(true)} title="Hide details">
                 ◀
               </button>
               <TaskDetail key={selectedTask.id} task={selectedTask} />

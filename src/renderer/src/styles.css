@@ -660,6 +660,29 @@ button {
 
 .detail-head h3 {
   font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title-edit-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.detail-head h3:hover .title-edit-btn {
+  opacity: 1;
+}
+
+.title-edit-btn:hover {
+  color: var(--text);
+  background: var(--bg-input);
 }
 
 .detail-actions {
@@ -679,6 +702,39 @@ button {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.type-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.link-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.link-row > span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.link-input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
 }
 
 .warning-box {

@@ -13,7 +13,30 @@ export function TaskDetail({ task }: { task: Task }) {
   const [pdfPickerOpen, setPdfPickerOpen] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.title)
+  const [editingLink, setEditingLink] = useState(false)
+  const [linkDraft, setLinkDraft] = useState(task.link ?? '')
   const { confirm, prompt, dialog } = useDialog()
+
+  const saveLink = () => {
+    setEditingLink(false)
+    const v = linkDraft.trim()
+    // Send the raw value (possibly empty) — clearing a link is a valid edit.
+    if (v !== (task.link ?? '')) void updateTask(task.id, { link: v })
+  }
+
+  const handleTypeChange = async (type: 'plain' | 'paper_reading') => {
+    if (type === task.type) return
+    if (type === 'plain') {
+      const ok = await confirm({
+        title: 'Convert to plain task?',
+        message: 'The paper link, analysis, and attached PDF will be removed from this task.',
+        confirmLabel: 'Convert',
+        danger: true
+      })
+      if (!ok) return
+    }
+    void updateTask(task.id, { type })
+  }
 
   const handleDeleteClick = async () => {
     const ok = await confirm({
@@ -89,9 +112,18 @@ export function TaskDetail({ task }: { task: Task }) {
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
           />
         ) : (
-          <h3 onDoubleClick={() => setEditingTitle(true)}>{task.title}</h3>
+          <h3>
+            {task.title}
+            <button className="title-edit-btn" title="Edit title" onClick={() => setEditingTitle(true)}>
+              ✎
+            </button>
+          </h3>
         )}
         <div className="detail-actions">
+          <select className="type-select" value={task.type} onChange={(e) => void handleTypeChange(e.target.value as 'plain' | 'paper_reading')} title="Task type">
+            <option value="plain">Plain task</option>
+            <option value="paper_reading">Paper reading</option>
+          </select>
           <button className={`day-toggle ${task.inMyDay ? 'in' : ''}`} onClick={() => void setMyDay(task.id, !task.inMyDay)}>
             {task.inMyDay ? '★ In My Day' : '☆ Add to My Day'}
           </button>
@@ -109,7 +141,31 @@ export function TaskDetail({ task }: { task: Task }) {
       {isPaper && (
         <>
           <div className="paper-info">
-            <div className="muted">Link: {task.link ?? '(none)'}</div>
+            <div className="muted link-row">
+              <span>
+                Link: {task.link ?? '(none)'}
+                <button className="title-edit-btn" title="Edit link" onClick={() => setEditingLink(true)}>
+                  ✎
+                </button>
+              </span>
+              {editingLink && (
+                <input
+                  autoFocus
+                  className="link-input"
+                  value={linkDraft}
+                  onChange={(e) => setLinkDraft(e.target.value)}
+                  onBlur={saveLink}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveLink()
+                    if (e.key === 'Escape') {
+                      setEditingLink(false)
+                      setLinkDraft(task.link ?? '')
+                    }
+                  }}
+                  placeholder="arXiv / DOI / publisher URL"
+                />
+              )}
+            </div>
             {task.paperTitle && task.paperTitle !== task.title && <div>Resolved title: {task.paperTitle}</div>}
             {task.analysisLevel && <span className="badge">{task.analysisLevel} analysis</span>}
             {task.analysisStatus === 'abstract_only' && <span className="badge warn">abstract-only</span>}

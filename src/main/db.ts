@@ -340,6 +340,7 @@ export function updateTask(db: DatabaseSync, id: string, patch: Partial<Task>): 
   const fieldMap: Record<string, string> = {
     title: 'title',
     notes: 'notes',
+    type: 'type',
     link: 'link',
     paperTitle: 'paper_title',
     analysisLevel: 'analysis_level',

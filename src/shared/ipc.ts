@@ -97,6 +97,7 @@ export interface UpdateTaskArgs {
   title?: string
   notes?: string
   link?: string
+  type?: 'plain' | 'paper_reading'
 }
 
 export interface SaveNoteArgs {
