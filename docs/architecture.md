@@ -2,7 +2,7 @@
 
 > Status: **proposed** (exploration, not yet implemented)
 > Date: 2026-09-02
-> Visual: component diagram in [`docs/architecture.drawio`](architecture.drawio) (open in draw.io)
+> Visual: layered overview diagram in [`docs/architecture.drawio`](architecture.drawio) (open in draw.io)
 > Scope: two sequential changes — `refine-board-ux` (renderer shell) then `task-types-work-area` (domain + agent machinery). See §10.
 
 ## 0. Design goals & constraints honored
@@ -15,36 +15,48 @@ The v2 spine: **a user-visible type catalog that drives agent behavior, inside a
 4. **Event-driven renderer**: main persists → `broadcast()` → store merges into snapshot. Chat already streams via `evChatDelta/Done/Error` — v2 scopes those channels per task instead of inventing a new mechanism.
 5. Work is spec'd and change-sized (two changes, §10).
 
-## 1. System overview (v2 deltas highlighted)
+## 1. Overview — layered architecture
+
+The system is organized in layers by *responsibility*, so the core stays stable while surfaces and storage evolve ([diagram](architecture.drawio)):
 
 ```
-+------------------------------------------------------------------+
-| RENDERER (React 18, single AppProvider store)                    |
-|  Topbar · Board shell · Drawer host · TaskEditor modal · Toast   |
-|  ListsRail | TaskColumn | FocusColumn                            |
-|                        (AI band over WorkArea: Notes | Ask AI)   |
-+--------------------------------+---------------------------------+
-  window.api (RendererApi, typed in shared/ipc.ts)     subscribe ev*
-  | ipcMain.handle(...) persist-then-broadcast          |
-+------------------------------------------------------------------+
-| MAIN                                                            |
-|  index.ts (wiring) — db → migrate → vault → queue → ipc → win   |
-|  db.ts         lists/tasks/task_types/task_chat/jobs/…   (sync) |
-|  NEW: migrate runner v1→v2  (schema_migrations, exists unused)  |
-|  job-queue.ts  persisted runs: analysis | suggestion | ingest | |
-|                NEW kind: 'run'  (generic engine)                |
-|  jobs/analysis.ts   paper pipeline (untouched)                  |
-|  NEW jobs/run.ts    generic type engine → vault note file       |
-|  jobs/ingest.ts     deposit-first wiki (paper set unchanged)    |
-|  NEW chat.ts → task-scoped sessions (generalizes v1 ChatSession)|
-|  type-config.ts  NEW: catalog service (CRUD/seed/validation)    |
-|  session-factory.ts / agent-runtime.ts   (unchanged seams)      |
-|  paths.ts         (+ vault/types/ layouts if needed later)      |
-+------------------------------------------------------------------+
-  node:sqlite app.db        vault files            Pi SDK (2 seams)
++-----------------------------+---------------------------+
+| Desktop UX (Electron)       |  Web · more surfaces      |
+|   board shell · drawers ·   |  (future)                 |
+|   task editor · work area   |                           |
++------------------+----------+---------------------------+
+                   |  commands · live events
++------------------v--------------------------------------+
+| Access Layer — one contract, many clients               |
+|   tasks · types · chat · ingest · settings  +  ev:*     |
++------------------+--------------------------------------+
+                   | calls
++------------------v-------------+   +--------------------+
+| Function Layer — task-first    |-> | PI coding agent    |
+|   task & type engines          |   |  sessions (conf.)  |
+|   jobs & runs · wiki ingest    |   |  tools · skills    |
+|   catalog & settings           |   |  model runtime     |
++------------------+-------------+   +--------------------+
+                   | reads / writes through one seam
++------------------v--------------------------------------+
+| Memory layer — one seam, pluggable providers            |
+|   app state (SQLite) · artifacts (vault) · knowledge    |
+|   (wiki)                                                |
++------+-----------------------+----------+---------------+
+       v                       v          v
+   Database                  LLM-WiKi   … more providers
 ```
 
-**Nothing below the seams changes shape.** The new machinery is *dispatch logic* (which config feeds which session) plus *data* (catalog, task fields, transcripts).
+- **Clients** — surfaces over one core. Desktop (Electron) today; Web and others later, binding to the same Access contract rather than to internals.
+- **Access Layer** — the *contract* every client binds to: commands (tasks, task types, chat, ingest, settings) and live events (status, steps, notes, chat deltas). Transport is Electron IPC today and protocol-ready tomorrow.
+- **Function Layer** — where work happens, task-first: task & type engines, jobs & runs (paper analysis, generic engine, suggestions), wiki ingest, the type catalog. This is where v2 adds its machinery: `type-config.ts`, the generic run engine, task chat.
+- **PI coding agent** — a pluggable *substrate*, deliberately separate: confined agent sessions, tools/skills, model runtime. The app only ever talks to it through the two seams (`session-factory.ts`, `agent-runtime.ts`); extensions/MCP will arrive as tools on this substrate, not inside the Function Layer.
+- **Memory layer** — one seam in front of pluggable providers: app state (SQLite repositories), artifacts (vault files), knowledge (user wiki). Function code never touches storage directly.
+- **Providers** — swappable stores (Database · LLM-WiKi · …); new ones join behind the Memory seam.
+
+Layered mapping to code (for engineers): Desktop UX → `src/renderer` · Access → `src/shared/ipc.ts` + preload + `ipcMain.handle` in `index.ts` · Function → `jobs/*`, `type-config.ts` (new), catalog services · Agent substrate → `session-factory.ts` / `agent-runtime.ts` behind the Pi SDK · Memory → `db.ts` row mappers, `paths.ts` + vault/wiki helpers.
+
+The rule that follows: **new v2 machinery is dispatch logic and data, placed inside the Function or Memory layers** — no new layer, no new transport, nothing below the agent seams changes shape.
 
 ## 2. Domain model (SQLite)
 
