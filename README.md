@@ -131,7 +131,7 @@ Cross-building (e.g. Windows installer from Linux) needs wine and is unsupported
 - `src/main` — Electron main process: SQLite store (`db.ts`), job queue (`job-queue.ts`), job kinds (`jobs/analysis.ts`, `jobs/suggestions.ts`, `jobs/ingest.ts`), paper resolution (`paper/resolve.ts`), wiki machinery (`wiki.ts`), and the two agent-runtime seams (`agent-runtime.ts`, `session-factory.ts`) — all Pi SDK usage stays behind these seams. / 主进程：SQLite、任务队列、三类任务、论文解析、Wiki 机制，以及两个 Agent 运行时接缝——所有 Pi SDK 调用都被挡在这两个接缝之后。
 - `src/renderer` — React 18 UI (My Day / List / Activity / Settings views, plus a minimal debug Chat). / 界面层。
 - `src/shared` — domain types and the IPC contract shared by all three layers. / 三端共享的类型与 IPC 契约。
-- `docs/` — [`architecture.md`](docs/architecture.md) (v2 design) · [`architecture.drawio`](docs/architecture.drawio) · UI drafts (`ux-draft.drawio`, `workboard-ux.drawio`). / 设计与架构文档。
+- `docs/` — [`architecture.md`](docs/architecture.md) (v2 design) · [`architecture.drawio`](docs/architecture.drawio) · UX layout draft (`workboard-ux.drawio`). / 设计与架构文档。
 - `openspec/` — the spec source of truth (behavior specs, archived changes). / 行为规格的源头（OpenSpec）。
 - [`LLM-WiKi.md`](LLM-WiKi.md) — the idea behind the wiki: finished reading tasks become a knowledge base you own. / Wiki 模式背后的想法：读过的都变成你的知识库。
 
