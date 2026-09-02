@@ -1,0 +1,121 @@
+<mxfile host="Electron">
+  <diagram name="Work Board v2 — architecture" id="arch-v2">
+    <mxGraphModel dx="1300" dy="1160" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="1160" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="lg1" value="Legend" style="text;html=1;align=left;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="20" y="8" width="64" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2" value="NEW — v2 module" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="88" y="8" width="170" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3" value="MODIFIED — v1 extended" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="262" y="8" width="180" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="lg4" value="UNCHANGED" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="446" y="8" width="170" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="lg5" value="test seams — scripted in tests" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="620" y="8" width="250" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="rn" value="RENDERER — React 18 · single AppProvider store (snapshot + ev:* merge) · light theme tokens" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;spacingLeft=8;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="20" y="40" width="1160" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="r1" value="Topbar — search (Ctrl+K) · Activity/Settings gears · theme" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="88" width="220" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="r2" value="AppProvider store — snapshot + types[] + per-task chat buffers" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="280" y="88" width="220" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="r3" value="DrawerHost — Activity · Settings sub-pages · History (NEW)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="520" y="88" width="290" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="r4" value="TaskEditor modal — create/edit: type · description · target (NEW)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="830" y="88" width="330" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="c1" value="ListsRail (NEW — from Sidebar)&#10;My Day = default col-2 mode&#10;lists · + List · @ me" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="220" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" value="TaskColumn (NEW)&#10;+ New task (selected list) · QuickAdd&#10;rows: title + [type] [status] chips" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="280" y="160" width="220" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="FocusColumn (NEW — replaces detail-col)&#10;AI band: agent_status · steps · analysis · suggestions · Run · Finish&#10;WorkArea tabs per type: [Notes] CodeMirror · [Ask AI] chat + record finding" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="520" y="160" width="640" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="chL" value="window.api (RendererApi) — preload/contextBridge&#10;subscribe ev:task · ev:chat {taskId} · ev:types" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=middle;fillColor=#f0f4ff;strokeColor=#8fa8c8;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="368" width="330" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="chR" value="ipcMain.handle — persist-then-broadcast&#10;shared/ipc.ts types · lockstep (shared·preload·main·renderer)" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=middle;fillColor=#f0f4ff;strokeColor=#8fa8c8;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="850" y="368" width="310" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="mn" value="MAIN — node · sync node:sqlite · JobQueue · agent sessions" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;spacingLeft=8;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="20" y="440" width="870" height="376" as="geometry" />
+        </mxCell>
+        <mxCell id="m1" value="index.ts — wiring: db → migrate → vault → ensure wiki → queue → IPC → window" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="492" width="250" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="m2" value="db.ts + migration runner #1 (MOD)&#10;schema_migrations · catalog seed · tasks rebuild" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="305" y="492" width="260" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="m3" value="job-queue.ts — kind + &quot;run&quot; (MOD)&#10;concurrency · retry/backoff · progress · cancel" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="580" y="492" width="270" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="p1" value="jobs/analysis.ts — paper pipeline&#10;resolve → extract → JSON analysis (unchanged)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="566" width="250" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="p2" value="jobs/run.ts — generic engine (NEW)&#10;type prompt + context → vault notes/&lt;id&gt;.md" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="305" y="566" width="260" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="p3" value="jobs/ingest.ts — deposit-first → wiki (unchanged)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="580" y="566" width="270" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="t1" value="chat.ts — task-scoped sessions (NEW)&#10;type prompt · tools:[] · transcript → task_chat" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="662" width="250" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" value="type-config.ts — catalog service (NEW)&#10;CRUD · validation · dispatch policy" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="305" y="662" width="260" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="t3" value="paper tables · ai-config.ts · suggestions (unchanged)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="580" y="662" width="270" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="seam" value="seams (unchanged): session-factory.ts createJobSession(systemPrompt·tools·cwd·customTools) · agent-runtime.ts ModelRuntime + app-private auth.json/models.json" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=middle;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="748" width="790" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="sdk" value="PI AGENT SDK — @earendil-works/pi-coding-agent@0.84 (ESM · pinned · dynamic import)" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=1;spacingLeft=8;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="910" y="440" width="270" height="376" as="geometry" />
+        </mxCell>
+        <mxCell id="sd1" value="createAgentSession — per-job session&#10;noExtensions · noSkills · noTools:builtin" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="930" y="500" width="230" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="sd2" value="ModelRuntime — shared runtime&#10;getRuntime · resolveModel(provider, model)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="930" y="592" width="230" height="92" as="geometry" />
+        </mxCell>
+        <mxCell id="sd3" value="extension runtime — defineTool · customTools&#10;(future MCP — spike, not v2)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="930" y="704" width="230" height="96" as="geometry" />
+        </mxCell>
+        <mxCell id="sql" value="SQLite app.db (sync · WAL)&#10;lists · settings (+theme)&#10;tasks — type FK → task_types · description/target (NEW) · agent_status&#10;task_types (NEW · seeded x5) · task_chat (NEW)&#10;enrichment_jobs (+&quot;run&quot;) · paper_analysis · suggestions · notes" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=#f5f5f5;strokeColor=#888888;fontSize=11;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="20" y="920" width="430" height="176" as="geometry" />
+        </mxCell>
+        <mxCell id="vault" value="VAULT files — &lt;userData&gt;/vault&#10;notes/&lt;taskId&gt;.md — run-engine output, chat-record appends&#10;analyses/&lt;taskId&gt;/ · pdfs/ (paper)&#10;types/skills packs (future)" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="470" y="920" width="300" height="176" as="geometry" />
+        </mxCell>
+        <mxCell id="wiki" value="WIKI — user markdown (Settings · default ~/Documents/WorkBoard-Wiki)&#10;raw/ deposits at Finish (deposit-first)&#10;wiki/ agent pages · index.md · log.md · CLAUDE.md schema · .history/" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=#f0f4f8;strokeColor=#8fa8c8;fontSize=11;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="790" y="920" width="390" height="176" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="IPC — invoke/handle · ev:* merge" style="html=1;endArrow=block;startArrow=block;strokeColor=#6c8ebf;strokeWidth=1.5;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="c2" target="m2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="html=1;endArrow=block;strokeColor=#6c8ebf;strokeWidth=1.5;" edge="1" parent="1" source="c3" target="m3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="html=1;endArrow=block;strokeColor=#82b366;strokeWidth=1.5;" edge="1" parent="1" source="t1" target="sql">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" style="html=1;endArrow=block;strokeColor=#9673a6;strokeWidth=1.5;" edge="1" parent="1" source="seam" target="sd1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
