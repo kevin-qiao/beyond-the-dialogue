@@ -241,7 +241,8 @@ const DEFAULT_SETTINGS: Settings = {
   wikiPath: '',
   defaultListId: null,
   maxConcurrentJobs: 2,
-  showWelcome: true
+  showWelcome: true,
+  theme: 'light'
 }
 
 export function loadSettings(db: DatabaseSync): Settings {
@@ -256,6 +257,7 @@ export function loadSettings(db: DatabaseSync): Settings {
     else if (r.key === 'defaultListId') out.defaultListId = r.value || null
     else if (r.key === 'maxConcurrentJobs') out.maxConcurrentJobs = parseInt(r.value, 10) || 2
     else if (r.key === 'showWelcome') out.showWelcome = r.value !== '0'
+    else if (r.key === 'theme') out.theme = r.value === 'dark' ? 'dark' : 'light'
   }
   return out
 }
@@ -269,6 +271,7 @@ export function saveSettings(db: DatabaseSync, s: Settings): void {
   upsert.run('defaultListId', s.defaultListId ?? '')
   upsert.run('maxConcurrentJobs', String(s.maxConcurrentJobs))
   upsert.run('showWelcome', s.showWelcome ? '1' : '0')
+  upsert.run('theme', s.theme === 'dark' ? 'dark' : 'light')
 }
 
 // ---- Lists ----

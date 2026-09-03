@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { Task } from '../../../shared/types'
 import { useApp } from '../store'
-import { NotesEditor } from './NotesEditor'
 import { useDialog } from './Dialog'
 
-export function TaskDetail({ task }: { task: Task }) {
-  const { snapshot, toggleTask, setMyDay, deleteTask, updateTask, saveNote, requestReanalysis, attachPdf, resolveMismatch, notify, cancelJob, liveJobs } =
-    useApp()
+// AI band of the focus column (spec app-layout): everything about the selected
+// task except its notes — header/title/type editing, link & paper info, agent
+// status and step progress, analysis output, suggestions, and the actions
+// (My Day, complete, Finish→wiki, delete). Notes live in TaskNotes.
+export function TaskBand({ task }: { task: Task }) {
+  const { snapshot, toggleTask, setMyDay, deleteTask, updateTask, requestReanalysis, attachPdf, resolveMismatch, notify, cancelJob, liveJobs } = useApp()
   const analysis = snapshot?.analyses[task.id]
   const notes = snapshot?.notes[task.id]
   const activeJob = liveJobs.find((j) => j.taskId === task.id && (j.state === 'running' || j.state === 'queued'))
@@ -276,14 +278,6 @@ export function TaskDetail({ task }: { task: Task }) {
             )}
           </section>
 
-          <section className="notes-section">
-            <div className="section-head">
-              <h4>Reading notes</h4>
-              <span className="muted">Markdown, autosaved</span>
-            </div>
-            <NotesEditor taskId={task.id} initial={notes?.content ?? ''} onSave={saveNote} />
-          </section>
-
           {!task.completed && (
             <div className="finish-row">
               <button className="finish-btn" onClick={() => void handleFinishClick()}>
@@ -292,18 +286,6 @@ export function TaskDetail({ task }: { task: Task }) {
             </div>
           )}
         </>
-      )}
-
-      {!isPaper && (
-        <div className="plain-notes">
-          <h4>Notes</h4>
-          <textarea
-            value={notes?.content ?? ''}
-            onChange={(e) => void saveNote(task.id, e.target.value)}
-            placeholder="Add details…"
-            rows={8}
-          />
-        </div>
       )}
 
       {pdfPickerOpen && (

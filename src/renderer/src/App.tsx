@@ -1,37 +1,24 @@
 import { useEffect, useState } from 'react'
 import { useApp } from './store'
-import { Sidebar } from './components/Sidebar'
-import { ListView } from './components/ListView'
-import { MyDayView } from './components/MyDayView'
-import { ActivityView } from './components/ActivityView'
-import { SettingsView } from './components/SettingsView'
-import { TaskDetail } from './components/TaskDetail'
-import { NewTaskForm } from './components/NewTaskForm'
+import { ListsRail } from './components/ListsRail'
+import { TaskColumn } from './components/TaskColumn'
+import { FocusColumn } from './components/FocusColumn'
+import { DrawerHost } from './components/DrawerHost'
 import { WelcomeView } from './components/WelcomeView'
-import { ChatView } from './components/ChatView'
 
+// Board shell (spec app-layout / theme / first-run): a persistent three-column
+// board — ListsRail | TaskColumn | FocusColumn — under a top bar that hosts
+// global search and the drawer entry points. Activity/Settings/Chat are
+// drawers (DrawerHost); on first run a welcome overlay sits above the board.
 export function App() {
-  const {
-    loading,
-    snapshot,
-    activeView,
-    selectedTaskId,
-    selectedListId,
-    taskById,
-    toast,
-    dismissToast,
-    setActiveView,
-    query,
-    setQuery
-  } = useApp()
-  const [showNewTask, setShowNewTask] = useState(false)
-  // Detail panel collapse is App-local state — deliberately not in the
+  const { loading, snapshot, selectedTaskId, toast, dismissToast, setActiveView, openDrawer, query, setQuery } = useApp()
+  // Whole focus-column collapse is App-local state — deliberately not in the
   // shared context (a context/memo staleness bug left it unrenderable).
-  const [detailCollapsed, setDetailCollapsed] = useState(false)
+  const [focusCollapsed, setFocusCollapsed] = useState(false)
 
-  // Selecting a task reopens a collapsed panel.
+  // Selecting a task reopens a collapsed focus column.
   useEffect(() => {
-    if (selectedTaskId) setDetailCollapsed(false)
+    if (selectedTaskId) setFocusCollapsed(false)
   }, [selectedTaskId])
 
   // Global shortcuts (spec task-capture / app-layout): n / Ctrl+N focuses the
@@ -46,7 +33,7 @@ export function App() {
         e.preventDefault()
         const el = document.getElementById('quick-add')
         if (el) el.focus()
-        else setActiveView('list')
+        else setActiveView('my-day')
       } else if (e.ctrlKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         document.getElementById('global-search')?.focus()
@@ -57,13 +44,13 @@ export function App() {
   }, [setActiveView])
 
   if (loading || !snapshot) {
-    return <div className="app-loading">Loading…</div>
+    return <div className="app-loading" data-theme={snapshot?.settings.theme ?? 'light'}>Loading…</div>
   }
 
-  const selectedTask = selectedTaskId ? taskById(selectedTaskId) : undefined
+  const showWelcome = snapshot.settings.showWelcome && !snapshot.aiConfigured
 
   return (
-    <div className="app">
+    <div className="app" data-theme={snapshot.settings.theme}>
       <header className="topbar">
         <span className="app-title">Work Board</span>
         <div className="search-wrap">
@@ -82,44 +69,38 @@ export function App() {
             <span className="kbd-hint">Ctrl+K</span>
           )}
         </div>
-      </header>
-      <div className="app-body">
-        <Sidebar onNewTask={() => setShowNewTask(true)} />
-        <main className="main">
-          <div className="content-col">
-          {activeView === 'settings' ? (
-            <SettingsView />
-          ) : snapshot.settings.showWelcome ? (
-            <WelcomeView />
-          ) : (
-            <>
-              {activeView === 'my-day' && <MyDayView />}
-              {activeView === 'list' && <ListView />}
-              {activeView === 'activity' && <ActivityView />}
-              {activeView === 'chat' && <ChatView />}
-            </>
-          )}
-          {showNewTask && (
-            <NewTaskForm listId={selectedListId ?? snapshot.lists[0]?.id ?? ''} onClose={() => setShowNewTask(false)} />
-          )}
+        <div className="topbar-actions">
+          <button className="topbar-action" title="Activity — agent work" onClick={() => openDrawer('activity')}>
+            ▤ Activity
+          </button>
+          <button className="topbar-action" title="Debug chat" onClick={() => openDrawer('chat')}>
+            💬 Chat
+          </button>
+          <button className="topbar-action" title="Settings" onClick={() => openDrawer('settings')}>
+            ⚙ Settings
+          </button>
         </div>
-        <aside className={`detail-col ${selectedTask ? (detailCollapsed ? 'collapsed' : '') : 'hidden'}`}>
-          {selectedTask && detailCollapsed && (
-            <button className="collapse-btn open" onClick={() => setDetailCollapsed(false)} title="Show details">
-              ▶
-            </button>
-          )}
-          {selectedTask && !detailCollapsed && (
-            <>
-              <button className="collapse-btn" onClick={() => setDetailCollapsed(true)} title="Hide details">
-                ◀
-              </button>
-              <TaskDetail key={selectedTask.id} task={selectedTask} />
-            </>
-          )}
-        </aside>
+      </header>
+      <div className="app-body board-body">
+        <ListsRail />
+        <main className="main board-main">
+          <TaskColumn />
+          <FocusColumn
+            collapsed={focusCollapsed}
+            onExpand={() => setFocusCollapsed(false)}
+            onCollapse={() => setFocusCollapsed(true)}
+          />
         </main>
       </div>
+
+      {showWelcome && (
+        <div className="welcome-overlay">
+          <WelcomeView onOpenSettings={() => openDrawer('settings')} />
+        </div>
+      )}
+
+      <DrawerHost />
+
       {toast && (
         <div className="toast" onClick={dismissToast}>
           <span className="toast-msg">{toast.message}</span>
@@ -129,7 +110,7 @@ export function App() {
               onClick={(e) => {
                 e.stopPropagation()
                 dismissToast()
-                setActiveView(toast.view!)
+                openDrawer('activity')
               }}
             >
               View

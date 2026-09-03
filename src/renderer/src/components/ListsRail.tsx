@@ -2,8 +2,12 @@ import { useState } from 'react'
 import { useApp } from '../store'
 import { useDialog } from './Dialog'
 
-export function Sidebar({ onNewTask }: { onNewTask: () => void }) {
-  const { snapshot, activeView, setActiveView, selectList, selectedListId, createList, renameList, deleteList, liveJobs, activity, ingestSteps } =
+// Lists rail — the first column of the board (spec app-layout): My Day, the
+// user's lists (create/rename/delete), and the agent-presence footer. The
+// "+ New task" button moved to the TaskColumn header; auxiliary surfaces live
+// in the top bar as drawers.
+export function ListsRail() {
+  const { snapshot, activeView, setActiveView, selectList, selectedListId, createList, renameList, deleteList, liveJobs, activity, ingestSteps, openDrawer } =
     useApp()
   const [newListName, setNewListName] = useState('')
   const [editing, setEditing] = useState<string | null>(null)
@@ -12,7 +16,7 @@ export function Sidebar({ onNewTask }: { onNewTask: () => void }) {
   const { confirm, dialog } = useDialog()
 
   // Agent presence line (spec agent-presence): idle / working (with live
-  // step) / queued count; clicking opens Activity.
+  // step) / queued count; clicking opens the Activity drawer.
   const jobs = Object.values(liveJobs)
   const runningJob = jobs.find((j) => j.state === 'running')
   const runningIngest = (activity ?? []).find((r) => r.state === 'running')
@@ -51,13 +55,7 @@ export function Sidebar({ onNewTask }: { onNewTask: () => void }) {
   }
 
   return (
-    <nav className="sidebar">
-      <div className="sidebar-head">
-        <button className="new-task-btn" onClick={onNewTask}>
-          ＋ New task
-        </button>
-      </div>
-
+    <nav className="sidebar lists-rail">
       <button
         className={`nav-item ${activeView === 'my-day' ? 'active' : ''}`}
         onClick={() => {
@@ -65,7 +63,7 @@ export function Sidebar({ onNewTask }: { onNewTask: () => void }) {
           selectList(null)
         }}
       >
-        My Day
+        🔆 My Day
       </button>
 
       <div className="sidebar-label">
@@ -133,16 +131,7 @@ export function Sidebar({ onNewTask }: { onNewTask: () => void }) {
       ))}
 
       <div className="sidebar-foot">
-        <button className={`nav-item ${activeView === 'activity' ? 'active' : ''}`} onClick={() => setActiveView('activity')}>
-          Activity
-        </button>
-        <button className={`nav-item ${activeView === 'chat' ? 'active' : ''}`} onClick={() => setActiveView('chat')}>
-          💬 Chat
-        </button>
-        <button className={`nav-item ${activeView === 'settings' ? 'active' : ''}`} onClick={() => setActiveView('settings')}>
-          Settings
-        </button>
-        <div className="ai-status" onClick={() => setActiveView('activity')} title="Agent status — open Activity">
+        <div className="ai-status" onClick={() => openDrawer('activity')} title="Agent status — open Activity">
           {runningJob ? (
             <span className="ai-working">○ {runningJob.stepLabel ?? 'working…'}</span>
           ) : runningIngest ? (

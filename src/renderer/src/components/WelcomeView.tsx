@@ -8,7 +8,7 @@ const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
 // One-time first-run welcome (spec first-run): explains the three-step flow,
 // hosts the AI config card, and offers a sample paper to try immediately.
 // Dismissed by Skip or by saving AI settings (main-side showWelcome flag).
-export function WelcomeView() {
+export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const { snapshot, saveSettings, createTask } = useApp()
   const [draft, setDraft] = useState<Settings | null>(snapshot?.settings ?? null)
   const [models, setModels] = useState<string[]>([])
@@ -63,6 +63,13 @@ export function WelcomeView() {
     <div className="view welcome">
       <h2 className="welcome-title">Welcome to Work Board</h2>
       <p className="muted welcome-sub">A to-do board where an AI agent reads papers with you and files them into your personal wiki.</p>
+      {onOpenSettings && (
+        <div className="row welcome-settings-row">
+          <button className="mini-btn" onClick={onOpenSettings}>
+            ⚙ Open Settings
+          </button>
+        </div>
+      )}
 
       <div className="welcome-steps">
         <div className="card">

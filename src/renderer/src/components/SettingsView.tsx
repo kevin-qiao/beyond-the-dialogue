@@ -109,6 +109,17 @@ export function SettingsView() {
       </section>
 
       <section className="settings-section">
+        <h4>Appearance</h4>
+        <label>
+          Theme <span className="muted">(applies immediately, saved on Save)</span>
+          <select value={draft.theme} onChange={(e) => update({ theme: e.target.value as 'light' | 'dark' })}>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+      </section>
+
+      <section className="settings-section">
         <h4>Learning space (wiki)</h4>
         <label>
           Wiki directory <span className="muted">(created automatically on first use)</span>

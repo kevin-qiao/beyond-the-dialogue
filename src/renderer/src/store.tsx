@@ -12,10 +12,16 @@ interface AppState {
   query: string
 }
 
-export type View = 'my-day' | 'list' | 'activity' | 'settings' | 'chat'
+// Task column mode (board): what the middle column shows. Auxiliary surfaces
+// (Activity/Settings/Chat) are drawers, not views.
+export type View = 'my-day' | 'list'
+export type DrawerView = 'activity' | 'settings' | 'chat'
 
 interface AppContextValue extends AppState {
   setActiveView: (v: View) => void
+  drawer: DrawerView | null
+  openDrawer: (d: DrawerView) => void
+  closeDrawer: () => void
   selectList: (listId: string | null) => void
   selectTask: (taskId: string | null) => void
   refresh: () => Promise<void>
@@ -60,9 +66,10 @@ const AppCtx = createContext<AppContextValue | null>(null)
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
-  const [activeView, setActiveViewRaw] = useState<View>('list')
+  const [activeView, setActiveViewRaw] = useState<View>('my-day')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [selectedListId, setSelectedListId] = useState<string | null>(null)
+  const [drawer, setDrawer] = useState<DrawerView | null>(null)
   const [jobSteps, setJobSteps] = useState<Record<string, { stepLabel: string | null; state: string }>>({})
   const [toast, setToast] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -98,18 +105,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
-  const setActiveView = useCallback(
-    (v: View) => {
-      setActiveViewRaw(v)
-      if (v !== 'list') setSelectedTaskId(null)
-    },
-    []
-  )
+  // Board mode switch only; the focus-column selection is independent of the
+  // task column's mode (spec app-layout: opening drawers or switching modes
+  // never clears the selected task).
+  const setActiveView = useCallback((v: View) => setActiveViewRaw(v), [])
 
-  const selectList = useCallback((listId: string | null) => {
-    setSelectedListId(listId)
-    setSelectedTaskId(null)
-  }, [])
+  const openDrawer = useCallback((d: DrawerView) => setDrawer(d), [])
+  const closeDrawer = useCallback(() => setDrawer(null), [])
+
+  const selectList = useCallback((listId: string | null) => setSelectedListId(listId), [])
 
   const selectTask = useCallback((taskId: string | null) => setSelectedTaskId(taskId), [])
 
@@ -202,6 +206,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       snapshot: snap,
       loading,
       activeView,
+      drawer,
+      openDrawer,
+      closeDrawer,
       selectedTaskId,
       selectedListId,
       jobSteps,
@@ -330,6 +337,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     snapshot,
     loading,
     activeView,
+    drawer,
     selectedTaskId,
     selectedListId,
     jobSteps,
@@ -342,6 +350,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     chatError,
     query,
     setActiveView,
+    openDrawer,
+    closeDrawer,
     selectList,
     selectTask,
     refresh,

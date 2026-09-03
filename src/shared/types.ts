@@ -66,6 +66,7 @@ export interface Settings {
   defaultListId: string | null
   maxConcurrentJobs: number
   showWelcome: boolean
+  theme: 'light' | 'dark'
 }
 
 // ---- Jobs ----
