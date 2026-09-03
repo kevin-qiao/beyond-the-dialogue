@@ -581,22 +581,22 @@ button {
 
 .badge.ok {
   color: var(--ok);
-  background: rgba(76, 175, 125, 0.15);
+  background: var(--ok-soft);
 }
 
 .badge.warn {
   color: var(--warn);
-  background: rgba(217, 161, 61, 0.15);
+  background: var(--warn-soft);
 }
 
 .badge.err {
   color: var(--err);
-  background: rgba(224, 100, 92, 0.15);
+  background: var(--err-soft);
 }
 
 .badge.running {
   color: var(--accent);
-  background: rgba(91, 141, 239, 0.15);
+  background: var(--blue-soft);
 }
 
 .badge.type {
@@ -756,7 +756,7 @@ button {
 }
 
 .completed-banner {
-  background: rgba(76, 175, 125, 0.15);
+  background: var(--ok-soft);
   color: var(--ok);
   padding: 8px 12px;
   border-radius: 6px;
@@ -802,7 +802,7 @@ button {
 }
 
 .warning-box {
-  background: rgba(217, 161, 61, 0.12);
+  background: var(--warn-soft);
   border: 1px solid var(--warn);
   border-radius: 8px;
   padding: 12px;

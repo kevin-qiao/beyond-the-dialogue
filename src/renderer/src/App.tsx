@@ -32,8 +32,13 @@ export function App() {
       if (e.key === 'n' || (e.ctrlKey && e.key.toLowerCase() === 'n')) {
         e.preventDefault()
         const el = document.getElementById('quick-add')
-        if (el) el.focus()
-        else setActiveView('my-day')
+        if (el) {
+          // #quick-add is the capture <form>; focus its input (form.focus() is a no-op).
+          const input = el.querySelector('input') ?? el
+          ;(input as HTMLElement).focus()
+        } else {
+          setActiveView('my-day')
+        }
       } else if (e.ctrlKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         document.getElementById('global-search')?.focus()
