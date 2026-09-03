@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Task } from '../../../shared/types'
 import { useApp } from '../store'
 import { useDialog } from './Dialog'
+import { typeMeta, statusChip } from './status'
 
 // AI band of the focus column (spec app-layout): everything about the selected
 // task except its notes — header/title/type editing, link & paper info, agent
@@ -12,6 +13,8 @@ export function TaskBand({ task }: { task: Task }) {
   const analysis = snapshot?.analyses[task.id]
   const notes = snapshot?.notes[task.id]
   const activeJob = liveJobs.find((j) => j.taskId === task.id && (j.state === 'running' || j.state === 'queued'))
+  const meta = typeMeta(task.type)
+  const chip = statusChip(task, activeJob)
   const [pdfPickerOpen, setPdfPickerOpen] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.title)
@@ -115,12 +118,18 @@ export function TaskBand({ task }: { task: Task }) {
           />
         ) : (
           <h3>
-            {task.title}
+            <span className="f-emoji">{meta.emoji}</span>
+            <span className="f-title">{task.title}</span>
             <button className="title-edit-btn" title="Edit title" onClick={() => setEditingTitle(true)}>
               ✎
             </button>
           </h3>
         )}
+        <div className="f-meta">
+          <span className="type-tag">{meta.label}</span>
+          <code className="type-key">{task.type}</code>
+          {chip}
+        </div>
         <div className="detail-actions">
           <select className="type-select" value={task.type} onChange={(e) => void handleTypeChange(e.target.value as 'plain' | 'paper_reading')} title="Task type">
             <option value="plain">Plain task</option>

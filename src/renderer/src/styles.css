@@ -1,38 +1,68 @@
 /* Theme tokens (spec theme): every surface color flows through these so the
    whole app re-skins by swapping the token set. :root carries the default
    LIGHT theme; [data-theme='dark'] re-declares the tokens with the dark
-   palette. Components never hard-code colors. */
+   palette. Components never hard-code colors.
+
+   The palette + typography follow docs/workboard-ux.html (editorial v2 look):
+   warm paper tones, a terracotta accent, Fraunces display serif for
+   headings, Instrument Sans for UI, IBM Plex Mono for micro-labels. */
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;600&display=swap');
+
 :root {
-  --bg: #f6f7f9;
-  --bg-sidebar: #eef0f3;
-  --bg-panel: #ffffff;
-  --bg-input: #ffffff;
-  --border: #e0e3e8;
-  --text: #1f2328;
-  --text-muted: #5f6b7a;
-  --accent: #2f6fed;
-  --accent-soft: #e3ebfb;
-  --ok: #2e9e6b;
-  --warn: #b7791f;
-  --err: #d64541;
-  --danger: #d64541;
+  --bg:        #faf8f2;
+  --bg-sidebar:#f1ede2;
+  --bg-panel:  #fcfbf7;
+  --bg-input:  #ffffff;
+  --bg-hover:  #f4f0e6;
+  --border:    #e4ded0;
+  --border-2:  #d6cfbe;
+  --text:      #211f1a;
+  --text-muted:#57534a;
+  --text-faint:#8b8578;
+  --accent:    #c03a22;
+  --accent-ink:#7c1f11;
+  --accent-soft:#f6e0d8;
+  --blue:      #1f4e6e;
+  --blue-soft: #e9eff4;
+  --ok:        #3e7a56;
+  --ok-soft:   #e6efe4;
+  --warn:      #9a6b1f;
+  --warn-soft: #f4e9d2;
+  --err:       #c03a22;
+  --danger:    #c03a22;
+  --err-soft:  #f6e0d8;
+  --font-display: 'Fraunces', 'Noto Serif SC', Georgia, serif;
+  /* UI + mono default to hinted system fonts first so body text stays crisp
+     (webfonts are unhinted; at small sizes under software rendering they read
+     pixelated). The display serif is a web font — large headings are fine. */
+  --font-ui:      system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  --font-mono:    ui-monospace, 'Cascadia Mono', Consolas, 'SF Mono', Menlo, 'Courier New', monospace;
   color-scheme: light;
 }
 
 [data-theme='dark'] {
-  --bg: #1e1f24;
-  --bg-sidebar: #17181c;
-  --bg-panel: #23252b;
-  --bg-input: #2b2e35;
-  --border: #3a3d46;
-  --text: #e8e9ec;
-  --text-muted: #9aa0ab;
-  --accent: #5b8def;
-  --accent-soft: #3a4a6b;
-  --ok: #4caf7d;
-  --warn: #d9a13d;
-  --err: #e0645c;
-  --danger: #e0645c;
+  --bg:        #1a1915;
+  --bg-sidebar:#201f1a;
+  --bg-panel:  #25241e;
+  --bg-input:  #2b2a23;
+  --bg-hover:  #2b2a23;
+  --border:    #333029;
+  --border-2:  #413d33;
+  --text:      #e8e4d8;
+  --text-muted:#a9a395;
+  --text-faint:#6f6a5c;
+  --accent:    #e05a3f;
+  --accent-ink:#f3a08c;
+  --accent-soft:#3a241d;
+  --blue:      #7fa8c8;
+  --blue-soft: #1e2b36;
+  --ok:        #8fbf9d;
+  --ok-soft:   #22301f;
+  --warn:      #d9b06a;
+  --warn-soft: #33291a;
+  --err:       #e05a3f;
+  --danger:    #e05a3f;
+  --err-soft:  #3a241d;
   color-scheme: dark;
 }
 
@@ -49,10 +79,22 @@ body,
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-ui);
   font-size: 14px;
   color: var(--text);
   background: var(--bg);
+}
+
+/* Headings keep the display serif crisp via auto optical sizing. */
+h1,
+h2,
+h3 {
+  font-optical-sizing: auto;
+}
+
+::selection {
+  background: var(--accent);
+  color: #fff;
 }
 
 .app {
@@ -1361,4 +1403,685 @@ button {
 
 .welcome-settings-row {
   margin: -6px 0 16px;
+}
+
+/* ============================================================
+   v2 editorial skin (docs/workboard-ux.html)
+   Token/type overrides on top of the board shell.
+   ============================================================ */
+
+/* Topbar: logo mark + wordmark, centered search, icon actions */
+.topbar {
+  height: 52px;
+  gap: 16px;
+  padding: 0 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  text-decoration: none;
+  color: var(--text);
+  padding-right: 2px;
+}
+
+.logo .mark {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: #fff;
+  background: var(--text);
+  padding: 3px 7px;
+  border-radius: 3px;
+}
+
+.logo .name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+
+.search-wrap {
+  flex: 1;
+  max-width: 460px;
+  position: relative;
+}
+
+.search-icon {
+  position: absolute;
+  left: 11px;
+  color: var(--text-faint);
+  pointer-events: none;
+  font-size: 15px;
+}
+
+.search-input {
+  height: 32px;
+  padding: 0 56px 0 32px;
+  border-color: var(--border-2);
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 13.5px;
+}
+
+.search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.kbd-hint {
+  position: absolute;
+  right: 9px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.topbar-actions {
+  gap: 4px;
+}
+
+.top-action {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  font-size: 15px;
+}
+
+/* Display font for headings, micro-labels for metadata */
+.task-col-title h2,
+.focus-band h3,
+.drawer-head h2,
+.modal h3,
+.view-head h2,
+.welcome-title {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+.sidebar-label,
+.type-key,
+.count,
+.rail-cnt,
+.section-label,
+.kbd-hint,
+.oc-title {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Rail */
+.lists-rail {
+  width: 212px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  gap: 2px;
+}
+
+.sidebar-label {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 500;
+  padding-top: 14px;
+}
+
+.lists-rail .nav-item {
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.lists-rail .nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.lists-rail .nav-item.active {
+  background: var(--bg-panel);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border-2);
+}
+
+.rail-ico {
+  font-size: 15px;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.rail-cnt {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.lists-rail .nav-item.active .rail-cnt {
+  color: var(--accent);
+}
+
+.nav-item-label .nav-delete {
+  margin-left: 6px;
+}
+
+.ai-status:hover {
+  background: var(--bg-hover);
+}
+
+/* Task column */
+.task-column {
+  width: 328px;
+  padding: 14px 12px 0;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+}
+
+.task-col-head {
+  padding: 0 2px 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+}
+
+.task-col-title h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.count {
+  color: var(--text-faint);
+  font-size: 11px;
+  margin-top: 4px;
+  text-transform: none;
+}
+
+.new-task-btn-col {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-2);
+  color: var(--text-muted);
+  border-radius: 8px;
+}
+
+.new-task-btn-col:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  filter: none;
+}
+
+.quick-add {
+  margin: 10px 2px 6px;
+  border: 1px dashed var(--border-2);
+  background: transparent;
+}
+
+.quick-add:focus-within {
+  border-color: var(--accent);
+}
+
+.task-list {
+  padding: 4px 0 16px;
+}
+
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.task-row:hover {
+  background: var(--bg-hover);
+  border-color: transparent;
+}
+
+.task-row.selected {
+  background: var(--bg-panel);
+  box-shadow: inset 0 0 0 1px var(--border-2);
+}
+
+.t-emoji {
+  font-size: 15px;
+  width: 22px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.task-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.type-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.suggest-hint {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.task-step {
+  font-size: 11.5px;
+  margin-top: 3px;
+}
+
+.task-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.task-actions .row-act {
+  display: none;
+  padding: 2px 7px;
+  font-size: 11px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.task-row:hover .task-actions .row-act {
+  display: inline-flex;
+}
+
+.task-actions .check {
+  width: 18px;
+  height: 18px;
+  margin-top: 0;
+  border: 2px solid var(--border-2);
+  border-radius: 50%;
+  background: none;
+  flex-shrink: 0;
+}
+
+.check.checked {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+/* Status dot chips */
+.st-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1.5px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.st-chip .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.st-chip.queued {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.st-chip.queued .dot {
+  background: var(--text-faint);
+}
+
+.st-chip.running {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.st-chip.running .dot {
+  background: var(--blue);
+  animation: st-pulse 1.2s ease-in-out infinite;
+}
+
+.st-chip.ready {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.st-chip.ready .dot {
+  background: var(--ok);
+}
+
+.st-chip.failed {
+  background: var(--err-soft);
+  color: var(--accent-ink);
+}
+
+.st-chip.failed .dot {
+  background: var(--accent);
+}
+
+@keyframes st-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Suggestion chips (dismissible) on rows: neutral small */
+.suggestion-chips {
+  gap: 4px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+
+.chip.subtle-chip {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+/* Focus column */
+.focus-col {
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+}
+
+.focus-empty {
+  color: var(--text-faint);
+}
+
+.focus-toolbar {
+  padding: 8px 14px;
+}
+
+.focus-label {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.focus-ctrl-btn {
+  border-color: transparent;
+  background: transparent;
+}
+
+/* AI band as a card */
+.focus-band {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.focus-band .detail {
+  padding: 6px 20px 16px;
+  gap: 12px;
+}
+
+.focus-band h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.focus-band h3 .f-emoji {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.focus-band h3 .f-title {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.f-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: -4px;
+}
+
+.type-key {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Title/type edit affordances */
+.title-edit-btn {
+  color: var(--text-faint);
+}
+
+.detail-actions {
+  flex-wrap: wrap;
+}
+
+.detail-actions .type-select {
+  background: var(--bg-panel);
+  border-color: var(--border-2);
+}
+
+/* Detail cards (analysis etc.) look like the prototype output cards */
+.card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.card h5 {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+}
+
+.section-head h4 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.completed-banner {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.warning-box {
+  background: var(--warn-soft);
+  border-color: var(--warn);
+}
+
+.finish-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.finish-btn:hover {
+  background: var(--accent-ink);
+}
+
+/* Working area notes: transparent, spacious */
+.focus-work {
+  padding: 16px 22px 40px;
+}
+
+.focus-work .plain-notes textarea,
+.notes-editor {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.notes-editor {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.notes-editor .editor-toolbar {
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  padding-bottom: 8px;
+}
+
+/* Status badges inside band reuse soft tones */
+.badge.running {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.badge.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.badge.err {
+  background: var(--err-soft);
+  color: var(--accent-ink);
+}
+
+.badge.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+/* Buttons: soft outlines, terracotta primary */
+.primary-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.primary-btn:hover {
+  background: var(--accent-ink);
+  border-color: var(--accent-ink);
+  filter: none;
+}
+
+.secondary-btn,
+.danger-btn,
+.mini-btn {
+  background: var(--bg-panel);
+  border-color: var(--border-2);
+  color: var(--text-muted);
+}
+
+.secondary-btn:hover,
+.mini-btn:hover {
+  border-color: var(--text-faint);
+  color: var(--text);
+}
+
+.danger-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Drawer */
+.drawer {
+  width: 460px;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+}
+
+.drawer-head h2 {
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.drawer-backdrop {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+/* Modal */
+.modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-2);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+}
+
+.modal h3 {
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.modal input,
+.modal textarea,
+.modal select {
+  background: var(--bg);
+  border-color: var(--border-2);
+}
+
+/* Toast */
+.toast {
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: var(--bg);
+}
+
+.toast-action {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* Editor host fills the work area */
+.focus-work .notes-editor .cm-editor-host {
+  font-family: var(--font-ui);
+}
+
+.markdown-preview code {
+  background: var(--bg-hover);
+}
+
+/* Responsive: collapse rail then column like the prototype */
+@media (max-width: 900px) {
+  .lists-rail {
+    display: none;
+  }
+}
+
+@media (max-width: 660px) {
+  .task-column {
+    display: none;
+  }
 }

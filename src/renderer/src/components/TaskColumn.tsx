@@ -19,7 +19,7 @@ interface Scope {
 // and the inline quick-capture; both target the scope's list (default list in
 // My Day mode) and are hidden while a search is active.
 export function TaskColumn() {
-  const { snapshot, activeView, selectedListId, selectTask, jobSteps, query, searchTasks, tasksForList, myDayTasks } = useApp()
+  const { snapshot, activeView, selectedListId, selectedTaskId, selectTask, jobSteps, query, searchTasks, tasksForList, myDayTasks } = useApp()
   const [showNewTask, setShowNewTask] = useState(false)
 
   const lists = snapshot?.lists ?? []
@@ -68,6 +68,7 @@ export function TaskColumn() {
             </span>
           )}
         </div>
+        {scope.tasks.length > 0 && <span className="count">{scope.tasks.length}</span>}
         {scope.captureListId && (
           <button className="primary-btn new-task-btn-col" onClick={() => setShowNewTask(true)} title={`New task in ${selectedList?.name ?? 'the default list'}`}>
             ＋ New task
@@ -83,10 +84,10 @@ export function TaskColumn() {
       )}
       <div className="task-list">
         {open.map((t) => (
-          <TaskRow key={t.id} task={t} jobStep={jobSteps[t.id] ?? null} onSelect={() => selectTask(t.id)} />
+          <TaskRow key={t.id} task={t} jobStep={jobSteps[t.id] ?? null} selected={t.id === selectedTaskId} onSelect={() => selectTask(t.id)} />
         ))}
         {done.map((t) => (
-          <TaskRow key={t.id} task={t} jobStep={jobSteps[t.id] ?? null} onSelect={() => selectTask(t.id)} />
+          <TaskRow key={t.id} task={t} jobStep={jobSteps[t.id] ?? null} selected={t.id === selectedTaskId} onSelect={() => selectTask(t.id)} />
         ))}
       </div>
 

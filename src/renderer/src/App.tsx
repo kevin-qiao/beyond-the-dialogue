@@ -11,7 +11,7 @@ import { WelcomeView } from './components/WelcomeView'
 // global search and the drawer entry points. Activity/Settings/Chat are
 // drawers (DrawerHost); on first run a welcome overlay sits above the board.
 export function App() {
-  const { loading, snapshot, selectedTaskId, toast, dismissToast, setActiveView, openDrawer, query, setQuery } = useApp()
+  const { loading, snapshot, selectedTaskId, toast, dismissToast, setActiveView, openDrawer, query, setQuery, saveSettings } = useApp()
   // Whole focus-column collapse is App-local state — deliberately not in the
   // shared context (a context/memo staleness bug left it unrenderable).
   const [focusCollapsed, setFocusCollapsed] = useState(false)
@@ -52,8 +52,12 @@ export function App() {
   return (
     <div className="app" data-theme={snapshot.settings.theme}>
       <header className="topbar">
-        <span className="app-title">Work Board</span>
+        <a className="logo" href="#" onClick={(e) => e.preventDefault()}>
+          <span className="mark">WB</span>
+          <span className="name">Work Board</span>
+        </a>
         <div className="search-wrap">
+          <span className="search-icon">⌕</span>
           <input
             id="global-search"
             className="search-input"
@@ -66,18 +70,27 @@ export function App() {
               ✕ clear
             </button>
           ) : (
-            <span className="kbd-hint">Ctrl+K</span>
+            <span className="kbd-hint">Ctrl K</span>
           )}
         </div>
         <div className="topbar-actions">
-          <button className="topbar-action" title="Activity — agent work" onClick={() => openDrawer('activity')}>
-            ▤ Activity
+          <button className="icon-btn top-action" title="Activity — agent work" onClick={() => openDrawer('activity')}>
+            ▤
           </button>
-          <button className="topbar-action" title="Debug chat" onClick={() => openDrawer('chat')}>
-            💬 Chat
+          <button className="icon-btn top-action" title="Debug chat" onClick={() => openDrawer('chat')}>
+            💬
           </button>
-          <button className="topbar-action" title="Settings" onClick={() => openDrawer('settings')}>
-            ⚙ Settings
+          <button
+            className="icon-btn top-action"
+            title={snapshot.settings.theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
+            onClick={() =>
+              void saveSettings({ ...snapshot.settings, theme: snapshot.settings.theme === 'light' ? 'dark' : 'light' })
+            }
+          >
+            {snapshot.settings.theme === 'light' ? '☾' : '☀'}
+          </button>
+          <button className="icon-btn top-action" title="Settings" onClick={() => openDrawer('settings')}>
+            ⚙
           </button>
         </div>
       </header>

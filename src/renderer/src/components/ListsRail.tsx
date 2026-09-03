@@ -23,6 +23,9 @@ export function ListsRail() {
   const queuedCount = jobs.filter((j) => j.state === 'queued').length + (activity ?? []).filter((r) => r.state === 'queued').length
 
   const lists = snapshot?.lists ?? []
+  const allTasks = snapshot?.tasks ?? []
+  const countFor = (listId: string) => allTasks.filter((t) => t.listId === listId).length
+  const myDayCount = allTasks.filter((t) => t.inMyDay).length
 
   const handleCreate = async () => {
     if (!newListName.trim()) return
@@ -57,13 +60,15 @@ export function ListsRail() {
   return (
     <nav className="sidebar lists-rail">
       <button
-        className={`nav-item ${activeView === 'my-day' ? 'active' : ''}`}
+        className={`rail-item nav-item ${activeView === 'my-day' ? 'active' : ''}`}
         onClick={() => {
           setActiveView('my-day')
           selectList(null)
         }}
       >
-        🔆 My Day
+        <span className="rail-ico">☀️</span>
+        My Day
+        <span className="rail-cnt">{myDayCount}</span>
       </button>
 
       <div className="sidebar-label">
@@ -89,7 +94,7 @@ export function ListsRail() {
       )}
 
       {lists.map((l) => (
-        <div key={l.id} className={`nav-item ${activeView === 'list' && selectedListId === l.id ? 'active' : ''}`}>
+        <div key={l.id} className={`rail-item nav-item ${activeView === 'list' && selectedListId === l.id ? 'active' : ''}`}>
           {editing === l.id ? (
             <input
               autoFocus
@@ -127,6 +132,7 @@ export function ListsRail() {
               </span>
             </span>
           )}
+          <span className="rail-cnt">{countFor(l.id)}</span>
         </div>
       ))}
 

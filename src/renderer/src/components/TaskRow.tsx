@@ -1,22 +1,25 @@
 import type { Task } from '../../../shared/types'
 import { useApp } from '../store'
+import { typeMeta, statusChip } from './status'
 
 interface Props {
   task: Task
   jobStep: { stepLabel: string | null; state: string } | null
+  selected?: boolean
   onSelect: () => void
 }
 
-export function TaskRow({ task, jobStep, onSelect }: Props) {
-  const { toggleTask, setMyDay, selectTask, requestReanalysis, cancelJob, notify } = useApp()
+// Board task row (docs/workboard-ux.html): emoji · title · type label + status
+// dot-chip on the first line; quick actions (analyze/star/cancel) sit on the
+// right and reveal on hover so the row stays scannable.
+export function TaskRow({ task, jobStep, selected, onSelect }: Props) {
+  const { toggleTask, setMyDay, requestReanalysis, cancelJob, notify } = useApp()
   const { snapshot, liveJobs } = useApp()
-  const analysis = snapshot?.analyses[task.id]
   const suggestions = snapshot?.suggestions.filter((s) => s.taskId === task.id && !s.dismissed) ?? []
-  // The job currently running/queued for this task (for the Cancel action).
   const activeJob = liveJobs.find((j) => j.taskId === task.id && (j.state === 'running' || j.state === 'queued'))
+  const meta = typeMeta(task.type)
+  const chip = statusChip(task, jobStep)
 
-  // Explicit analyze action, decoupled from My Day (spec analysis-lifecycle):
-  // shown on paper tasks that are not currently running a job.
   const analyzeAction = () => {
     if (!snapshot?.aiConfigured) {
       notify('AI not configured — open Settings to enable analysis')
@@ -25,33 +28,27 @@ export function TaskRow({ task, jobStep, onSelect }: Props) {
     void requestReanalysis(task.id)
   }
 
-  const statusBadge = () => {
-    if (jobStep) return <span className="badge running">working…</span>
-    if (task.type === 'paper_reading') {
-      if (task.analysisStatus === 'ready') return <span className="badge ok">analyzed</span>
-      if (task.analysisStatus === 'abstract_only') return <span className="badge warn">abstract-only</span>
-      if (task.analysisStatus === 'failed') return <span className="badge err">analysis failed</span>
-      if (task.analysisStatus === 'queued' || task.analysisStatus === 'running') return <span className="badge running">analyzing…</span>
-    }
-    return null
-  }
+  const showAnalyze = task.type === 'paper_reading' && !jobStep && (task.analysisStatus === 'none' || task.analysisStatus === 'failed')
+  const showReanalyze =
+    task.type === 'paper_reading' && !jobStep && (task.analysisStatus === 'ready' || task.analysisStatus === 'abstract_only')
 
   return (
-    <div className={`task-row ${task.completed ? 'done' : ''}`} onClick={onSelect}>
-      <button
-        className={`check ${task.completed ? 'checked' : ''}`}
-        onClick={(e) => {
-          e.stopPropagation()
-          void toggleTask(task.id)
-        }}
-        title={task.completed ? 'Mark incomplete' : 'Mark complete'}
-      />
+    <div className={`task-row ${task.completed ? 'done' : ''} ${selected ? 'selected' : ''}`} onClick={onSelect}>
+      <span className="t-emoji">{meta.emoji}</span>
       <div className="task-main">
         <div className="task-title">{task.title}</div>
+        <div className="task-meta">
+          <span className="type-tag">{meta.label}</span>
+          {chip}
+          {task.inMyDay && !task.completed && suggestions.length === 0 && !jobStep && (
+            <span className="muted suggest-hint">suggestions pending</span>
+          )}
+        </div>
+        {jobStep && <div className="task-step">{jobStep.stepLabel ?? 'working…'}</div>}
         {suggestions.length > 0 && (
           <div className="suggestion-chips">
             {suggestions.map((s) => (
-              <span key={s.id} className="chip">
+              <span key={s.id} className="chip subtle-chip">
                 {s.text}
                 <button
                   className="chip-x"
@@ -66,42 +63,35 @@ export function TaskRow({ task, jobStep, onSelect }: Props) {
             ))}
           </div>
         )}
-        {jobStep ? (
-          <div className="task-step">{jobStep.stepLabel ?? 'working…'}</div>
-        ) : (
-          analysis && <div className="task-tldr">{analysis.tldr}</div>
-        )}
       </div>
-      <div className="task-meta">
-        {statusBadge()}
-        {task.type === 'paper_reading' && !jobStep && (task.analysisStatus === 'none' || task.analysisStatus === 'failed') && (
+      <div className="task-actions">
+        {showAnalyze && (
           <button
-            className="mini-btn"
+            className="mini-btn row-act"
             onClick={(e) => {
               e.stopPropagation()
               analyzeAction()
             }}
             title={snapshot?.aiConfigured ? 'Start analysis' : 'AI not configured'}
           >
-            {task.analysisStatus === 'failed' ? 'Retry' : 'Analyze'}
+            Analyze
           </button>
         )}
-        {task.type === 'paper_reading' && !jobStep && (task.analysisStatus === 'ready' || task.analysisStatus === 'abstract_only') && (
+        {showReanalyze && (
           <button
-            className="mini-btn"
+            className="mini-btn row-act"
             onClick={(e) => {
               e.stopPropagation()
               analyzeAction()
             }}
             title="Re-run analysis"
           >
-            Re-analyze
+            Re-run
           </button>
         )}
-        {task.type === 'paper_reading' && <span className="badge type">📄 paper</span>}
         {activeJob && (
           <button
-            className="mini-btn cancel"
+            className="mini-btn row-act cancel"
             onClick={(e) => {
               e.stopPropagation()
               void cancelJob(activeJob.jobId)
@@ -121,9 +111,14 @@ export function TaskRow({ task, jobStep, onSelect }: Props) {
         >
           {task.inMyDay ? '★' : '☆'}
         </button>
-        {task.inMyDay && !task.completed && suggestions.length === 0 && !jobStep && (
-          <span className="badge subtle">suggestions pending…</span>
-        )}
+        <button
+          className={`check ${task.completed ? 'checked' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            void toggleTask(task.id)
+          }}
+          title={task.completed ? 'Mark incomplete' : 'Mark complete'}
+        />
       </div>
     </div>
   )
