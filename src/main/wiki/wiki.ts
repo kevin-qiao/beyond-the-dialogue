@@ -8,6 +8,27 @@ import { summaryPathFor, notePathFor, pdfPathFor } from './vault'
 // LLM-WiKi integration: scaffolding, deposit-first safety net, .history
 // snapshots, and the confined ingestion agent.
 
+// The LLM-WiKi pattern guide lives as a markdown template (src/main/wiki/
+// LLM-WiKi.md) and is seeded into every created wiki. It is read from disk at
+// runtime so the same file serves tests/dev (repo checkout) and packaged
+// builds (electron-builder extraResources copies it next to the app).
+function wikiGuideMarkdown(): string | null {
+  const candidates = [
+    process.env.WORKBOARD_WIKI_GUIDE,
+    path.resolve(process.cwd(), 'src', 'main', 'wiki', 'LLM-WiKi.md'),
+    typeof process.resourcesPath === 'string' ? path.join(process.resourcesPath, 'LLM-WiKi.md') : undefined
+  ]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    try {
+      if (fs.existsSync(candidate)) return fs.readFileSync(candidate, 'utf-8')
+    } catch {
+      // unreadable candidate — try the next one
+    }
+  }
+  return null
+}
+
 export function resolveWikiPath(configured: string): string {
   if (configured && configured.trim()) return configured.trim()
   return defaultWikiPath()
@@ -25,6 +46,12 @@ export function ensureWikiDir(wikiPath: string): void {
   }
   if (!fs.existsSync(path.join(wikiPath, 'CLAUDE.md'))) {
     fs.writeFileSync(path.join(wikiPath, 'CLAUDE.md'), WIKI_SCHEMA, 'utf-8')
+  }
+  // Seed the pattern guide once; missing template must not break scaffolding.
+  const guidePath = path.join(wikiPath, 'LLM-WiKi.md')
+  if (!fs.existsSync(guidePath)) {
+    const guide = wikiGuideMarkdown()
+    if (guide != null) fs.writeFileSync(guidePath, guide, 'utf-8')
   }
 }
 

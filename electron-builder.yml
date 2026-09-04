@@ -8,6 +8,10 @@ files:
   - package.json
 asarUnpack:
   - resources/**
+extraResources:
+  # Bundled LLM-WiKi pattern guide — seeded into each created wiki (see src/main/wiki/wiki.ts).
+  - from: src/main/wiki/LLM-WiKi.md
+    to: LLM-WiKi.md
 npmRebuild: false
 electronLanguages:
   - en-US

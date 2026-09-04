@@ -117,12 +117,12 @@ Cross-building (e.g. a Windows installer from Linux) needs wine and is unsupport
 
 ## Repository map
 
-- `src/main` — Electron main process: SQLite store (`db.ts`), job queue (`job-queue.ts`), job kinds (`jobs/analysis.ts`, `jobs/suggestions.ts`, `jobs/ingest.ts`), paper resolution (`paper/resolve.ts`), wiki machinery (`wiki.ts`), and the two agent-runtime seams (`agent-runtime.ts`, `session-factory.ts`) — all Pi SDK usage stays behind these seams.
+- `src/main` — Electron main process: SQLite store (`db.ts`), job machinery (`job-queue.ts` + handlers in `ai/`, `wiki/ingest.ts`, `paper/analysis.ts`, `suggestions.ts`), wiki scaffolding (`wiki/wiki.ts`, `wiki/vault.ts`), paper resolution (`paper/resolve.ts`), and the two agent-runtime seams (`ai/agent-runtime.ts`, `ai/session-factory.ts`) — all Pi SDK usage stays behind these seams.
 - `src/renderer` — React 18 UI (My Day / List / Activity / Settings views, plus a minimal debug Chat).
 - `src/shared` — domain types and the IPC contract shared by all three layers.
 - `docs/` — [`architecture.md`](docs/architecture.md) (v2 design) · [`architecture.drawio`](docs/architecture.drawio) · UX layout draft (`workboard-ux.drawio`).
 - `openspec/` — the spec source of truth (behavior specs, archived changes).
-- [`LLM-WiKi.md`](LLM-WiKi.md) — the idea behind the wiki: finished reading tasks become a knowledge base you own.
+- The wiki pattern guide — every wiki space the app creates is seeded with an `LLM-WiKi.md` (bundled at `src/main/wiki/LLM-WiKi.md`): finished reading tasks become a knowledge base you own.
 
 ## License
 

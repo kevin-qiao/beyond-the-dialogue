@@ -28,15 +28,20 @@ test('5.2 link classifier recognizes arXiv, DOI, meta, unknown', () => {
 test('6.1-6.2 wiki scaffolding creates structure and never overwrites', () => {
   const dir = tmpdir()
   ensureWikiDir(dir)
-  for (const rel of ['raw', 'wiki', '.history', 'index.md', 'log.md', 'CLAUDE.md']) {
+  for (const rel of ['raw', 'wiki', '.history', 'index.md', 'log.md', 'CLAUDE.md', 'LLM-WiKi.md']) {
     assert.ok(fs.existsSync(path.join(dir, rel)), `missing ${rel}`)
   }
   const indexContent = fs.readFileSync(path.join(dir, 'index.md'), 'utf-8')
+  assert.ok(indexContent.includes('Wiki Index'))
+  // The LLM-WiKi pattern guide is seeded from the bundled template.
+  const guideContent = fs.readFileSync(path.join(dir, 'LLM-WiKi.md'), 'utf-8')
+  assert.ok(guideContent.includes('# LLM Wiki'))
   // Existing structure is reused, not overwritten
   fs.writeFileSync(path.join(dir, 'index.md'), '# CUSTOM INDEX')
+  fs.writeFileSync(path.join(dir, 'LLM-WiKi.md'), '# CUSTOM GUIDE')
   ensureWikiDir(dir)
   assert.equal(fs.readFileSync(path.join(dir, 'index.md'), 'utf-8'), '# CUSTOM INDEX')
-  assert.ok(indexContent.includes('Wiki Index'))
+  assert.equal(fs.readFileSync(path.join(dir, 'LLM-WiKi.md'), 'utf-8'), '# CUSTOM GUIDE')
 })
 
 test('6.3 deposit writes note + summary into raw/', () => {

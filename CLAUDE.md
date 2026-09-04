@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Work Board is an Electron desktop to-do app ("AI-Native Work Board") whose AI features are powered by an **embedded agent runtime** (the Pi coding-agent SDK, `@earendil-works/pi-coding-agent` / `@earendil-works/pi-ai`, pinned exact versions). It implements the LLM-WiKi pattern (see `LLM-WiKi.md` for the idea): finished paper-reading tasks are ingested into a user-owned markdown wiki by a confined agent. The full design rationale lives in `openspec/changes/add-ai-native-work-board/design.md` (D1–D8) and the four specs under `openspec/changes/add-ai-native-work-board/specs/`; feature behavior is spec'd there.
+Work Board is an Electron desktop to-do app ("AI-Native Work Board") whose AI features are powered by an **embedded agent runtime** (the Pi coding-agent SDK, `@earendil-works/pi-coding-agent` / `@earendil-works/pi-ai`, pinned exact versions). It implements the LLM-WiKi pattern (the idea/guide is bundled at `src/main/wiki/LLM-WiKi.md` and seeded into each created wiki): finished paper-reading tasks are ingested into a user-owned markdown wiki by a confined agent. The full design rationale lives in `openspec/changes/add-ai-native-work-board/design.md` (D1–D8) and the four specs under `openspec/changes/add-ai-native-work-board/specs/`; feature behavior is spec'd there.
 
 ## Commands
 
@@ -38,7 +38,7 @@ Three storage kinds, deliberately different:
 
 1. **SQLite** (`node:sqlite`, *synchronous* `DatabaseSync`) at `<userData>/app.db` — lists, tasks, `enrichment_jobs`, `paper_analysis`, `reading_notes`, `suggestions`, `ingest_ledger`, `settings`. Schema lives in `src/main/db.ts` (`SCHEMA` const, row mappers map snake_case columns → camelCase domain types). Soft deletes via `deleted_at` tombstones.
 2. **Vault files** under `<userData>/vault/` — learning artifacts are born as files: `notes/<taskId>.md`, `analyses/<taskId>/{summary.md,suggestions.json,workspace/}`, `pdfs/<taskId>.pdf`. All paths come from `src/main/paths.ts` (never hardcode; `setUserDataRoot()` redirects everything for tests).
-3. **The wiki** — a user-configurable markdown directory (default `~/Documents/WorkBoard-Wiki`): `raw/` (immutable deposits), `wiki/` (agent-authored pages), `index.md`, `log.md`, `CLAUDE.md` (the **wiki schema**, app-authored from `WIKI_SCHEMA` in `src/main/wiki/wiki.ts` — distinct from this repo file), `.history/` snapshots.
+3. **The wiki** — a user-configurable markdown directory (default `~/Documents/WorkBoard-Wiki`): `raw/` (immutable deposits), `wiki/` (agent-authored pages), `index.md`, `log.md`, `CLAUDE.md` (the **wiki schema**, app-authored from `WIKI_SCHEMA` in `src/main/wiki/wiki.ts` — distinct from this repo file), `LLM-WiKi.md` (the pattern guide, seeded create-only from the bundled `src/main/wiki/LLM-WiKi.md` template), `.history/` snapshots.
 
 ### Job queue (the core machinery)
 

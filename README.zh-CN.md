@@ -117,12 +117,12 @@ npm run dist        # electron-vite build + electron-builder → release/
 
 ## 代码结构
 
-- `src/main` — Electron 主进程：SQLite 存储（`db.ts`）、任务队列（`job-queue.ts`）、三类任务（`jobs/analysis.ts`、`jobs/suggestions.ts`、`jobs/ingest.ts`）、论文解析（`paper/resolve.ts`）、Wiki 机制（`wiki.ts`），以及两个 Agent 运行时接缝（`agent-runtime.ts`、`session-factory.ts`）——所有 Pi SDK 调用都被挡在这两个接缝之后。
+- `src/main` — Electron 主进程：SQLite 存储（`db.ts`）、任务队列机制（`job-queue.ts`，handler 分布在 `ai/`、`wiki/ingest.ts`、`paper/analysis.ts`、`suggestions.ts`）、Wiki 脚手架（`wiki/wiki.ts`、`wiki/vault.ts`）、论文解析（`paper/resolve.ts`），以及两个 Agent 运行时接缝（`ai/agent-runtime.ts`、`ai/session-factory.ts`）——所有 Pi SDK 调用都被挡在这两个接缝之后。
 - `src/renderer` — React 18 界面（My Day / List / Activity / Settings，外加一个极简调试 Chat）。
 - `src/shared` — 三端共享的领域类型与 IPC 契约。
 - `docs/` — [`architecture.md`](docs/architecture.md)（v2 设计）· [`architecture.drawio`](docs/architecture.drawio) · UX 布局草稿（`workboard-ux.drawio`）。
 - `openspec/` — 行为规格的源头（OpenSpec：规格与已归档的变更）。
-- [`LLM-WiKi.md`](LLM-WiKi.md) — Wiki 模式背后的想法：读完的东西都沉淀成你拥有的知识库。
+- Wiki 模式指南 — 应用创建的每个 Wiki 空间都会植入一份 `LLM-WiKi.md`（模板位于 `src/main/wiki/LLM-WiKi.md`）：读完的内容沉淀为属于你自己的知识库。
 
 ## 协议
 
