@@ -1,4 +1,4 @@
-import { useApp } from '../store'
+import { useApp } from '../../store'
 import { ActivityView } from './ActivityView'
 import { SettingsView } from './SettingsView'
 import { ChatView } from './ChatView'

@@ -1,8 +1,8 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { getTask, getAnalysis, getNotes, loadSettings } from './db'
-import { defaultWikiPath } from './paths'
+import { getTask, getAnalysis, getNotes, loadSettings } from '../db'
+import { defaultWikiPath } from '../paths'
 import { summaryPathFor, notePathFor, pdfPathFor } from './vault'
 
 // LLM-WiKi integration: scaffolding, deposit-first safety net, .history

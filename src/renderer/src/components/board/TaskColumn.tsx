@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
-import { useApp } from '../store'
-import type { Task } from '../../../shared/types'
+import { useApp } from '../../store'
+import type { Task } from '../../../../shared/types'
 import { TaskRow } from './TaskRow'
 import { QuickAdd } from './QuickAdd'
 import { NewTaskForm } from './NewTaskForm'
-import { allTypeConfigs, typeFilterKey } from '../shared/typeCatalog'
+import { allTypeConfigs, typeFilterKey } from '../../lib/typeCatalog'
 
 interface Scope {
   header: string

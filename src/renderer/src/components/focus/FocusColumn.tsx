@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { useApp } from '../store'
+import { useApp } from '../../store'
 import { TaskBand } from './TaskBand'
 import { TaskNotes } from './TaskNotes'
-import { typeMeta } from './status'
+import { typeMeta } from '../board/status'
 
 interface Props {
   collapsed: boolean

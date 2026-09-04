@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useApp } from '../store'
-import { useDialog } from './Dialog'
+import { useApp } from '../../store'
+import { useDialog } from '../ui/Dialog'
 
 // Lists rail — the first column of the board (spec app-layout): My Day, the
 // user's lists (create/rename/delete), and the agent-presence footer. The

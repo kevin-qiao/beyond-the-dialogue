@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { shouldAutoAnalyze, shouldSuggestOnMyDayAdd } from '../src/main/triggers'
+import { shouldAutoAnalyze, shouldSuggestOnMyDayAdd } from '../src/main/ai/triggers'
 import type { Settings, Task } from '../src/shared/types'
 
 const SETTINGS_ON: Settings = {

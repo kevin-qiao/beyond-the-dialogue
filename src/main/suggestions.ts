@@ -1,6 +1,6 @@
-import type { JobContext } from '../job-queue'
-import { getTask, addSuggestion, listSuggestions, loadSettings } from '../db'
-import { isConfigured } from '../ai-config'
+import type { JobContext } from './job-queue'
+import { getTask, addSuggestion, listSuggestions, loadSettings } from './db'
+import { isConfigured } from './ai/ai-config'
 
 // My Day suggestion job: a single non-looping LLM call that produces 2-3
 // dismissible suggestion chips based on the task, its list, My Day titles,
@@ -45,8 +45,8 @@ Local time: ${localTime}
 
 Return your answer as a JSON array of 2 to 3 strings. Each string must be a single, specific, helpful suggestion (max ~12 words). Output ONLY the JSON array, nothing else.`
 
-  const scripted = await (await import('../session-factory')).runScriptedSimplePrompt(prompt)
-  const raw = scripted ?? (await (await import('../agent-runtime')).runSimplePrompt(settings, prompt, { reasoning: 'minimal' }))
+  const scripted = await (await import('./ai/session-factory')).runScriptedSimplePrompt(prompt)
+  const raw = scripted ?? (await (await import('./ai/agent-runtime')).runSimplePrompt(settings, prompt, { reasoning: 'minimal' }))
   const cleaned = raw.replace(/```(?:json)?/g, '').trim()
   const start = cleaned.indexOf('[')
   const end = cleaned.lastIndexOf(']')

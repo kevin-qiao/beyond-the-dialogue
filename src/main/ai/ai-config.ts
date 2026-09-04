@@ -1,4 +1,4 @@
-import type { Settings } from '../shared/types'
+import type { Settings } from '../../shared/types'
 
 // Pure helpers that don't touch the Pi SDK, so they can be imported in any
 // context (renderer, tests, main) without loading ESM-only agent packages.

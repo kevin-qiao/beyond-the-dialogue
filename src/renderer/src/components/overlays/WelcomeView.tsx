@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useApp } from '../store'
-import type { Settings } from '../../../shared/types'
+import { useApp } from '../../store'
+import type { Settings } from '../../../../shared/types'
 
 const SAMPLE_PAPER_URL = 'https://arxiv.org/abs/2301.00001'
 const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']

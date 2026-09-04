@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useApp } from '../store'
-import type { Task } from '../../../shared/types'
-import { allTypeConfigs, typeEmoji, typeLabel } from '../shared/typeCatalog'
+import { useApp } from '../../store'
+import type { Task } from '../../../../shared/types'
+import { allTypeConfigs, typeEmoji, typeLabel } from '../../lib/typeCatalog'
 
 // CommandPalette (⌘K) — spec app-layout v2: a global palette that fuses quick
 // actions, task jumping, and type filtering into one keyboard-first surface.
@@ -267,7 +267,7 @@ function taskToItem(
   t: Task,
   lists: { id: string; name: string }[],
   selectTask: (id: string | null) => void,
-  settings?: import('../../../shared/types').Settings | null
+  settings?: import('../../../../shared/types').Settings | null
 ): TaskItem {
   const list = lists.find((l) => l.id === t.listId)
   const label = typeLabel(t, settings)

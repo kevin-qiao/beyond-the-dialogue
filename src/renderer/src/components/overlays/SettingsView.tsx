@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useApp } from '../store'
-import type { Settings, TaskTypeConfig } from '../../../shared/types'
-import { BUILTIN_TYPE_CONFIGS, allTypeConfigs } from '../shared/typeCatalog'
+import { useApp } from '../../store'
+import type { Settings, TaskTypeConfig } from '../../../../shared/types'
+import { BUILTIN_TYPE_CONFIGS, allTypeConfigs } from '../../lib/typeCatalog'
 
 const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
 

@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useApp } from './store'
-import { ListsRail } from './components/ListsRail'
-import { TaskColumn } from './components/TaskColumn'
-import { FocusColumn } from './components/FocusColumn'
-import { DrawerHost } from './components/DrawerHost'
-import { WelcomeView } from './components/WelcomeView'
-import { CommandPalette } from './components/CommandPalette'
+import { ListsRail } from './components/board/ListsRail'
+import { TaskColumn } from './components/board/TaskColumn'
+import { FocusColumn } from './components/focus/FocusColumn'
+import { DrawerHost } from './components/overlays/DrawerHost'
+import { WelcomeView } from './components/overlays/WelcomeView'
+import { CommandPalette } from './components/overlays/CommandPalette'
 
 // Small circular progress ring used in the topbar to show today's completion
 // ratio. Clickable — jumps back to My Day view.

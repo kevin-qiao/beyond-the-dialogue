@@ -1,5 +1,5 @@
-import { useApp } from '../store'
-import type { Task } from '../../../shared/types'
+import { useApp } from '../../store'
+import type { Task } from '../../../../shared/types'
 import { NotesEditor } from './NotesEditor'
 
 // Working area of the focus column (spec app-layout): the notes surface for

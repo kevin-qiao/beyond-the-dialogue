@@ -1,5 +1,5 @@
-import type { Task } from '../../../shared/types'
-import { useApp } from '../store'
+import type { Task } from '../../../../shared/types'
+import { useApp } from '../../store'
 import { typeMeta, statusChip } from './status'
 
 interface Props {

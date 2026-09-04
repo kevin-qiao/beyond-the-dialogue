@@ -1,5 +1,5 @@
-import type { Task } from '../../../shared/types'
-import { typeEmoji, typeLabel } from '../shared/typeCatalog'
+import type { Task } from '../../../../shared/types'
+import { typeEmoji, typeLabel } from '../../lib/typeCatalog'
 
 // Shared v2 visuals (docs/workboard-ux.html): per-type emoji/label and the
 // status dot-chip. Rows, the focus head, and band share these so the board

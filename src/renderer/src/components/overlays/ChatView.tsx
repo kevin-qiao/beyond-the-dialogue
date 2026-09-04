@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useApp } from '../store'
+import { useApp } from '../../store'
 
 // Debug chat (model connection check): a free-form conversation with the
 // configured model. Streams tokens live via ev:chat-delta; history lives in

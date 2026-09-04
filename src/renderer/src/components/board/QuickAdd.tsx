@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useApp } from '../store'
-import { isPaperLink } from '../../../shared/link'
-import { allTypeConfigs } from '../shared/typeCatalog'
+import { useApp } from '../../store'
+import { isPaperLink } from '../../../../shared/link'
+import { allTypeConfigs } from '../../lib/typeCatalog'
 
 // Inline quick capture (spec task-capture): Enter creates the task in the
 // given list; pasting an arXiv/DOI/URL auto-detects a paper-reading task.

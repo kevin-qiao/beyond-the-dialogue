@@ -4,7 +4,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { classifyLink } from '../src/main/paper/resolve'
-import { ensureWikiDir, resolveWikiPath, depositTask, snapshotWikiFiles, diffTouchedFiles } from '../src/main/wiki'
+import { ensureWikiDir, resolveWikiPath, depositTask, snapshotWikiFiles, diffTouchedFiles } from '../src/main/wiki/wiki'
 import { openDB, migrate, createList, createTask, saveAnalysis, saveNotes, listLists, listIngest, saveSettings } from '../src/main/db'
 import { setUserDataRoot } from '../src/main/paths'
 

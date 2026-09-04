@@ -1,6 +1,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { analysesDir, notesDir, pdfsDir, vaultDir } from './paths'
+import { analysesDir, notesDir, pdfsDir, vaultDir } from '../paths'
 
 // The vault is the app-owned filesystem for learning artifacts. Notes are
 // born as markdown files; analyses and PDFs are stored per task.

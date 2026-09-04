@@ -1,4 +1,4 @@
-import type { ChatMessage, Settings } from '../shared/types'
+import type { ChatMessage, Settings } from '../../shared/types'
 import { isConfigured } from './ai-config'
 
 export type ChatStreamFn = (settings: Settings, history: ChatMessage[], onDelta: (delta: string) => void) => Promise<string>

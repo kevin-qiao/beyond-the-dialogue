@@ -5,7 +5,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { openDB, migrate, createList, listLists, createTask, getJob, listSuggestions, getTask } from '../src/main/db'
 import { JobQueue } from '../src/main/job-queue'
-import { runSuggestionJob } from '../src/main/jobs/suggestions'
+import { runSuggestionJob } from '../src/main/suggestions'
 import { setUserDataRoot } from '../src/main/paths'
 
 function freshDB() {

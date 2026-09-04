@@ -1,4 +1,4 @@
-import type { Settings } from '../shared/types'
+import type { Settings } from '../../shared/types'
 
 // Central factory for job agent sessions. Isolates all Pi session creation so
 // jobs stay thin, and gives tests a seam to inject scripted sessions.
@@ -50,7 +50,7 @@ export async function createJobSession(opts: CreateJobSessionOptions): Promise<J
     await Promise.all([
       import('@earendil-works/pi-coding-agent'),
       import('./agent-runtime'),
-      import('./paths')
+      import('../paths')
     ])
 
   const runtime = await getRuntime()

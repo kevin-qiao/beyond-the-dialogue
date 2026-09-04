@@ -6,7 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 import { openDB, migrate, loadSettings, saveSettings, type DB } from './db'
-import { ensureVault, writeNote, storePdf } from './vault'
+import { ensureVault, writeNote, storePdf } from './wiki/vault'
 import {
   serviceCreateList,
   serviceCreateTask,
@@ -21,14 +21,14 @@ import {
   rolloverMyDay
 } from './tasks'
 import { JobQueue } from './job-queue'
-import { runAnalysisJob } from './jobs/analysis'
-import { runSuggestionJob } from './jobs/suggestions'
-import { runIngestJob } from './jobs/ingest'
-import { configureRuntimeFromSettings, isConfigured, listModelsForProvider, listProviders, testPrompt } from './agent-runtime'
-import { ChatSession } from './chat'
-import { shouldAutoAnalyze, shouldSuggestOnMyDayAdd } from './triggers'
+import { runAnalysisJob } from './paper/analysis'
+import { runSuggestionJob } from './suggestions'
+import { runIngestJob } from './wiki/ingest'
+import { configureRuntimeFromSettings, isConfigured, listModelsForProvider, listProviders, testPrompt } from './ai/agent-runtime'
+import { ChatSession } from './ai/chat'
+import { shouldAutoAnalyze, shouldSuggestOnMyDayAdd } from './ai/triggers'
 import { getAnalysis, getNotes, listIngest, listSuggestions, listAllSuggestions, getTask, saveNotes, dismissSuggestion, getJob, updateTask } from './db'
-import { notePathFor } from './vault'
+import { notePathFor } from './wiki/vault'
 import { IPC } from '../shared/ipc'
 import type { AppSnapshot, Settings, Task } from '../shared/types'
 

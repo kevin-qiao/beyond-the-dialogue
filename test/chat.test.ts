@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ChatSession, type ChatStreamFn } from '../src/main/chat'
+import { ChatSession, type ChatStreamFn } from '../src/main/ai/chat'
 import type { ChatMessage, Settings } from '../src/shared/types'
 
 const SETTINGS_ON: Settings = {

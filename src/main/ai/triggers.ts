@@ -1,4 +1,4 @@
-import type { Settings, Task } from '../shared/types'
+import type { Settings, Task } from '../../shared/types'
 import { isConfigured } from './ai-config'
 
 // Job trigger rules for the IPC handlers in index.ts. Kept pure and free of

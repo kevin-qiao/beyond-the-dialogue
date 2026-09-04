@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import type { Task } from '../../../shared/types'
-import { useApp } from '../store'
-import { useDialog } from './Dialog'
-import { typeMeta, statusChip } from './status'
+import type { Task } from '../../../../shared/types'
+import { useApp } from '../../store'
+import { useDialog } from '../ui/Dialog'
+import { typeMeta, statusChip } from '../board/status'
 
 // AI band of the focus column (spec app-layout): everything about the selected
 // task except its notes — header/title/type editing, link & paper info, agent

@@ -5,7 +5,7 @@
 export type BuiltinTaskType = 'plain' | 'paper_reading'
 // Tasks carry one of the two built-in types in `type`; a custom type (defined
 // by the user in settings) is referenced via `customTypeKey`. The catalog
-// (renderer/src/shared/typeCatalog.ts) resolves the effective type for UI.
+// (renderer/src/lib/typeCatalog.ts) resolves the effective type for UI.
 export type TaskType = BuiltinTaskType
 
 // Configurable task type — the two built-ins are also expressible as configs

@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useApp } from '../store'
-import { allTypeConfigs } from '../shared/typeCatalog'
+import { useApp } from '../../store'
+import { allTypeConfigs } from '../../lib/typeCatalog'
 
 export function NewTaskForm({ listId, onClose }: { listId: string; onClose: () => void }) {
   const { createTask, snapshot, selectList, setActiveView } = useApp()

@@ -2,8 +2,8 @@ import { ModelRuntime, type CreateModelRuntimeOptions } from '@earendil-works/pi
 import type { Model } from '@earendil-works/pi-ai/compat'
 import { getModel, getModels, getProviders } from '@earendil-works/pi-ai/compat'
 import type { ThinkingLevel } from '@earendil-works/pi-ai'
-import type { ChatMessage, Settings } from '../shared/types'
-import { piAgentDir, piAuthPath, piModelsPath } from './paths'
+import type { ChatMessage, Settings } from '../../shared/types'
+import { piAgentDir, piAuthPath, piModelsPath } from '../paths'
 import * as fs from 'node:fs'
 import { isConfigured } from './ai-config'
 

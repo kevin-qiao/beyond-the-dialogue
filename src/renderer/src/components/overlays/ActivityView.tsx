@@ -1,6 +1,6 @@
-import { useApp } from '../store'
-import type { JobProgressEvent } from '../../../shared/ipc'
-import type { IngestRecord } from '../../../shared/types'
+import { useApp } from '../../store'
+import type { JobProgressEvent } from '../../../../shared/ipc'
+import type { IngestRecord } from '../../../../shared/types'
 
 function stateBadge(state: string): string {
   if (state === 'done') return 'ok'

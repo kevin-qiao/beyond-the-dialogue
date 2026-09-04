@@ -1,9 +1,9 @@
 import * as path from 'node:path'
 import type { JobContext } from '../job-queue'
 import { getTask, getAnalysis, getNotes, loadSettings, updateIngest } from '../db'
-import { createJobSession } from '../session-factory'
+import { createJobSession } from '../ai/session-factory'
 import { piAgentDir } from '../paths'
-import { depositTask, resolveWikiPath, snapshotWikiFiles, diffTouchedFiles } from '../wiki'
+import { depositTask, resolveWikiPath, snapshotWikiFiles, diffTouchedFiles } from './wiki'
 
 const INGEST_SYSTEM_PROMPT = `You are the maintainer of a personal knowledge wiki. You will ingest a finished paper into the wiki by following the workflow in the CLAUDE.md schema file in your working directory.
 
