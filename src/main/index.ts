@@ -340,7 +340,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
-    title: 'Work Board',
+    title: 'Beyond the Dialogue',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,

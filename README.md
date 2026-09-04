@@ -1,8 +1,8 @@
-# Work Board — AI-Native Work Board
+# Beyond the Dialogue — an AI-native work board
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-**Beyond the dialogue: an AI-native work board where agents get things *done* under the hood while you simply work with tasks.**
+**Beyond the Dialogue: an AI-native work board where agents get things *done* under the hood while you simply work with tasks.**
 
 ---
 
@@ -10,7 +10,7 @@
 
 Most AI software today is a conversation with ambitions. You type, it talks; you type more, it talks more. But real daily work was never a dialogue — it is a pile of tasks, each carrying a purpose, and value only shows up when things get **done**, not when words are exchanged.
 
-So Work Board starts from the opposite end, and I want it to stay that way:
+So Beyond the Dialogue starts from the opposite end, and I want it to stay that way:
 
 - **Beyond the dialogue.** The future of AI is not a smarter chat box; it is an agent that understands your *purpose* and delivers results quietly underneath — reading, resolving, analyzing, drafting, organizing — while you keep moving through your day.
 - **Work is not a conversation.** This app deliberately *weakens* the chat and *strengthens* the task. Every AI capability hangs off the task lifecycle, not off a text box: you put a paper into My Day → an agent quietly reads it and returns a structured analysis → you write notes → **Finish** deposits the raw material into your own wiki → an agent drafts the pages. At no point do you need to "chat with the AI" to make it happen. The board in front of you shows tasks, not a transcript.
@@ -109,9 +109,9 @@ Targets are **host-platform specific** — build on the OS you target:
 
 | OS | Target | Output |
 | -- | ------ | ------ |
-| Windows | NSIS installer | `release/WorkBoard Setup <ver>.exe` |
-| Linux | AppImage + deb | `release/WorkBoard-<ver>.AppImage`, `*.deb` |
-| macOS | dmg + zip | `release/WorkBoard-<ver>.dmg`, `*.zip` |
+| Windows | NSIS installer | `release/Beyond the Dialogue Setup <ver>.exe` |
+| Linux | AppImage + deb | `release/Beyond the Dialogue-<ver>.AppImage`, `*.deb` |
+| macOS | dmg + zip | `release/Beyond the Dialogue-<ver>.dmg`, `*.zip` |
 
 Cross-building (e.g. a Windows installer from Linux) needs wine and is unsupported; installers are unsigned, so SmartScreen / Gatekeeper will warn on first launch.
 

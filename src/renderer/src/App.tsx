@@ -105,8 +105,8 @@ export function App() {
     <div className="app" data-theme={snapshot.settings.theme}>
       <header className="topbar">
         <a className="logo" href="#" onClick={(e) => e.preventDefault()}>
-          <span className="mark">WB</span>
-          <span className="name">Work Board</span>
+          <span className="mark">BeTD</span>
+          <span className="name">Beyond the Dialogue</span>
           <span className="tag">v2 · preview</span>
         </a>
 

@@ -1,4 +1,4 @@
-# Work Board — AI-Native Work Board
+# Beyond the Dialogue — 以任务为本的 AI 工作台
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
@@ -10,7 +10,7 @@
 
 当前大多数 AI 软件，本质是一个「野心勃勃的对话框」：你说一句，它回一句。但真正的工作从来不是对话——它是一堆带着目的的任务，价值只发生在事情**被做成**的那一刻，而不是话被说完的那一刻。
 
-所以 Work Board 从相反的方向出发，并且我希望它一直如此：
+所以 Beyond the Dialogue 从相反的方向出发，并且我希望它一直如此：
 
 - **超越对话。** AI 的未来不是一个更聪明的聊天框，而是一个理解你的**意图**、在后台把结果做出来的 Agent——读论文、解析链接、分析、起草、整理——而你继续推进自己的一天。
 - **工作不是对话。** 这个应用刻意**弱化聊天、强化任务逻辑**。每一项 AI 能力都挂在任务的生命周期上，而不是挂在输入框上：把一篇论文放进 My Day → Agent 在后台读完后交回结构化分析 → 你写笔记 → **完成**时先把原材料沉淀进你自己的 Wiki → Agent 草拟页面。整个过程你不需要「和 AI 聊天」，你面前的板子上是任务，不是聊天记录。
@@ -109,9 +109,9 @@ npm run dist        # electron-vite build + electron-builder → release/
 
 | 系统 | 目标 | 产物 |
 | ---- | ---- | ---- |
-| Windows | NSIS 安装包 | `release/WorkBoard Setup <ver>.exe` |
-| Linux | AppImage + deb | `release/WorkBoard-<ver>.AppImage`、`*.deb` |
-| macOS | dmg + zip | `release/WorkBoard-<ver>.dmg`、`*.zip` |
+| Windows | NSIS 安装包 | `release/Beyond the Dialogue Setup <ver>.exe` |
+| Linux | AppImage + deb | `release/Beyond the Dialogue-<ver>.AppImage`、`*.deb` |
+| macOS | dmg + zip | `release/Beyond the Dialogue-<ver>.dmg`、`*.zip` |
 
 跨平台交叉打包（如在 Linux 上打 Windows 包）需要 wine，暂不支持；安装包未签名，首次启动会被 SmartScreen / Gatekeeper 提示。
 

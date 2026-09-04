@@ -61,7 +61,7 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
 
   return (
     <div className="view welcome">
-      <h2 className="welcome-title">Welcome to Work Board</h2>
+      <h2 className="welcome-title">Welcome to Beyond the Dialogue</h2>
       <p className="muted welcome-sub">A to-do board where an AI agent reads papers with you and files them into your personal wiki.</p>
       {onOpenSettings && (
         <div className="row welcome-settings-row">

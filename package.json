@@ -1,7 +1,7 @@
 {
   "name": "work-board",
   "version": "0.1.0",
-  "description": "AI-Native Work Board - a desktop to-do app with embedded agent runtime and personal LLM-WiKi integration",
+  "description": "Beyond the Dialogue - an AI-native desktop work board with embedded agent runtime and personal LLM-WiKi integration",
   "main": "out/main/index.mjs",
   "type": "module",
   "license": "MIT",

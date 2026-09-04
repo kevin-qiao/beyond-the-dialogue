@@ -1,5 +1,5 @@
 appId: com.workboard.app
-productName: WorkBoard
+productName: Beyond the Dialogue
 directories:
   buildResources: build
   output: release
@@ -21,7 +21,7 @@ linux:
     - deb
   category: Utility
   maintainer: monster
-  synopsis: AI-Native Work Board
+  synopsis: An AI-native desktop work board
 deb:
   depends:
     - libgtk-3-0

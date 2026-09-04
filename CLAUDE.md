@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Work Board is an Electron desktop to-do app ("AI-Native Work Board") whose AI features are powered by an **embedded agent runtime** (the Pi coding-agent SDK, `@earendil-works/pi-coding-agent` / `@earendil-works/pi-ai`, pinned exact versions). It implements the LLM-WiKi pattern (the idea/guide is bundled at `src/main/wiki/LLM-WiKi.md` and seeded into each created wiki): finished paper-reading tasks are ingested into a user-owned markdown wiki by a confined agent. The full design rationale lives in `openspec/changes/add-ai-native-work-board/design.md` (D1–D8) and the four specs under `openspec/changes/add-ai-native-work-board/specs/`; feature behavior is spec'd there.
+Beyond the Dialogue is an Electron desktop to-do app (an "AI-native work board") whose AI features are powered by an **embedded agent runtime** (the Pi coding-agent SDK, `@earendil-works/pi-coding-agent` / `@earendil-works/pi-ai`, pinned exact versions). It implements the LLM-WiKi pattern (the idea/guide is bundled at `src/main/wiki/LLM-WiKi.md` and seeded into each created wiki): finished paper-reading tasks are ingested into a user-owned markdown wiki by a confined agent. The full design rationale lives in `openspec/changes/add-ai-native-work-board/design.md` (D1–D8) and the four specs under `openspec/changes/add-ai-native-work-board/specs/`; feature behavior is spec'd there.
 
 ## Commands
 
