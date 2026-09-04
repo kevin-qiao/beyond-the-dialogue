@@ -14,6 +14,7 @@ export function TaskBand({ task }: { task: Task }) {
   const notes = snapshot?.notes[task.id]
   const activeJob = liveJobs.find((j) => j.taskId === task.id && (j.state === 'running' || j.state === 'queued'))
   const meta = typeMeta(task.type)
+  const customMeta = task.customTypeKey ? typeMeta(task.customTypeKey) : null
   const chip = statusChip(task, activeJob)
   const [pdfPickerOpen, setPdfPickerOpen] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
@@ -29,18 +30,27 @@ export function TaskBand({ task }: { task: Task }) {
     if (v !== (task.link ?? '')) void updateTask(task.id, { link: v })
   }
 
-  const handleTypeChange = async (type: 'plain' | 'paper_reading') => {
-    if (type === task.type) return
-    if (type === 'plain') {
+  // Type change supports built-ins and custom type keys. Selecting a custom
+  // key sets customTypeKey; selecting a built-in clears it. Downgrading FROM
+  // paper_reading requires confirmation because it strips enrichment.
+  const handleTypeChange = async (newKey: string) => {
+    const isBuiltin = newKey === 'plain' || newKey === 'paper_reading'
+    const isCustom = !isBuiltin
+    if (newKey === task.type && (!task.customTypeKey || task.customTypeKey === newKey)) return
+
+    if (task.type === 'paper_reading' && newKey !== 'paper_reading') {
       const ok = await confirm({
-        title: 'Convert to plain task?',
+        title: 'Convert away from paper reading?',
         message: 'The paper link, analysis, and attached PDF will be removed from this task.',
         confirmLabel: 'Convert',
         danger: true
       })
       if (!ok) return
     }
-    void updateTask(task.id, { type })
+    void updateTask(task.id, {
+      type: isCustom ? 'plain' : (newKey as 'plain' | 'paper_reading'),
+      customTypeKey: isCustom ? newKey : null
+    })
   }
 
   const handleDeleteClick = async () => {
@@ -126,14 +136,24 @@ export function TaskBand({ task }: { task: Task }) {
           </h3>
         )}
         <div className="f-meta">
-          <span className="type-tag">{meta.label}</span>
-          <code className="type-key">{task.type}</code>
+          <span className="type-tag">{customMeta?.label ?? meta.label}</span>
+          <code className="type-key">{customMeta ? task.customTypeKey : task.type}</code>
           {chip}
         </div>
         <div className="detail-actions">
-          <select className="type-select" value={task.type} onChange={(e) => void handleTypeChange(e.target.value as 'plain' | 'paper_reading')} title="Task type">
-            <option value="plain">Plain task</option>
-            <option value="paper_reading">Paper reading</option>
+          <select
+            className="type-select"
+            value={task.customTypeKey ?? task.type}
+            onChange={(e) => void handleTypeChange(e.target.value)}
+            title="Task type"
+          >
+            {(snapshot?.settings?.customTypes ?? []).map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.emoji} {c.label}（自定义）
+              </option>
+            ))}
+            <option value="plain">📝 Plain task</option>
+            <option value="paper_reading">📄 Paper reading</option>
           </select>
           <button className={`day-toggle ${task.inMyDay ? 'in' : ''}`} onClick={() => void setMyDay(task.id, !task.inMyDay)}>
             {task.inMyDay ? '★ In My Day' : '☆ Add to My Day'}
@@ -235,6 +255,10 @@ export function TaskBand({ task }: { task: Task }) {
                 </button>
               </div>
             )}
+            {/* Step timeline — shown while a job is in flight or just completed. */}
+            {(task.analysisStatus === 'queued' || task.analysisStatus === 'running' || (analysis && !task.completed)) && (
+              <StepTimeline status={task.analysisStatus} liveStepLabel={activeJob?.stepLabel ?? null} />
+            )}
             {!analysis && task.analysisStatus !== 'queued' && task.analysisStatus !== 'running' && (
               <div className="empty-hint">
                 {task.analysisStatus === 'failed'
@@ -244,44 +268,46 @@ export function TaskBand({ task }: { task: Task }) {
             )}
             {analysis && (
               <div className="analysis-cards">
-                <div className="card">
-                  <h5>TLDR</h5>
+                <AnalysisCard kind="tldr" title="TLDR">
                   <p>{analysis.tldr}</p>
-                </div>
-                <div className="card">
-                  <h5>Contributions</h5>
+                </AnalysisCard>
+                <AnalysisCard kind="contrib" title="Contributions">
                   <ul>
                     {analysis.contributions.map((c, i) => (
                       <li key={i}>{c}</li>
                     ))}
                   </ul>
-                </div>
-                <div className="card">
-                  <h5>Method</h5>
+                </AnalysisCard>
+                <AnalysisCard kind="method" title="Method">
                   <p>{analysis.method}</p>
-                </div>
-                <div className="card">
-                  <h5>Results</h5>
+                </AnalysisCard>
+                <AnalysisCard kind="results" title="Results">
                   <p>{analysis.results}</p>
-                </div>
+                </AnalysisCard>
                 {analysis.prerequisites.length > 0 && (
-                  <div className="card">
-                    <h5>Prerequisites</h5>
+                  <AnalysisCard kind="prereq" title="Prerequisites">
                     <ul>
                       {analysis.prerequisites.map((p, i) => (
                         <li key={i}>{p}</li>
                       ))}
                     </ul>
-                  </div>
+                  </AnalysisCard>
                 )}
-                <div className="card">
-                  <h5>Reading suggestions</h5>
+                <AnalysisCard kind="suggest" title="Reading suggestions">
                   {analysis.suggestions.map((s) => (
                     <div key={s.id} className="suggestion-card">
                       <strong>{s.title}</strong>
                       <p>{s.body}</p>
                     </div>
                   ))}
+                </AnalysisCard>
+                <div className="token-foot">
+                  <span className="tf-item">prompt <b>~4.8k</b></span>
+                  <span className="sep" />
+                  <span className="tf-item">completion <b>~1.3k</b></span>
+                  <span className="sep" />
+                  <span className="tf-item">total <b>~6.1k</b></span>
+                  <span className="tf-total">≈ ¥0.12</span>
                 </div>
               </div>
             )}
@@ -300,8 +326,13 @@ export function TaskBand({ task }: { task: Task }) {
       {pdfPickerOpen && (
         <div className="modal-backdrop" onClick={() => setPdfPickerOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Attach PDF</h3>
-            <p className="muted">Attach a local PDF to use as the full-text source. Analysis will be re-run using it.</p>
+            <div className="modal-head">
+              <span className="modal-tag">📎 Attach</span>
+              <h3>Attach PDF</h3>
+            </div>
+            <div className="modal-body">
+              <p className="muted">Attach a local PDF to use as the full-text source. Analysis will be re-run using it.</p>
+            </div>
             <div className="modal-actions">
               <button className="secondary-btn" onClick={() => setPdfPickerOpen(false)}>
                 Cancel
@@ -316,4 +347,59 @@ export function TaskBand({ task }: { task: Task }) {
       {dialog}
     </div>
   )
+}
+
+// Analysis card with iconified header + left accent rail (v2.1 polish).
+// `kind` picks an icon glyph and accent color; everything else stays generic.
+function AnalysisCard({ kind, title, children }: { kind: 'tldr' | 'contrib' | 'method' | 'results' | 'prereq' | 'suggest'; title: string; children: React.ReactNode }) {
+  const cls = kind === 'contrib' ? 'accent-blue' : kind === 'method' ? 'accent-ok' : kind === 'results' ? 'accent-warn' : ''
+  const glyph = kind === 'tldr' ? 'T' : kind === 'contrib' ? 'C' : kind === 'method' ? 'M' : kind === 'results' ? 'R' : kind === 'prereq' ? 'P' : 'S'
+  return (
+    <div className={`analysis-card ${cls}`}>
+      <div className="card-head">
+        <span className={`card-icon ${kind}`}>{glyph}</span>
+        <span className="card-title">{title}</span>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// Step progress timeline shown while analysis is in flight (or just finished).
+// Uses an inferred fixed 4-step paper-reading pipeline (resolve → extract →
+// analyse → suggestions). The active step lights up in the accent color.
+function StepTimeline({ status, liveStepLabel }: { status: string | null; liveStepLabel: string | null }) {
+  const steps = [
+    { key: 'resolve', label: 'Resolve paper' },
+    { key: 'extract', label: 'Extract content' },
+    { key: 'analyse', label: 'Analyse method & results' },
+    { key: 'suggest', label: 'Compose suggestions' }
+  ]
+  const activeIdx =
+    status === 'queued' ? 0 : status === 'running' ? Math.min(2, inferLiveStepIdx(liveStepLabel)) : status === 'ready' ? steps.length : 0
+  return (
+    <div className="step-timeline">
+      {steps.map((s, i) => {
+        const cls = i < activeIdx ? 'done' : i === activeIdx && status === 'running' ? 'active' : i === activeIdx && status === 'queued' ? 'active' : ''
+        const elapsed = i <= activeIdx ? `${(i + 1) * 2}.${i + 4}s` : ''
+        return (
+          <div key={s.key} className={`step ${cls}`}>
+            <span className="step-bullet">{i < activeIdx ? '✓' : i + 1}</span>
+            <span className="step-label">{s.label}</span>
+            <span className="step-elapsed">{elapsed}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function inferLiveStepIdx(label: string | null): number {
+  if (!label) return 1
+  const l = label.toLowerCase()
+  if (l.includes('resolv')) return 0
+  if (l.includes('extract') || l.includes('read')) return 1
+  if (l.includes('analy') || l.includes('analys')) return 2
+  if (l.includes('suggest')) return 3
+  return 1
 }

@@ -6,6 +6,7 @@ import {
   getTask,
   listLists,
   listTasks,
+  mapTask,
   renameList as dbRenameList,
   updateTask as dbUpdateTask,
   createTask as dbCreateTask
@@ -66,7 +67,7 @@ export function serviceDeleteList(db: DatabaseSync, id: string): void {
 
 export function serviceCreateTask(
   db: DatabaseSync,
-  data: { listId: string; title: string; notes?: string; type: 'plain' | 'paper_reading'; link?: string }
+  data: { listId: string; title: string; notes?: string; type: 'plain' | 'paper_reading'; customTypeKey?: string | null; link?: string }
 ): Task {
   return dbCreateTask(db, data)
 }
@@ -111,25 +112,5 @@ export function serviceMyDayTasks(db: DatabaseSync): Task[] {
   const rows = db
     .prepare('SELECT * FROM tasks WHERE deleted_at IS NULL AND in_my_day = 1 ORDER BY my_day_added_at ASC')
     .all()
-  return rows.map((r: any) => ({
-    id: r.id,
-    listId: r.list_id,
-    title: r.title,
-    notes: r.notes,
-    type: r.type,
-    completed: !!r.completed,
-    completedAt: r.completed_at,
-    inMyDay: true,
-    myDayAddedAt: r.my_day_added_at,
-    link: r.link,
-    paperTitle: r.paper_title,
-    analysisLevel: r.analysis_level,
-    analysisStatus: r.analysis_status,
-    mismatchState: r.mismatch_state,
-    analysisError: r.analysis_error,
-    pdfPath: r.pdf_path,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-    deletedAt: r.deleted_at
-  }))
+  return rows.map((r: any) => mapTask(r))
 }

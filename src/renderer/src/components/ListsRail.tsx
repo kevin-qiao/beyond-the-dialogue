@@ -139,15 +139,15 @@ export function ListsRail() {
       <div className="sidebar-foot">
         <div className="ai-status" onClick={() => openDrawer('activity')} title="Agent status — open Activity">
           {runningJob ? (
-            <span className="ai-working">○ {runningJob.stepLabel ?? 'working…'}</span>
+            <span className="ai-working"><span className="presence-dot" />{runningJob.stepLabel ?? 'working…'}</span>
           ) : runningIngest ? (
-            <span className="ai-working">○ {ingestSteps[runningIngest.id] ?? 'ingesting…'}</span>
+            <span className="ai-working"><span className="presence-dot" />{ingestSteps[runningIngest.id] ?? 'ingesting…'}</span>
           ) : queuedCount > 0 ? (
-            <span className="ai-queued">○ {queuedCount} job{queuedCount > 1 ? 's' : ''} queued</span>
+            <span className="ai-queued"><span className="presence-dot" />{queuedCount} job{queuedCount > 1 ? 's' : ''} queued</span>
           ) : snapshot?.aiConfigured ? (
-            <span className="ai-on">● AI ready — agent idle</span>
+            <span className="ai-on"><span className="presence-dot" />AI ready — agent idle</span>
           ) : (
-            <span className="ai-off">● AI not configured</span>
+            <span className="ai-off"><span className="presence-dot" />AI not configured</span>
           )}
         </div>
       </div>

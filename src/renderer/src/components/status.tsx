@@ -1,16 +1,17 @@
 import type { Task } from '../../../shared/types'
+import { typeEmoji, typeLabel } from '../shared/typeCatalog'
 
 // Shared v2 visuals (docs/workboard-ux.html): per-type emoji/label and the
 // status dot-chip. Rows, the focus head, and band share these so the board
 // reads consistently.
 
-const TYPE_META: Record<string, { emoji: string; label: string }> = {
-  plain: { emoji: '📝', label: 'Plain task' },
-  paper_reading: { emoji: '📄', label: 'Paper reading' }
-}
-
 export function typeMeta(type: string): { emoji: string; label: string } {
-  return TYPE_META[type] ?? { emoji: '📌', label: type.replace(/_/g, ' ') }
+  // typeMeta is the legacy helper; prefer typeLabel/typeEmoji directly when
+  // you have a Task (so custom types resolve correctly).
+  return {
+    emoji: typeEmoji({ type: type as Task['type'], customTypeKey: null }),
+    label: typeLabel({ type: type as Task['type'], customTypeKey: null })
+  }
 }
 
 export type DotState = 'running' | 'ready' | 'failed' | 'queued' | 'none'
@@ -27,9 +28,11 @@ export function dotStateOf(task: Task, jobStep?: JobStepLike | null): DotState {
     if (task.analysisStatus === 'ready' || task.analysisStatus === 'abstract_only') return 'ready'
     if (task.analysisStatus === 'failed') return 'failed'
   }
-  // A My Day task of an agentic type whose first job hasn't fired reads as
-  // queued. Plain tasks have no AI pipeline, so they never show a chip.
-  if (task.type !== 'plain' && task.inMyDay && !task.completed) return 'queued'
+  // Custom types and non-plain built-in types are agentic pipelines. Until
+  // their first job fires, they read as 'queued' when added to My Day. Plain
+  // tasks have no AI pipeline and never show a chip.
+  const isAgentic = task.customTypeKey !== null || task.type !== 'plain'
+  if (isAgentic && task.inMyDay && !task.completed) return 'queued'
   return 'none'
 }
 

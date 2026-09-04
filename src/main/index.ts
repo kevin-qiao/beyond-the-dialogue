@@ -30,7 +30,7 @@ import { shouldAutoAnalyze, shouldSuggestOnMyDayAdd } from './triggers'
 import { getAnalysis, getNotes, listIngest, listSuggestions, listAllSuggestions, getTask, saveNotes, dismissSuggestion, getJob, updateTask } from './db'
 import { notePathFor } from './vault'
 import { IPC } from '../shared/ipc'
-import type { AppSnapshot, Settings } from '../shared/types'
+import type { AppSnapshot, Settings, Task } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
 let db: DB | null = null
@@ -154,6 +154,9 @@ function registerIpc(): void {
     const before = getTask(d(), args.id)
     if (!before) throw new Error('task not found')
     const patch: Partial<Task> = { title: args.title, notes: args.notes, type: args.type }
+    if (args.customTypeKey !== undefined) {
+      patch.customTypeKey = args.customTypeKey ?? null
+    }
     const newLink = args.link !== undefined ? args.link.trim() || null : undefined
     const linkChanged = newLink !== undefined && newLink !== before.link
     if (linkChanged) {
@@ -339,7 +342,7 @@ function createWindow(): void {
     height: 860,
     title: 'Work Board',
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
+      preload: path.join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false
     }

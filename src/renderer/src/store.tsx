@@ -41,8 +41,8 @@ interface AppContextValue extends AppState {
   createList: (name: string) => Promise<List>
   renameList: (id: string, name: string) => Promise<List>
   deleteList: (id: string) => Promise<void>
-  createTask: (args: { listId: string; title: string; notes?: string; type: 'plain' | 'paper_reading'; link?: string }) => Promise<Task>
-  updateTask: (id: string, patch: { title?: string; notes?: string; link?: string; type?: 'plain' | 'paper_reading' }) => Promise<Task>
+  createTask: (args: { listId: string; title: string; notes?: string; type: 'plain' | 'paper_reading'; customTypeKey?: string | null; link?: string }) => Promise<Task>
+  updateTask: (id: string, patch: { title?: string; notes?: string; link?: string; type?: 'plain' | 'paper_reading'; customTypeKey?: string | null }) => Promise<Task>
   deleteTask: (id: string) => Promise<void>
   toggleTask: (id: string) => Promise<Task>
   setMyDay: (id: string, inMyDay: boolean) => Promise<Task>
@@ -71,7 +71,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [selectedListId, setSelectedListId] = useState<string | null>(null)
   const [drawer, setDrawer] = useState<DrawerView | null>(null)
   const [jobSteps, setJobSteps] = useState<Record<string, { stepLabel: string | null; state: string }>>({})
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<ToastPayload | null>(null)
   const [query, setQuery] = useState('')
   const [liveJobs, setLiveJobs] = useState<Record<string, JobProgressEvent>>({})
   const [ingestSteps, setIngestSteps] = useState<Record<string, string | null>>({})

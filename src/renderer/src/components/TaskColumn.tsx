@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useApp } from '../store'
 import type { Task } from '../../../shared/types'
 import { TaskRow } from './TaskRow'
 import { QuickAdd } from './QuickAdd'
 import { NewTaskForm } from './NewTaskForm'
+import { allTypeConfigs, typeFilterKey } from '../shared/typeCatalog'
 
 interface Scope {
   header: string
@@ -21,9 +22,10 @@ interface Scope {
 export function TaskColumn() {
   const { snapshot, activeView, selectedListId, selectedTaskId, selectTask, jobSteps, query, searchTasks, tasksForList, myDayTasks } = useApp()
   const [showNewTask, setShowNewTask] = useState(false)
+  const [typeFilter, setTypeFilter] = useState<string | null>(null)
 
   const lists = snapshot?.lists ?? []
-  const defaultListId = snapshot?.defaultListId ?? lists[0]?.id ?? null
+  const defaultListId = snapshot?.settings?.defaultListId ?? lists[0]?.id ?? null
   const selectedList = lists.find((l) => l.id === selectedListId) ?? null
   const q = query.trim()
 
@@ -56,37 +58,101 @@ export function TaskColumn() {
   const done = scope.tasks.filter((t) => t.completed)
   const showCapture = !!scope.captureListId && !q
 
+  // Type filter — derive available types from current scope so chips never show empty.
+  // Group key = customTypeKey if set, else the built-in type.
+  const typeStats = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const t of open) {
+      const k = typeFilterKey(t)
+      m.set(k, (m.get(k) ?? 0) + 1)
+    }
+    return [...m.entries()]
+  }, [open])
+
+  const filteredOpen = typeFilter ? open.filter((t) => typeFilterKey(t) === typeFilter) : open
+  const filteredDone = typeFilter ? done.filter((t) => typeFilterKey(t) === typeFilter) : done
+
+  const completedCount = done.length
+  const totalCount = open.length + done.length
+  const pct = totalCount === 0 ? 0 : Math.round((completedCount / totalCount) * 100)
+  const isMyDay = activeView === 'my-day'
+
   return (
     <div className="task-column">
       <div className="view-head task-col-head">
         <div className="task-col-title">
           <h2>{scope.header}</h2>
           {scope.dateSub && (
-            <span className="muted">
-              {scope.dateSub}
-              {scope.rollover && ' · completed clear next day, open tasks stay'}
-            </span>
+            <span className="date-sub">{scope.dateSub}</span>
+          )}
+          {scope.rollover && (
+            <span className="rollover-hint">completed clears next day, open tasks stay</span>
+          )}
+          {totalCount > 0 && (
+            <div className="col-progress" aria-hidden>
+              <div className="bar" style={{ width: `${pct}%` }} />
+              <div className="legend">
+                <span><span className="num">{completedCount}</span> done</span>
+                <span><span className="num">{totalCount}</span> total · {pct}%</span>
+              </div>
+            </div>
           )}
         </div>
-        {scope.tasks.length > 0 && <span className="count">{scope.tasks.length}</span>}
-        {scope.captureListId && (
-          <button className="primary-btn new-task-btn-col" onClick={() => setShowNewTask(true)} title={`New task in ${selectedList?.name ?? 'the default list'}`}>
-            ＋ New task
-          </button>
-        )}
+        <div className="col-header-actions">
+          {scope.tasks.length > 0 && !q && <span className="count">{open.length}</span>}
+          {scope.captureListId && (
+            <button
+              className="primary-btn new-task-btn-col"
+              onClick={() => setShowNewTask(true)}
+              title={`New task in ${selectedList?.name ?? 'the default list'}`}
+            >
+              ＋
+            </button>
+          )}
+        </div>
       </div>
 
       {showCapture && <QuickAdd listId={scope.captureListId!} onCreated={() => setShowNewTask(false)} />}
+
+      {typeStats.length > 1 && !q && (
+        <div className="type-chips">
+          <button
+            className={`type-chip ${!typeFilter ? 'on' : ''}`}
+            onClick={() => setTypeFilter(null)}
+            title="All types"
+          >
+            <span className="tc-emoji" aria-hidden>·</span>
+            <span className="tc-label">All</span>
+            <span className="count-mini">{open.length}</span>
+          </button>
+          {typeStats.map(([ty, n]) => {
+            const cfg = allTypeConfigs(snapshot?.settings).find((c) => c.key === ty)
+            return (
+              <button
+                key={ty}
+                className={`type-chip ${typeFilter === ty ? 'on' : ''}`}
+                onClick={() => setTypeFilter((cur) => (cur === ty ? null : ty))}
+                title={`Filter by ${cfg?.label ?? ty}`}
+              >
+                <span className="tc-emoji" aria-hidden>{cfg?.emoji ?? '📌'}</span>
+                <span className="tc-label">{cfg?.label ?? ty}</span>
+                <span className="count-mini">{n}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {scope.tasks.length === 0 && (
         <div className="empty-hint">
-          {q ? 'No tasks match your search.' : activeView === 'my-day' ? 'Nothing planned for today. Add a task to My Day to get focused.' : 'This list is empty. Add a task to get started.'}
+          {q ? 'No tasks match your search.' : isMyDay ? 'Nothing planned for today. Add a task to My Day to get focused.' : 'This list is empty. Add a task to get started.'}
         </div>
       )}
       <div className="task-list">
-        {open.map((t) => (
+        {filteredOpen.map((t) => (
           <TaskRow key={t.id} task={t} jobStep={jobSteps[t.id] ?? null} selected={t.id === selectedTaskId} onSelect={() => selectTask(t.id)} />
         ))}
-        {done.map((t) => (
+        {filteredDone.map((t) => (
           <TaskRow key={t.id} task={t} jobStep={jobSteps[t.id] ?? null} selected={t.id === selectedTaskId} onSelect={() => selectTask(t.id)} />
         ))}
       </div>

@@ -89,6 +89,7 @@ export interface CreateTaskArgs {
   title: string
   notes?: string
   type: 'plain' | 'paper_reading'
+  customTypeKey?: string | null
   link?: string
 }
 
@@ -98,6 +99,7 @@ export interface UpdateTaskArgs {
   notes?: string
   link?: string
   type?: 'plain' | 'paper_reading'
+  customTypeKey?: string | null
 }
 
 export interface SaveNoteArgs {

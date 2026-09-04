@@ -64,21 +64,26 @@ export function useDialog() {
   const dialog = state ? (
     <div className="modal-backdrop" onClick={() => close(null)}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>{state.title}</h3>
-        <p className="dialog-msg">{state.message}</p>
-        {state.kind === 'prompt' && (
-          <input
-            autoFocus
-            className="dialog-input"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            placeholder={state.placeholder}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') close(inputValue)
-              if (e.key === 'Escape') close(null)
-            }}
-          />
-        )}
+        <div className="modal-head">
+          <span className="modal-tag">{state.danger ? 'Danger' : state.kind === 'prompt' ? 'Input' : 'Confirm'}</span>
+          <h3>{state.title}</h3>
+        </div>
+        <div className="modal-body">
+          <p className="dialog-msg">{state.message}</p>
+          {state.kind === 'prompt' && (
+            <input
+              autoFocus
+              className="dialog-input"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              placeholder={state.placeholder}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') close(inputValue)
+                if (e.key === 'Escape') close(null)
+              }}
+            />
+          )}
+        </div>
         <div className="modal-actions">
           <button className="secondary-btn" onClick={() => close(null)}>
             Cancel

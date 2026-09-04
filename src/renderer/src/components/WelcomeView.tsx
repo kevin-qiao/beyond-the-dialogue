@@ -47,7 +47,7 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
   }
 
   const trySample = async () => {
-    const listId = snapshot?.defaultListId ?? snapshot?.lists[0]?.id
+    const listId = snapshot?.settings?.defaultListId ?? snapshot?.lists[0]?.id
     if (!listId) return
     await createTask({
       listId,

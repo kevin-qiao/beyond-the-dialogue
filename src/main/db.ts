@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   title TEXT NOT NULL,
   notes TEXT NOT NULL DEFAULT '',
   type TEXT NOT NULL DEFAULT 'plain' CHECK (type IN ('plain','paper_reading')),
+  custom_type_key TEXT,
   completed INTEGER NOT NULL DEFAULT 0,
   completed_at TEXT,
   in_my_day INTEGER NOT NULL DEFAULT 0,
@@ -113,13 +114,14 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
 // ---- row mappers ----
 
-function mapTask(r: any): Task {
+export function mapTask(r: any): Task {
   return {
     id: r.id,
     listId: r.list_id,
     title: r.title,
     notes: r.notes,
     type: r.type,
+    customTypeKey: r.custom_type_key ?? null,
     completed: !!r.completed,
     completedAt: r.completed_at,
     inMyDay: !!r.in_my_day,
@@ -224,6 +226,24 @@ export function openDB(dataDir: string): DB {
 }
 
 export function migrate(db: DatabaseSync): void {
+  // Schema migrations (idempotent, runs once per version per install).
+  // Each step checks `schema_migrations` before applying — safe to re-run.
+  const ran = (v: number) =>
+    !!db.prepare('SELECT 1 FROM schema_migrations WHERE version = ?').get(v)
+  const mark = (v: number) =>
+    db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(v, new Date().toISOString())
+
+  // v1 → v2: custom_type_key column for user-defined task types.
+  if (!ran(2)) {
+    // SQLite's PRAGMA table_info lets us skip the ALTER if the column already
+    // exists (CREATE TABLE IF NOT EXISTS in fresh installs will have it).
+    const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'custom_type_key')) {
+      db.exec('ALTER TABLE tasks ADD COLUMN custom_type_key TEXT')
+    }
+    mark(2)
+  }
+
   // Seed a default list on first open.
   const row = db.prepare('SELECT COUNT(*) AS n FROM lists').get() as { n: number }
   if (row.n === 0) {
@@ -242,7 +262,8 @@ const DEFAULT_SETTINGS: Settings = {
   defaultListId: null,
   maxConcurrentJobs: 2,
   showWelcome: true,
-  theme: 'light'
+  theme: 'light',
+  customTypes: []
 }
 
 export function loadSettings(db: DatabaseSync): Settings {
@@ -258,6 +279,19 @@ export function loadSettings(db: DatabaseSync): Settings {
     else if (r.key === 'maxConcurrentJobs') out.maxConcurrentJobs = parseInt(r.value, 10) || 2
     else if (r.key === 'showWelcome') out.showWelcome = r.value !== '0'
     else if (r.key === 'theme') out.theme = r.value === 'dark' ? 'dark' : 'light'
+    else if (r.key === 'customTypes') {
+      try {
+        const parsed = JSON.parse(r.value)
+        if (Array.isArray(parsed)) {
+          out.customTypes = parsed.filter(
+            (c): c is Settings['customTypes'][number] =>
+              c && typeof c.key === 'string' && typeof c.label === 'string' && typeof c.emoji === 'string'
+          )
+        }
+      } catch {
+        // Corrupt JSON → keep default empty list. User can re-add types.
+      }
+    }
   }
   return out
 }
@@ -272,6 +306,7 @@ export function saveSettings(db: DatabaseSync, s: Settings): void {
   upsert.run('maxConcurrentJobs', String(s.maxConcurrentJobs))
   upsert.run('showWelcome', s.showWelcome ? '1' : '0')
   upsert.run('theme', s.theme === 'dark' ? 'dark' : 'light')
+  upsert.run('customTypes', JSON.stringify(s.customTypes ?? []))
 }
 
 // ---- Lists ----
@@ -308,16 +343,18 @@ export function createTask(
     title: string
     notes?: string
     type?: 'plain' | 'paper_reading'
+    customTypeKey?: string | null
     link?: string
   }
 ): Task {
   const now = new Date().toISOString()
   const id = randomUUID()
   const type = data.type ?? 'plain'
+  const customTypeKey = data.customTypeKey ?? null
   db.prepare(
-    `INSERT INTO tasks (id, list_id, title, notes, type, in_my_day, analysis_status, mismatch_state, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 0, 'none', 'none', ?, ?)`
-  ).run(id, data.listId, data.title, data.notes ?? '', type, now, now)
+    `INSERT INTO tasks (id, list_id, title, notes, type, custom_type_key, in_my_day, analysis_status, mismatch_state, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, 'none', 'none', ?, ?)`
+  ).run(id, data.listId, data.title, data.notes ?? '', type, customTypeKey, now, now)
   if (type === 'paper_reading' && data.link) {
     db.prepare('UPDATE tasks SET link = ? WHERE id = ?').run(data.link, id)
   }
@@ -344,6 +381,7 @@ export function updateTask(db: DatabaseSync, id: string, patch: Partial<Task>): 
     title: 'title',
     notes: 'notes',
     type: 'type',
+    customTypeKey: 'custom_type_key',
     link: 'link',
     paperTitle: 'paper_title',
     analysisLevel: 'analysis_level',

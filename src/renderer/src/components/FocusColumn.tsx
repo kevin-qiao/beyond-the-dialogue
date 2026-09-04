@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useApp } from '../store'
 import { TaskBand } from './TaskBand'
 import { TaskNotes } from './TaskNotes'
+import { typeMeta } from './status'
 
 interface Props {
   collapsed: boolean
@@ -14,7 +15,7 @@ interface Props {
 // area (TaskNotes). Whole-column collapse state is owned by App so a new
 // selection reopens it; band collapse is local (reset by remounting on task).
 export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
-  const { selectedTaskId, taskById } = useApp()
+  const { selectedTaskId, taskById, snapshot } = useApp()
   const task = selectedTaskId ? taskById(selectedTaskId) : undefined
   const [bandCollapsed, setBandCollapsed] = useState(false)
 
@@ -38,11 +39,22 @@ export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
     )
   }
 
+  const meta = typeMeta(task.type)
+  const listName = snapshot?.lists.find((l) => l.id === task.listId)?.name ?? 'Inbox'
+
   return (
     <aside className="focus-col">
       <div className="focus-col-inner" key={task.id}>
         <div className="focus-toolbar">
-          <span className="muted focus-label">{task.type === 'paper_reading' ? '📄 AI band' : 'Task focus'}</span>
+          <span className="focus-label">
+            <span className="f-breadcrumb">
+              <span className="crumb">{listName}</span>
+              <span className="sep">›</span>
+              <span className="crumb">{meta.label}</span>
+              <span className="sep">›</span>
+              <span className="crumb" style={{ fontFamily: 'var(--font-mono)' }}>#{task.id.slice(0, 6)}</span>
+            </span>
+          </span>
           <div className="row">
             <button className="focus-ctrl-btn" onClick={() => setBandCollapsed((b) => !b)} title={bandCollapsed ? 'Show AI band' : 'Hide AI band'}>
               {bandCollapsed ? '▾ show AI' : '▴ hide AI'}
