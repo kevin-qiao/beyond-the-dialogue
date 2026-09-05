@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useApp } from '../../store'
 import { TaskBand } from './TaskBand'
 import { TaskNotes } from './TaskNotes'
-import { typeMeta } from '../board/status'
+import { JiraArea } from './JiraArea'
+import { effectiveKind, effectiveType } from '../../lib/typeCatalog'
 
 interface Props {
   collapsed: boolean
@@ -39,7 +40,7 @@ export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
     )
   }
 
-  const meta = typeMeta(task.type)
+  const meta = effectiveType(task, snapshot?.taskTypes)
   const listName = snapshot?.lists.find((l) => l.id === task.listId)?.name ?? 'Inbox'
 
   return (
@@ -70,7 +71,7 @@ export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
           </div>
         )}
         <div className={`focus-work ${bandCollapsed ? 'full' : ''}`}>
-          <TaskNotes task={task} />
+          {effectiveKind(task, snapshot?.taskTypes) === 'jira' ? <JiraArea task={task} /> : <TaskNotes task={task} />}
         </div>
       </div>
     </aside>

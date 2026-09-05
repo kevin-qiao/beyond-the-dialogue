@@ -4,6 +4,12 @@ import type { Settings } from '../../shared/types'
 // jobs stay thin, and gives tests a seam to inject scripted sessions.
 // The Pi SDK is loaded lazily so the override path (tests, no-key) never
 // touches the ESM-only agent package.
+//
+// Plugin grant seam (design D6): managed Skills/MCP entries (Settings.skills /
+// Settings.mcpServers) are NOT read anywhere on this path in v0.8 — sessions
+// are provably inert to them. The future wiring is a per-task-type grant
+// evaluated HERE at session build (customTools + tools allowlist), gated so
+// confined sessions (wiki ingest, suggestions) never receive external tools.
 
 export interface JobSessionLike {
   subscribe: (cb: (ev: any) => void) => () => void

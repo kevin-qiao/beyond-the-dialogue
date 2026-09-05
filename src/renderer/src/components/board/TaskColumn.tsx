@@ -126,7 +126,7 @@ export function TaskColumn() {
             <span className="count-mini">{open.length}</span>
           </button>
           {typeStats.map(([ty, n]) => {
-            const cfg = allTypeConfigs(snapshot?.settings).find((c) => c.key === ty)
+            const cfg = allTypeConfigs(snapshot?.taskTypes).find((c) => c.key === ty)
             return (
               <button
                 key={ty}

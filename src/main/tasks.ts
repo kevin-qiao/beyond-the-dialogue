@@ -67,7 +67,7 @@ export function serviceDeleteList(db: DatabaseSync, id: string): void {
 
 export function serviceCreateTask(
   db: DatabaseSync,
-  data: { listId: string; title: string; notes?: string; type: 'plain' | 'paper_reading'; customTypeKey?: string | null; link?: string }
+  data: { listId: string; title: string; notes?: string; type?: Task['type']; customTypeKey?: string | null; inputs?: Record<string, unknown> }
 ): Task {
   return dbCreateTask(db, data)
 }
@@ -86,7 +86,9 @@ export function serviceToggleTask(db: DatabaseSync, id: string): Task {
   const now = new Date().toISOString()
   return dbUpdateTask(db, id, {
     completed: !t.completed,
-    completedAt: t.completed ? null : now
+    completedAt: t.completed ? null : now,
+    // Completing a task cancels its alarm (spec task-notifications).
+    ...(t.completed ? {} : { alarmAt: null })
   })
 }
 

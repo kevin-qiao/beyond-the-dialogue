@@ -3,51 +3,43 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { openDB, migrate, saveSettings, getTask, getAnalysis, getNotes, listIngest, listSuggestions, getJob, saveNotes, updateTask } from '../src/main/db'
+import { openDB, migrate, saveSettings, getTask, getPreprocess, getNotes, listIngest, listSuggestions, getJob, saveNotes, updateTask } from '../src/main/db'
 import { JobQueue } from '../src/main/job-queue'
-import { runAnalysisJob } from '../src/main/paper/analysis'
+import { runPreprocessJob } from '../src/main/preprocess'
 import { runSuggestionJob } from '../src/main/suggestions'
 import { runIngestJob } from '../src/main/wiki/ingest'
 import { setSessionFactory, setSimplePromptOverride, type CreateJobSessionOptions } from '../src/main/ai/session-factory'
 import { setUserDataRoot } from '../src/main/paths'
-import { ensureVault, writeNote } from '../src/main/wiki/vault'
+import { ensureVault, writeNote, notePathFor } from '../src/main/wiki/vault'
 import { serviceCreateList, serviceCreateTask, serviceSetMyDay } from '../src/main/tasks'
 
-const SCRIPTED_ANALYSIS = JSON.stringify({
-  tldr: 'A scripted summary of the paper.',
-  contributions: ['Contribution one', 'Contribution two', 'Contribution three'],
-  method: 'The method combines simulation with theory.',
-  results: 'Key results improve accuracy by 12%.',
-  prerequisites: ['Linear algebra', 'Probability'],
-  suggestions: [
-    { kind: 'effort', title: 'Estimated effort', body: 'About 2 hours.' },
-    { kind: 'order', title: 'Reading order', body: 'Read sections 2 then 4.' },
-    { kind: 'question', title: 'Questions', body: 'How was the baseline chosen?' }
-  ]
+const SCRIPTED_PREPROCESS = JSON.stringify({
+  generatedPrompt: 'You are helping me learn blockchain applications for math education. Start from the NFTrig paper\'s core claim.',
+  summary: 'A learning task about applying blockchain techniques to math education, based on the NFTrig paper.',
+  suggestions: ['Summarize the paper\'s mechanism in your own words', 'Compare with traditional LMS approaches', 'Sketch a small demo idea']
 })
 
 // A scripted agent session that returns canned outputs; for the ingest job it
 // actually writes the wiki files the real agent would (then diff reports them).
-function makeScriptedSession(kind: 'analysis' | 'ingest', wikiPath: string, taskId: string) {
+function makeScriptedSession(kind: 'preprocess' | 'ingest', wikiPath: string, taskId: string) {
   const messages: any[] = []
   return {
     subscribe: () => () => {},
     messages,
     async prompt() {
-      if (kind === 'analysis') {
-        messages.push({ role: 'assistant', content: [{ type: 'text', text: SCRIPTED_ANALYSIS }] })
+      if (kind === 'preprocess') {
+        messages.push({ role: 'assistant', content: [{ type: 'text', text: SCRIPTED_PREPROCESS }] })
       } else {
-        // Simulate the ingestion agent's file operations.
-        const slug = `paper-${taskId.slice(0, 6)}`
-        fs.mkdirSync(path.join(wikiPath, 'wiki', 'sources'), { recursive: true })
+        // Simulate the ingestion agent's file operations: write the curated
+        // learning note, update index and log.
+        const slug = `learning-${taskId.slice(0, 6)}`
+        fs.mkdirSync(path.join(wikiPath, 'learning-notes'), { recursive: true })
         fs.writeFileSync(
-          path.join(wikiPath, 'wiki', 'sources', `${slug}.md`),
-          `# ${slug}\n\nTLDR: a scripted summary.\n\n## Notes\n\nReading notes from the user.\n`
+          path.join(wikiPath, 'learning-notes', `${slug}.md`),
+          `# ${slug}\n\nOverview: a scripted curated note.\n\n## Sources\n\n- [[raw/${taskId}]]\n`
         )
         const index = fs.readFileSync(path.join(wikiPath, 'index.md'), 'utf-8')
-        if (!index.includes('new-paper')) {
-          fs.writeFileSync(path.join(wikiPath, 'index.md'), index + `\n- [[${slug}]] — scripted summary\n`)
-        }
+        fs.writeFileSync(path.join(wikiPath, 'index.md'), index + `\n- [[${slug}]] — scripted curated note\n`)
         fs.appendFileSync(path.join(wikiPath, 'log.md'), `\n## [${new Date().toISOString().slice(0, 10)}] ingest | ${slug}\n`)
         messages.push({ role: 'assistant', content: [{ type: 'text', text: 'done' }] })
       }
@@ -60,11 +52,11 @@ before(() => {
   // Settings must be configured so jobs pass the AI-configured guard, but the
   // scripted session factory means no real provider is contacted.
   setSessionFactory(async (opts: CreateJobSessionOptions) => {
-    const kind = opts.systemPrompt.includes('wiki') ? 'ingest' : 'analysis'
+    const kind = opts.systemPrompt.includes('wiki') ? 'ingest' : 'preprocess'
     return makeScriptedSession(kind, opts.cwd, 'scripted')
   })
   setSimplePromptOverride(async () =>
-    JSON.stringify(['Break the paper into two reading sessions.', 'Skim the figures first.', 'Draft the notes in your own words.'])
+    JSON.stringify(['Break the topic into two sessions.', 'Skim the figures first.', 'Draft the notes in your own words.'])
   )
 })
 
@@ -95,7 +87,7 @@ async function waitForIngest(db: any, ingestId: string): Promise<void> {
   throw new Error('ingest timed out')
 }
 
-test('8.1 flagship scenario: arXiv paper -> My Day -> analysis -> notes -> Finish -> wiki ingest', { timeout: 30000 }, async () => {
+test('8.1 flagship scenario: learning task -> My Day -> preprocess -> note -> Finish -> wiki ingest', { timeout: 30000 }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-e2e-'))
   setUserDataRoot(dir)
   const wikiPath = path.join(dir, 'wiki-space')
@@ -107,80 +99,123 @@ test('8.1 flagship scenario: arXiv paper -> My Day -> analysis -> notes -> Finis
     apiKey: 'sk-scripted',
     wikiPath,
     defaultListId: null,
-    maxConcurrentJobs: 2, showWelcome: false
+    maxConcurrentJobs: 2, showWelcome: false, theme: 'light', skills: [], mcpServers: []
   })
   ensureVault()
 
-  // 1. Create a paper-reading task with an arXiv link.
+  // 1. Create a learning task with its target input.
   const list = serviceCreateList(conn.db, 'Research')
-  const paper = serviceCreateTask(conn.db, {
+  const task = serviceCreateTask(conn.db, {
     listId: list.id,
     title: 'NFTrig: Using Blockchain Technologies for Math Education',
-    type: 'paper_reading',
-    link: 'https://arxiv.org/abs/2301.00001'
+    type: 'learning',
+    inputs: { target: 'How NFTrig applies blockchain to math education', purpose: 'Write a learning note' }
   })
-  assert.equal(paper.type, 'paper_reading')
+  assert.equal(task.type, 'learning')
+  assert.equal(task.preprocessStatus, 'none')
 
-  // 2. New trigger model (spec analysis-lifecycle): the createTask IPC handler
-  // enqueues analysis for paper tasks created with a link; the setMyDay
-  // handler only enqueues suggestions on first add. Simulate both paths.
+  // 2. Trigger model (spec task-types): first add to My Day fires the
+  // kind's pre-process (AI configured) instead of the plain suggestion job.
   const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
-  q.register('analysis', runAnalysisJob)
+  q.register('preprocess', runPreprocessJob)
   q.register('suggestion', runSuggestionJob)
   q.register('ingest', runIngestJob)
-  const analysisJob = q.enqueue('analysis', paper.id)
-  serviceSetMyDay(conn.db, paper.id, true)
-  q.enqueue('suggestion', paper.id)
-  await waitForJob(conn.db, analysisJob.id, 'analysis')
+  serviceSetMyDay(conn.db, task.id, true)
+  const preJob = q.enqueue('preprocess', task.id)
+  await waitForJob(conn.db, preJob.id, 'preprocess')
 
-  // 3. Analysis completed and persisted.
-  const analyzed = getTask(conn.db, paper.id)!
-  const analysis = getAnalysis(conn.db, paper.id)
-  assert.ok(analysis, 'analysis persisted')
-  assert.ok(analysis.tldr.length > 0)
-  assert.ok(analysis.contributions.length >= 3)
-  assert.equal(analyzed.analysisStatus, 'ready')
+  // 3. Pre-process completed and persisted; suggestions landed as chips.
+  const processed = getTask(conn.db, task.id)!
+  assert.equal(processed.preprocessStatus, 'ready')
+  const pp = getPreprocess(conn.db, task.id)!
+  assert.ok(pp.generatedPrompt.length > 0, 'working prompt generated')
+  assert.ok(pp.summary.includes('blockchain'), 'summary derived from task context')
+  assert.equal(pp.kind, 'learning')
+  assert.ok(pp.inputsHash, 'inputs hash recorded for the re-run gate')
+  assert.ok(listSuggestions(conn.db, task.id).length >= 2, 'activity suggestions as dismissible chips')
 
-  // Suggestions produced.
-  assert.ok(listSuggestions(conn.db, paper.id).length >= 2, '2-3 suggestion chips')
-
-  // 4. Write reading notes (file-backed in vault).
-  const notePath = path.join(dir, 'vault', 'notes', `${paper.id}.md`)
-  fs.mkdirSync(path.dirname(notePath), { recursive: true })
-  writeNote(paper.id, '# Reading Notes\n\nKey insight: blockchain for math education.')
-  saveNotes(conn.db, { taskId: paper.id, notePath, content: '# Reading Notes\n\nKey insight: blockchain for math education.' })
-  const notes = getNotes(conn.db, paper.id)
+  // 4. Write the working note (file-backed in vault, autosave path).
+  writeNote(task.id, '# Learning Notes\n\nKey insight: blockchain for math education.')
+  saveNotes(conn.db, { taskId: task.id, notePath: notePathFor(task.id), content: '# Learning Notes\n\nKey insight: blockchain for math education.' })
+  const notes = getNotes(conn.db, task.id)
   assert.ok(notes?.content.includes('Key insight'))
 
   // 5. Finish -> mark complete + hand off to ingestion (mirrors IPC finishTask).
-  updateTask(conn.db, paper.id, { completed: true, completedAt: new Date().toISOString() })
-  const ingestRec = q.enqueueIngest(paper.id, paper.title, [])
+  updateTask(conn.db, task.id, { completed: true, completedAt: new Date().toISOString() })
+  const ingestRec = q.enqueueIngest(task.id, task.title, [])
   await waitForIngest(conn.db, ingestRec.id)
   const ingest = listIngest(conn.db)
   assert.equal(ingest.length, 1)
   assert.equal(ingest[0]!.state, 'done')
-  assert.ok(ingest[0]!.depositFiles.includes('reading-notes.md'))
-  assert.ok(ingest[0]!.touchedFiles.some((f) => f.includes('sources')), 'source summary page reported as touched')
+  // Deposit carries a file name generated from the title.
+  assert.ok(
+    ingest[0]!.depositFiles.some((f) => f === 'nftrig-using-blockchain-technologies-for-math-education.md'),
+    `deposit files: ${ingest[0]!.depositFiles}`
+  )
+  assert.ok(ingest[0]!.depositFiles.includes('ai-summary.md'), 'AI summary deposited too')
+  assert.ok(
+    ingest[0]!.touchedFiles.some((f) => f.startsWith('learning-notes/')),
+    `curated learning note reported as touched: ${ingest[0]!.touchedFiles}`
+  )
 
-  // 6. Wiki contains source page, updated index, log entry.
-  const sources = fs.readdirSync(path.join(wikiPath, 'wiki', 'sources'))
-  assert.ok(sources.length >= 1, 'source summary page created')
+  // 6. Wiki contains the curated note, updated index, log entry.
+  const curated = fs.readdirSync(path.join(wikiPath, 'learning-notes'))
+  assert.ok(curated.length >= 1, 'curated learning note created')
   const index = fs.readFileSync(path.join(wikiPath, 'index.md'), 'utf-8')
-  assert.ok(index.includes('sources') || sources.length > 0)
+  assert.ok(index.includes('learning-'), 'index updated')
   const log = fs.readFileSync(path.join(wikiPath, 'log.md'), 'utf-8')
   assert.ok(log.includes('ingest'), 'log entry appended')
 
-  // raw/ contains the deposited note.
-  const rawNote = path.join(wikiPath, 'raw', paper.id, 'reading-notes.md')
-  assert.ok(fs.existsSync(rawNote), 'raw deposit survived')
+  // raw/ contains the deposited note (deposit-first safety net).
+  const rawDir = path.join(wikiPath, 'raw', task.id)
+  assert.ok(fs.readdirSync(rawDir).some((f) => f.endsWith('.md')), 'raw deposit survived')
 
   // .history snapshot exists.
   const hist = fs.readdirSync(path.join(wikiPath, '.history'))
   assert.ok(hist.length >= 1, 'history snapshot present')
 
   // 7. Task is completed.
-  const finished = getTask(conn.db, paper.id)!
+  const finished = getTask(conn.db, task.id)!
   assert.equal(finished.completed, true)
 
+  conn.close()
+})
+
+test('8.1b re-running after input change refreshes outputs (hash gate)', { timeout: 20000 }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-e2e2-'))
+  setUserDataRoot(dir)
+  const conn = openDB(dir)
+  migrate(conn.db)
+  saveSettings(conn.db, {
+    provider: 'openai',
+    model: 'gpt-4o',
+    apiKey: 'sk-scripted',
+    wikiPath: path.join(dir, 'wiki-space'),
+    defaultListId: null,
+    maxConcurrentJobs: 2, showWelcome: false, theme: 'light', skills: [], mcpServers: []
+  })
+  ensureVault()
+
+  const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
+  q.register('preprocess', runPreprocessJob)
+  const list = serviceCreateList(conn.db, 'L')
+  const task = serviceCreateTask(conn.db, { listId: list.id, title: 'T', type: 'learning', inputs: { target: 'A' } })
+  serviceSetMyDay(conn.db, task.id, true)
+  const first = q.enqueue('preprocess', task.id)
+  await waitForJob(conn.db, first.id, 'preprocess')
+  const hash1 = getPreprocess(conn.db, task.id)!.inputsHash
+
+  // Edit the target while in My Day → hash changed → re-run allowed.
+  const edited = updateTask(conn.db, task.id, { inputs: { ...task.inputs, target: 'B' } })
+  const { preprocessInputHash } = await import('../src/main/types')
+  const { effectiveTypeDef } = await import('../src/main/types')
+  const def = effectiveTypeDef(conn.db, edited)
+  const newHash = preprocessInputHash(edited, def)
+  assert.notEqual(newHash, hash1)
+
+  const second = q.enqueue('preprocess', edited.id)
+  await waitForJob(conn.db, second.id, 'preprocess')
+  const after = getPreprocess(conn.db, task.id)!
+  assert.notEqual(after.inputsHash, hash1, 'second run recorded the new hash')
   conn.close()
 })

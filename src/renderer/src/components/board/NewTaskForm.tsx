@@ -1,16 +1,23 @@
 import { useState } from 'react'
 import { useApp } from '../../store'
 import { allTypeConfigs } from '../../lib/typeCatalog'
+import { TaskInputsForm } from './TaskInputsForm'
 
+// New-task modal (spec task-capture / task-types): the type picker lists the
+// full registry; the selected type's declared inputs render generically from
+// its inputSchema. Switching type clears the per-type inputs (spec: shared
+// fields survive, type-specific values are discarded — main enforces).
 export function NewTaskForm({ listId, onClose }: { listId: string; onClose: () => void }) {
-  const { createTask, snapshot, selectList, setActiveView } = useApp()
+  const { snapshot, types, createTask, selectList, setActiveView } = useApp()
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
-  // Selected type key — built-in ('plain' / 'paper_reading') or custom.
   const [typeKey, setTypeKey] = useState<string>('plain')
-  const [link, setLink] = useState('')
+  const [inputs, setInputs] = useState<Record<string, unknown>>({})
   const [error, setError] = useState<string | null>(null)
   const [list, setList] = useState(listId)
+
+  const configs = allTypeConfigs(types)
+  const def = configs.find((c) => c.key === typeKey) ?? configs[0]!
 
   const submit = async () => {
     setError(null)
@@ -18,25 +25,24 @@ export function NewTaskForm({ listId, onClose }: { listId: string; onClose: () =
       setError('Title is required.')
       return
     }
-    const isBuiltin = typeKey === 'plain' || typeKey === 'paper_reading'
-    const customKey = isBuiltin ? null : typeKey
-    const builtinType = isBuiltin ? (typeKey as 'plain' | 'paper_reading') : 'plain'
-    await createTask({
-      listId: list,
-      title: title.trim(),
-      notes: notes.trim(),
-      type: builtinType,
-      customTypeKey: customKey,
-      link: builtinType === 'paper_reading' ? link.trim() : undefined
-    })
-    selectList(list)
-    setActiveView('list')
-    onClose()
+    try {
+      await createTask({
+        listId: list,
+        title: title.trim(),
+        notes: notes.trim(),
+        type: def.isBuiltin ? (def.key as 'plain' | 'learning' | 'jira') : 'plain',
+        customTypeKey: def.isBuiltin ? null : def.key,
+        inputs
+      })
+      selectList(list)
+      setActiveView('list')
+      onClose()
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not create the task')
+    }
   }
 
   const lists = snapshot?.lists ?? []
-  const configs = allTypeConfigs(snapshot?.settings)
-  const effectiveBuiltin = typeKey === 'paper_reading' ? 'paper_reading' : 'plain'
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -66,21 +72,22 @@ export function NewTaskForm({ listId, onClose }: { listId: string; onClose: () =
           </label>
           <label>
             Type
-            <select value={typeKey} onChange={(e) => setTypeKey(e.target.value)}>
-              {(snapshot?.settings?.customTypes ?? []).map((c) => (
+            <select
+              value={typeKey}
+              onChange={(e) => {
+                setTypeKey(e.target.value)
+                setInputs({})
+              }}
+            >
+              {configs.map((c) => (
                 <option key={c.key} value={c.key}>
-                  {c.emoji} {c.label}（自定义）
+                  {c.emoji} {c.label}{c.isBuiltin ? '' : '（custom）'}
                 </option>
               ))}
-              <option value="plain">📝 Plain task</option>
-              <option value="paper_reading">📄 Paper reading</option>
             </select>
           </label>
-          {effectiveBuiltin === 'paper_reading' && (
-            <label>
-              Paper link <span className="muted">(optional — attach a local PDF instead)</span>
-              <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://arxiv.org/abs/…" />
-            </label>
+          {def.inputSchema.length > 0 && (
+            <TaskInputsForm def={def} values={inputs} onChange={setInputs} settings={snapshot?.settings} />
           )}
           {error && <div className="error-text">{error}</div>}
         </div>

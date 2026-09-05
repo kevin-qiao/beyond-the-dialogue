@@ -1,12 +1,12 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { getTask, getAnalysis, getNotes, loadSettings } from '../db'
+import { getTask, getPreprocess, getNotes, loadSettings } from '../db'
 import { defaultWikiPath } from '../paths'
-import { summaryPathFor, notePathFor, pdfPathFor } from './vault'
+import type { TaskPreprocess } from '../../shared/types'
 
 // LLM-WiKi integration: scaffolding, deposit-first safety net, .history
-// snapshots, and the confined ingestion agent.
+// snapshots, and the confined ingestion agent (design D5/D7).
 
 // The LLM-WiKi pattern guide lives as a markdown template (src/main/wiki/
 // LLM-WiKi.md) and is seeded into every created wiki. It is read from disk at
@@ -37,6 +37,7 @@ export function resolveWikiPath(configured: string): string {
 export function ensureWikiDir(wikiPath: string): void {
   fs.mkdirSync(path.join(wikiPath, 'raw'), { recursive: true })
   fs.mkdirSync(path.join(wikiPath, 'wiki'), { recursive: true })
+  fs.mkdirSync(path.join(wikiPath, 'learning-notes'), { recursive: true })
   fs.mkdirSync(path.join(wikiPath, '.history'), { recursive: true })
   if (!fs.existsSync(path.join(wikiPath, 'index.md'))) {
     fs.writeFileSync(path.join(wikiPath, 'index.md'), '# Wiki Index\n\n## Sources\n\n- (empty)\n\n## Entities\n\n- (empty)\n', 'utf-8')
@@ -64,40 +65,81 @@ export function scaffoldWikiIfNeeded(wikiPath: string): boolean {
 
 const WIKI_SCHEMA = `# LLM-WiKi Schema & Ingestion Workflow
 
-You are the maintainer of a personal knowledge wiki. When asked to ingest a source, follow this workflow exactly.
+You are the maintainer of a personal knowledge wiki. When asked to ingest a finished learning note, follow this workflow exactly.
 
 ## Structure
 
-- \`raw/\` — immutable source material (notes, summaries, PDFs). Never modify files here.
-- \`wiki/\` — your authored pages (summaries, entity pages, concept pages).
+- \`raw/\` — immutable source material (the finished note, its AI summary, optional attachments). Never modify files here.
+- \`wiki/\` — your authored pages (entity pages, concept pages, cross-links).
+- \`learning-notes/\` — curated learning notes, one markdown file per finished task.
 - \`index.md\` — content catalog: every page listed with a link, a one-line summary, grouped by category (Sources, Entities, Concepts).
 - \`log.md\` — append-only chronological record. Each entry starts with \`## [YYYY-MM-DD] ingest | Title\`.
 
 ## Conventions
 
-- One source summary page per paper, named \`wiki/sources/<slug>.md\` where \`<slug>\` is a short kebab-case title.
-- A source summary page starts with a 1-3 line overview, then sections: TLDR, Contributions, Method, Results, Prerequisites, Reading Notes.
-- Update or create related entity/concept pages in \`wiki/entities/\` and \`wiki/concepts/\` when a source introduces them.
-- Keep cross-references: link the source page from index.md under Sources, and link related pages to each other.
+- The curated note for an ingestion is written at the **learning-note path** given in the ingest request (default \`learning-notes/<slug>.md\`, \`<slug>\` a short kebab-case title). If a file already exists at that path, update and merge into it rather than duplicating.
+- A curated learning note starts with a 1-3 line overview, then the note's own sections; end it with a \`## Sources\` line linking the raw deposit folder.
+- Create or update related entity/concept pages in \`wiki/entities/\` and \`wiki/concepts/\` when the note introduces them.
+- Keep cross-references: link the note from index.md, and link related pages to each other.
 - Never modify anything under \`raw/\`.
 
 ## Ingestion workflow
 
-1. Read the raw deposit in \`raw/\` (note + summary + optional PDF).
-2. Write the source summary page under \`wiki/sources/\`.
-3. Update \`index.md\` to include the new page (and any new entity/concept pages).
-4. Update related entity/concept pages if applicable.
+1. Read the raw deposit in \`raw/\` for the given task folder (note + AI summary + optional attachment).
+2. Write or update the curated learning note at the given learning-note path.
+3. Update or create related entity/concept pages under \`wiki/\` if applicable.
+4. Update \`index.md\` to include the new/updated pages.
 5. Append an entry to \`log.md\` with the convention above.
 
 You have read/write/edit/grep/find/ls tools only — never run shell commands. Work only inside this wiki directory.
 `
+
+// ---- learning-note path helpers (design D5) ----
+
+// Kebab-case slug from a task title, safe as a filename. Falls back to the
+// task id fragment when the title has no usable characters.
+export function slugify(title: string, taskId?: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+    .replace(/-+$/g, '')
+  if (slug.length >= 2) return slug
+  return `note-${(taskId ?? '').slice(0, 8) || randomToken()}`
+}
+
+function randomToken(): string {
+  return Math.random().toString(36).slice(2, 10)
+}
+
+// Resolve the learning-note path for a task against the current wiki. The
+// stored value may be relative (normal case) or absolute (user typed it).
+// Returns the absolute + wiki-relative paths and whether it lands inside
+// the wiki at all (a changed wiki can orphan old paths — surfaced as a
+// mismatch, never silently mis-saved).
+export function resolveLearningNotePath(
+  wikiPath: string,
+  stored: unknown,
+  title: string,
+  taskId: string
+): { abs: string; rel: string; insideWiki: boolean } {
+  const raw = typeof stored === 'string' && stored.trim() ? stored.trim() : path.posix.join('learning-notes', `${slugify(title, taskId)}.md`)
+  const abs = path.isAbsolute(raw) ? path.normalize(raw) : path.normalize(path.join(wikiPath, raw))
+  const rel = path.relative(wikiPath, abs)
+  const insideWiki = !!rel && !rel.startsWith('..') && !path.isAbsolute(rel)
+  return { abs, rel: insideWiki ? rel.split(path.sep).join('/') : '', insideWiki }
+}
 
 export interface DepositResult {
   rawDir: string
   files: string[]
 }
 
-// Deposit step: synchronous file copy of note + summary (+ PDF) into raw/.
+// Deposit step (spec learning-type: deposit-first safety net): synchronous
+// file copies into raw/<taskId>/ — the finished note under a generated name
+// deduped on collision, plus the AI pre-process summary and the optional
+// attachment. Plain copies; succeeds before any ingest work begins.
 export function depositTask(db: DatabaseSync, taskId: string): DepositResult {
   const task = getTask(db, taskId)
   if (!task) throw new Error('task not found')
@@ -109,50 +151,46 @@ export function depositTask(db: DatabaseSync, taskId: string): DepositResult {
 
   const note = getNotes(db, taskId)
   if (note && note.content.trim()) {
-    const dest = path.join(rawDir, 'reading-notes.md')
-    fs.copyFileSync(note.notePath, dest)
-    files.push('reading-notes.md')
+    const base = slugify(task.title, taskId)
+    let name = `${base}.md`
+    let n = 2
+    while (fs.existsSync(path.join(rawDir, name))) {
+      name = `${base}-${n}.md`
+      n++
+    }
+    fs.copyFileSync(note.notePath, path.join(rawDir, name))
+    files.push(name)
   }
 
-  const analysis = getAnalysis(db, taskId)
-  if (analysis) {
-    const summary = renderSummary(analysis)
-    const dest = path.join(rawDir, 'analysis-summary.md')
+  const preprocess = getPreprocess(db, taskId)
+  if (preprocess) {
+    const summary = renderPreprocessSummary(task.title, preprocess)
+    const dest = path.join(rawDir, 'ai-summary.md')
     fs.writeFileSync(dest, summary, 'utf-8')
-    files.push('analysis-summary.md')
+    files.push('ai-summary.md')
   }
 
-  const pdf = pdfPathFor(taskId)
-  if (fs.existsSync(pdf)) {
-    const dest = path.join(rawDir, 'paper.pdf')
-    fs.copyFileSync(pdf, dest)
-    files.push('paper.pdf')
+  const filePath = typeof task.inputs.filePath === 'string' ? task.inputs.filePath : ''
+  if (filePath && fs.existsSync(filePath)) {
+    const dest = path.join(rawDir, `attachment-${path.basename(filePath)}`)
+    fs.copyFileSync(filePath, dest)
+    files.push(path.basename(dest))
   }
 
   return { rawDir, files }
 }
 
-function renderSummary(a: ReturnType<typeof getAnalysis>): string {
-  if (!a) return ''
-  return `# Analysis Summary
+function renderPreprocessSummary(title: string, p: TaskPreprocess): string {
+  return `# AI Pre-process Summary — ${title}
 
-## TLDR
-${a.tldr}
+## Generated working prompt
+${p.generatedPrompt || '(none)'}
 
-## Contributions
-${a.contributions.map((c) => `- ${c}`).join('\n')}
+## Summary
+${p.summary || '(none)'}
 
-## Method
-${a.method}
-
-## Results
-${a.results}
-
-## Prerequisites
-${a.prerequisites.map((p) => `- ${p}`).join('\n')}
-
-## Reading Suggestions
-${a.suggestions.map((s) => `### ${s.title}\n${s.body}`).join('\n\n')}
+## Activity suggestions
+${p.suggestions.map((s) => `- ${s}`).join('\n') || '(none)'}
 `
 }
 
@@ -187,7 +225,9 @@ function listExistingWikiFiles(wikiPath: string): string[] {
       else out.push(rel)
     }
   }
-  if (fs.existsSync(path.join(wikiPath, 'wiki'))) walk(path.join(wikiPath, 'wiki'), 'wiki')
+  for (const dirName of ['wiki', 'learning-notes']) {
+    if (fs.existsSync(path.join(wikiPath, dirName))) walk(path.join(wikiPath, dirName), dirName)
+  }
   if (fs.existsSync(path.join(wikiPath, 'index.md'))) out.push('index.md')
   if (fs.existsSync(path.join(wikiPath, 'log.md'))) out.push('log.md')
   return out

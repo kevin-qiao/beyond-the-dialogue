@@ -1,4 +1,4 @@
-import type { AppSnapshot, List, PaperAnalysis, ReadingNotes, Settings, Suggestion, Task } from './types'
+import type { AppSnapshot, List, Settings, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from './types'
 
 // IPC channel names. Commands are renderer -> main invokes; events are
 // main -> renderer pushes.
@@ -15,12 +15,14 @@ export const IPC = {
   toggleTask: 'tasks:toggle',
   setMyDay: 'tasks:set-my-day',
   setTaskDone: 'tasks:set-done',
+  setAlarm: 'tasks:set-alarm',
+  runPreprocess: 'tasks:run-preprocess',
+  finishTask: 'tasks:finish',
+  chooseFile: 'dialog:choose-file',
   saveNote: 'notes:save',
-  attachPdf: 'paper:attach-pdf',
-  requestReanalysis: 'paper:request-reanalysis',
-  resolveMismatch: 'paper:resolve-mismatch',
-  finishTask: 'paper:finish',
-  choosePdf: 'dialog:choose-pdf',
+  listTypes: 'types:list',
+  saveType: 'types:save',
+  deleteType: 'types:delete',
   retryJob: 'jobs:retry',
   cancelJob: 'jobs:cancel',
   getSettings: 'settings:get',
@@ -37,15 +39,18 @@ export const IPC = {
   evTaskUpdated: 'ev:task-updated',
   evListUpdated: 'ev:list-updated',
   evJobProgress: 'ev:job-progress',
-  evAnalysisUpdated: 'ev:analysis-updated',
+  evPreprocessUpdated: 'ev:preprocess-updated',
   evSuggestionsUpdated: 'ev:suggestions-updated',
   evSnapshot: 'ev:snapshot',
   evToast: 'ev:toast',
+  evSettingsUpdated: 'ev:settings-updated',
+  evTypesUpdated: 'ev:types-updated',
   evIngestUpdated: 'ev:ingest-updated',
   evIngestProgress: 'ev:ingest-progress',
   evChatDelta: 'ev:chat-delta',
   evChatDone: 'ev:chat-done',
-  evChatError: 'ev:chat-error'
+  evChatError: 'ev:chat-error',
+  evOpenTask: 'ev:open-task'
 } as const
 
 export interface JobProgressEvent {
@@ -88,18 +93,18 @@ export interface CreateTaskArgs {
   listId: string
   title: string
   notes?: string
-  type: 'plain' | 'paper_reading'
+  type?: Task['type']
   customTypeKey?: string | null
-  link?: string
+  inputs?: Record<string, unknown>
 }
 
 export interface UpdateTaskArgs {
   id: string
   title?: string
   notes?: string
-  link?: string
-  type?: 'plain' | 'paper_reading'
+  type?: Task['type']
   customTypeKey?: string | null
+  inputs?: Record<string, unknown>
 }
 
 export interface SaveNoteArgs {
@@ -107,13 +112,24 @@ export interface SaveNoteArgs {
   content: string
 }
 
-export interface AttachPdfArgs {
-  taskId: string
-  pdfPath: string
+export interface SetAlarmArgs {
+  id: string
+  alarmAt: string | null
+}
+
+export interface SaveTypeArgs {
+  type: TaskTypeDef
 }
 
 export interface SaveSettingsArgs {
   settings: Settings
+}
+
+export interface SendChatArgs {
+  text: string
+  // When set, the chat is grounded in this task's kind context (inputs,
+  // pre-process outputs, current note). Undefined = plain debug chat.
+  taskId?: string
 }
 
 // The API surface exposed on window.api by the preload script.
@@ -128,12 +144,14 @@ export interface RendererApi {
   toggleTask: (args: { id: string }) => Promise<Task>
   setMyDay: (args: { id: string; inMyDay: boolean }) => Promise<Task>
   setTaskDone: (args: { id: string; done: boolean }) => Promise<Task>
-  saveNote: (args: SaveNoteArgs) => Promise<ReadingNotes>
-  attachPdf: (args: AttachPdfArgs) => Promise<Task>
-  requestReanalysis: (args: { id: string }) => Promise<Task>
-  resolveMismatch: (args: { id: string; action: 'confirm' | 'correct' | 'attach' }) => Promise<Task>
+  setAlarm: (args: SetAlarmArgs) => Promise<Task>
+  runPreprocess: (args: { id: string }) => Promise<Task>
   finishTask: (args: { id: string }) => Promise<Task>
-  choosePdf: () => Promise<string | null>
+  chooseFile: () => Promise<string | null>
+  saveNote: (args: SaveNoteArgs) => Promise<TaskNote>
+  listTypes: () => Promise<TaskTypeDef[]>
+  saveType: (args: SaveTypeArgs) => Promise<TaskTypeDef>
+  deleteType: (args: { key: string }) => Promise<void>
   retryJob: (args: { jobId: string }) => Promise<void>
   cancelJob: (args: { jobId: string }) => Promise<void>
   getSettings: () => Promise<Settings>
@@ -141,7 +159,7 @@ export interface RendererApi {
   listModels: (provider: string) => Promise<string[]>
   listProviders: () => Promise<string[]>
   testConnection: (settings: Settings) => Promise<{ ok: boolean; text?: string; error?: string }>
-  sendChat: (text: string) => Promise<void>
+  sendChat: (args: SendChatArgs) => Promise<void>
   resetChat: () => Promise<void>
   dismissSuggestion: (args: { suggestionId: string }) => Promise<Suggestion>
   getActivity: () => Promise<import('./types').IngestRecord[]>
@@ -150,12 +168,15 @@ export interface RendererApi {
   onTaskUpdated: (cb: (t: Task) => void) => () => void
   onListUpdated: (cb: (l: List) => void) => () => void
   onJobProgress: (cb: (e: JobProgressEvent) => void) => () => void
-  onAnalysisUpdated: (cb: (a: PaperAnalysis) => void) => () => void
+  onPreprocessUpdated: (cb: (p: TaskPreprocess) => void) => () => void
   onSuggestionsUpdated: (cb: (s: Suggestion[]) => void) => () => void
+  onSettingsUpdated: (cb: (s: Settings) => void) => () => void
+  onTypesUpdated: (cb: (types: TaskTypeDef[]) => void) => () => void
   onToast: (cb: (t: ToastPayload) => void) => () => void
   onIngestUpdated: (cb: (rec: import('./types').IngestRecord) => void) => () => void
   onIngestProgress: (cb: (e: IngestProgressEvent) => void) => () => void
   onChatDelta: (cb: (e: ChatDeltaEvent) => void) => () => void
   onChatDone: (cb: (e: ChatDoneEvent) => void) => () => void
   onChatError: (cb: (e: ChatErrorEvent) => void) => () => void
+  onOpenTask: (cb: (taskId: string) => void) => () => void
 }

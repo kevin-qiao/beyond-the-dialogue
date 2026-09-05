@@ -1,17 +1,15 @@
-import type { Task } from '../../../../shared/types'
-import { typeEmoji, typeLabel } from '../../lib/typeCatalog'
+import type { Task, TaskTypeDef } from '../../../../shared/types'
+import { effectiveKind, effectiveType } from '../../lib/typeCatalog'
 
 // Shared v2 visuals (docs/workboard-ux.html): per-type emoji/label and the
 // status dot-chip. Rows, the focus head, and band share these so the board
 // reads consistently.
 
-export function typeMeta(type: string): { emoji: string; label: string } {
-  // typeMeta is the legacy helper; prefer typeLabel/typeEmoji directly when
-  // you have a Task (so custom types resolve correctly).
-  return {
-    emoji: typeEmoji({ type: type as Task['type'], customTypeKey: null }),
-    label: typeLabel({ type: type as Task['type'], customTypeKey: null })
-  }
+export function typeMeta(type: string, types?: TaskTypeDef[] | null): { emoji: string; label: string } {
+  // typeMeta resolves a raw key; prefer effectiveType(task, types) when you
+  // have a Task so custom types resolve correctly.
+  const def = effectiveType({ type: type as Task['type'], customTypeKey: null }, types)
+  return { emoji: def.emoji, label: def.label }
 }
 
 export type DotState = 'running' | 'ready' | 'failed' | 'queued' | 'none'
@@ -21,18 +19,15 @@ export interface JobStepLike {
   state?: string
 }
 
-export function dotStateOf(task: Task, jobStep?: JobStepLike | null): DotState {
+export function dotStateOf(task: Task, types?: TaskTypeDef[] | null, jobStep?: JobStepLike | null): DotState {
   if (jobStep) return 'running'
-  if (task.type === 'paper_reading') {
-    if (task.analysisStatus === 'queued' || task.analysisStatus === 'running') return 'running'
-    if (task.analysisStatus === 'ready' || task.analysisStatus === 'abstract_only') return 'ready'
-    if (task.analysisStatus === 'failed') return 'failed'
-  }
-  // Custom types and non-plain built-in types are agentic pipelines. Until
-  // their first job fires, they read as 'queued' when added to My Day. Plain
-  // tasks have no AI pipeline and never show a chip.
-  const isAgentic = task.customTypeKey !== null || task.type !== 'plain'
-  if (isAgentic && task.inMyDay && !task.completed) return 'queued'
+  // Only AI-kinded tasks (learning/jira via their type's kind) have a
+  // pre-process pipeline; plain tasks never show a chip.
+  if (effectiveKind(task, types) === 'plain') return 'none'
+  if (task.preprocessStatus === 'queued' || task.preprocessStatus === 'running') return 'running'
+  if (task.preprocessStatus === 'ready') return 'ready'
+  if (task.preprocessStatus === 'failed') return 'failed'
+  if (task.inMyDay && !task.completed) return 'queued'
   return 'none'
 }
 
@@ -44,8 +39,8 @@ const LABEL: Record<DotState, string> = {
   none: ''
 }
 
-export function statusChip(task: Task, jobStep?: JobStepLike | null) {
-  const state = dotStateOf(task, jobStep)
+export function statusChip(task: Task, types?: TaskTypeDef[] | null, jobStep?: JobStepLike | null) {
+  const state = dotStateOf(task, types, jobStep)
   if (state === 'none') return null
   return (
     <span className={`st-chip ${state}`}>

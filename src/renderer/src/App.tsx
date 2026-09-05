@@ -142,7 +142,7 @@ export function App() {
           <input
             id="global-search"
             className="search-input"
-            placeholder="Search tasks, papers, TLDRs…"
+            placeholder="Search tasks, notes, summaries…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />

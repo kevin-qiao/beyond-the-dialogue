@@ -1,62 +1,54 @@
-import type { Settings, Task, TaskTypeConfig } from '../../../shared/types'
+import type { Task, TaskKind, TaskTypeDef } from '../../../shared/types'
 
-// Centralized type catalog. Tasks carry a `type` ('plain' | 'paper_reading')
-// AND an optional `customTypeKey` pointing into settings.customTypes. This
-// module resolves the effective type for display, filtering, and creation —
-// components should never hardcode type labels/emoji/icons.
+// Centralized type catalog (design D2): tasks carry a built-in `type` and an
+// optional `customTypeKey` resolved against the task_types registry (delivered
+// in AppSnapshot.taskTypes). This module resolves the effective type + kind
+// for display, filtering, and creation — components should never hardcode
+// type labels/emoji/kinds. Fallbacks keep the UI alive if a custom key
+// disappears (the task then reads as plain, mirroring the main-side
+// reassignment on type deletion).
 
-export const BUILTIN_TYPE_CONFIGS: TaskTypeConfig[] = [
-  {
-    key: 'plain',
-    label: 'Plain task',
-    emoji: '📝',
-    description: '通用任务 — 无链接 / 无自动分析',
-    isCustom: false
-  },
-  {
-    key: 'paper_reading',
-    label: 'Paper reading',
-    emoji: '📄',
-    description: '论文阅读 — 粘贴链接自动触发 AI 分析',
-    isCustom: false
-  }
-]
-
-// All known configs: built-ins first, then user-defined (sorted by key).
-export function allTypeConfigs(settings?: Pick<Settings, 'customTypes'> | null): TaskTypeConfig[] {
-  const customs = settings?.customTypes ?? []
-  return [...BUILTIN_TYPE_CONFIGS, ...customs]
+const FALLBACK_PLAIN: TaskTypeDef = {
+  key: 'plain',
+  kind: 'plain',
+  label: 'Plain task',
+  emoji: '📝',
+  inputSchema: [],
+  isBuiltin: true
 }
 
-// Look up a single config by key. Falls back to the built-in if the key is
-// a built-in even when no settings are passed; falls back to a synthetic
-// "unknown" record for missing custom keys so the UI never crashes.
-export function getTypeConfig(key: string | null | undefined, settings?: Pick<Settings, 'customTypes'> | null): TaskTypeConfig {
-  if (!key) return BUILTIN_TYPE_CONFIGS[0]!
-  const found = allTypeConfigs(settings).find((c) => c.key === key)
+export function allTypeConfigs(types?: TaskTypeDef[] | null): TaskTypeDef[] {
+  return types && types.length > 0 ? types : [FALLBACK_PLAIN]
+}
+
+export function getTypeConfig(key: string | null | undefined, types?: TaskTypeDef[] | null): TaskTypeDef {
+  if (!key) return FALLBACK_PLAIN
+  const found = allTypeConfigs(types).find((c) => c.key === key)
   if (found) return found
-  // Unknown key — synthesize a placeholder so the UI still renders something.
-  return { key, label: key, emoji: '📌', description: undefined, isCustom: true }
+  return { key, kind: 'plain', label: key, emoji: '📌', inputSchema: [], isBuiltin: false }
 }
 
-// Resolve a task's effective type: customTypeKey wins when the referenced
-// config still exists; otherwise the built-in type. Always returns a config.
-export function effectiveType(task: Pick<Task, 'type' | 'customTypeKey'>, settings?: Pick<Settings, 'customTypes'> | null): TaskTypeConfig {
+// Effective type for a task: customTypeKey wins when the referenced type
+// still exists; otherwise the built-in type. Always returns a def.
+export function effectiveType(task: Pick<Task, 'type' | 'customTypeKey'>, types?: TaskTypeDef[] | null): TaskTypeDef {
   if (task.customTypeKey) {
-    const customs = settings?.customTypes ?? []
-    const match = customs.find((c) => c.key === task.customTypeKey)
+    const match = allTypeConfigs(types).find((c) => c.key === task.customTypeKey)
     if (match) return match
   }
-  return getTypeConfig(task.type, settings)
+  return getTypeConfig(task.type, types)
 }
 
-// Convenience accessors used by most call sites.
-export function typeLabel(task: Pick<Task, 'type' | 'customTypeKey'>, settings?: Pick<Settings, 'customTypes'> | null): string {
-  return effectiveType(task, settings).label
+// Behavior kind for dispatch (working area, AI band, pre-process display).
+export function effectiveKind(task: Pick<Task, 'type' | 'customTypeKey'>, types?: TaskTypeDef[] | null): TaskKind {
+  return effectiveType(task, types).kind
 }
 
-export function typeEmoji(task: Pick<Task, 'type' | 'customTypeKey'>, settings?: Pick<Settings, 'customTypes'> | null): string {
-  return effectiveType(task, settings).emoji
+export function typeLabel(task: Pick<Task, 'type' | 'customTypeKey'>, types?: TaskTypeDef[] | null): string {
+  return effectiveType(task, types).label
+}
+
+export function typeEmoji(task: Pick<Task, 'type' | 'customTypeKey'>, types?: TaskTypeDef[] | null): string {
+  return effectiveType(task, types).emoji
 }
 
 // Filter-chip key for grouping: customTypeKey if set, else the built-in.

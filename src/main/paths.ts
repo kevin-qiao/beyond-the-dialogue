@@ -33,14 +33,6 @@ export function notesDir(): string {
   return path.join(vaultDir(), 'notes')
 }
 
-export function analysesDir(): string {
-  return path.join(vaultDir(), 'analyses')
-}
-
-export function pdfsDir(): string {
-  return path.join(vaultDir(), 'pdfs')
-}
-
 export function piAgentDir(): string {
   return path.join(userDataDir(), 'pi-agent')
 }

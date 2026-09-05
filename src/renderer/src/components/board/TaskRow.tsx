@@ -1,6 +1,7 @@
 import type { Task } from '../../../../shared/types'
 import { useApp } from '../../store'
-import { typeMeta, statusChip } from './status'
+import { statusChip } from './status'
+import { effectiveType } from '../../lib/typeCatalog'
 
 interface Props {
   task: Task
@@ -9,37 +10,26 @@ interface Props {
   onSelect: () => void
 }
 
-// Board task row (docs/workboard-ux.html): emoji · title · type label + status
-// dot-chip on the first line; quick actions (analyze/star/cancel) sit on the
-// right and reveal on hover so the row stays scannable.
+// Board task row: emoji · title · type label + status dot-chip on the first
+// line; quick actions (star/complete/cancel) on the right, revealed on hover
+// so the row stays scannable. Pre-processing is triggered from My Day / the
+// focus band — the row never runs jobs itself.
 export function TaskRow({ task, jobStep, selected, onSelect }: Props) {
-  const { toggleTask, setMyDay, requestReanalysis, cancelJob, notify } = useApp()
-  const { snapshot, liveJobs } = useApp()
+  const { snapshot, types, toggleTask, setMyDay, cancelJob, liveJobs } = useApp()
   const suggestions = snapshot?.suggestions.filter((s) => s.taskId === task.id && !s.dismissed) ?? []
   const activeJob = liveJobs.find((j) => j.taskId === task.id && (j.state === 'running' || j.state === 'queued'))
-  const meta = typeMeta(task.type)
-  const chip = statusChip(task, jobStep)
-
-  const analyzeAction = () => {
-    if (!snapshot?.aiConfigured) {
-      notify('AI not configured — open Settings to enable analysis')
-      return
-    }
-    void requestReanalysis(task.id)
-  }
-
-  const showAnalyze = task.type === 'paper_reading' && !jobStep && (task.analysisStatus === 'none' || task.analysisStatus === 'failed')
-  const showReanalyze =
-    task.type === 'paper_reading' && !jobStep && (task.analysisStatus === 'ready' || task.analysisStatus === 'abstract_only')
+  const def = effectiveType(task, types)
+  const chip = statusChip(task, types, jobStep)
 
   return (
     <div className={`task-row ${task.completed ? 'done' : ''} ${selected ? 'selected' : ''}`} onClick={onSelect}>
-      <span className="t-emoji">{meta.emoji}</span>
+      <span className="t-emoji">{def.emoji}</span>
       <div className="task-main">
         <div className="task-title">{task.title}</div>
         <div className="task-meta">
-          <span className="type-tag">{meta.label}</span>
+          <span className="type-tag">{def.label}</span>
           {chip}
+          {task.alarmAt && <span className="badge" title={`Alarm ${new Date(task.alarmAt).toLocaleString()}`}>⏰</span>}
           {task.inMyDay && !task.completed && suggestions.length === 0 && !jobStep && (
             <span className="muted suggest-hint">suggestions pending</span>
           )}
@@ -65,30 +55,6 @@ export function TaskRow({ task, jobStep, selected, onSelect }: Props) {
         )}
       </div>
       <div className="task-actions">
-        {showAnalyze && (
-          <button
-            className="mini-btn row-act"
-            onClick={(e) => {
-              e.stopPropagation()
-              analyzeAction()
-            }}
-            title={snapshot?.aiConfigured ? 'Start analysis' : 'AI not configured'}
-          >
-            Analyze
-          </button>
-        )}
-        {showReanalyze && (
-          <button
-            className="mini-btn row-act"
-            onClick={(e) => {
-              e.stopPropagation()
-              analyzeAction()
-            }}
-            title="Re-run analysis"
-          >
-            Re-run
-          </button>
-        )}
         {activeJob && (
           <button
             className="mini-btn row-act cancel"

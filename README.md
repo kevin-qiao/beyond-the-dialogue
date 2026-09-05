@@ -13,32 +13,33 @@ Most AI software today is a conversation with ambitions. You type, it talks; you
 So Beyond the Dialogue starts from the opposite end, and I want it to stay that way:
 
 - **Beyond the dialogue.** The future of AI is not a smarter chat box; it is an agent that understands your *purpose* and delivers results quietly underneath — reading, resolving, analyzing, drafting, organizing — while you keep moving through your day.
-- **Work is not a conversation.** This app deliberately *weakens* the chat and *strengthens* the task. Every AI capability hangs off the task lifecycle, not off a text box: you put a paper into My Day → an agent quietly reads it and returns a structured analysis → you write notes → **Finish** deposits the raw material into your own wiki → an agent drafts the pages. At no point do you need to "chat with the AI" to make it happen. The board in front of you shows tasks, not a transcript.
+- **Work is not a conversation.** This app deliberately *weakens* the chat and *strengthens* the task. Every AI capability hangs off the task lifecycle, not off a text box: you put a learning task into My Day → an agent quietly pre-processes it and returns a working prompt, a summary, and activity suggestions → you write the note → **Finish** deposits the raw material into your own wiki → an agent drafts the pages. At no point do you need to "chat with the AI" to make it happen. The board in front of you shows tasks, not a transcript.
 - **Agents work under the hood.** They are confined, focused workers with clear tools and boundaries — never conversation partners you babysit, never a window that demands your attention.
 - **You own the artifacts.** Your notes and your wiki are plain markdown files you control. The agent is a reader, a writer, a helper — not a lock-in.
 - **A plugin-centric future.** Under the hood sits a stable agent core (runtime, task types, engines, skills); the surface around it — layout, panels, functions — should become freely customizable, a workbench you assemble around your own workflow, not a fixed page shipped by someone else.
 
-I believe AI-driven software will take this shape: results-oriented, task-centric, extensible — a *work board*, not a chat room. This repository is my attempt at that shape. Version 1 already works this way for paper reading; the path toward the full vision (task types, per-type working areas, pluggable layout) is designed in [`docs/architecture.md`](docs/architecture.md).
+I believe AI-driven software will take this shape: results-oriented, task-centric, extensible — a *work board*, not a chat room. This repository is my attempt at that shape. v0.8 works this way through the **type engine**: every task carries a workflow type, and the type — not hardcoded flows — decides the task's inputs, its AI pre-process, its working area, and its Finish behavior.
 
-## Today — what v1 does
+## Today — what v0.8 does
 
 - **My Day** — pick tasks for today; completed ones roll off each morning, unfinished ones carry over.
 - **Lists, quick capture, search** — capture a task in one keystroke (Ctrl+N), search across everything (Ctrl+K).
-- **Paper-reading tasks** — attach an arXiv / DOI / publisher link or a PDF; a background agent resolves the paper, extracts the text, and returns a structured analysis (TL;DR, contributions, method…). Progress streams live; failures auto-retry with backoff.
-- **Task type & link editing** — switch a task between *plain* and *paper reading*; editing a link invalidates stale analysis and re-runs it.
-- **Notes + wiki ingestion** — write notes on any task; **Finish** first copies raw material into your wiki's `raw/` (safe even if everything after fails), then an agent drafts wiki pages following the wiki's own schema; `.history/` snapshots make every ingest reversible.
+- **Workflow types** — built-in *plain*, *learning*, and *JIRA/Confluence* types, plus user-defined types from Settings: pick a behavior kind, label, emoji, input fields, and AI guidance. New types need no code.
+- **AI pre-process** — add a typed task to My Day and a background agent generates its working prompt, a summary, and 2–3 activity suggestions; outputs refresh when relevant inputs change. Progress streams live; transient failures auto-retry with backoff.
+- **Per-type working areas** — a learning task opens a live markdown editor with a task-grounded chat panel; a JIRA/Confluence task opens a source panel, chat, and local comment drafts (no connector yet — nothing is ever posted remotely).
+- **Finish + wiki ingestion** — **Finish** on a learning task first copies raw material into your wiki's `raw/` (safe even if everything after fails), then a confined agent writes the curated note at the learning-note path following the wiki's own schema; `.history/` snapshots make every ingest reversible.
+- **Task alarms** — set a date-time on any task; an OS notification fires at that moment and opens the task.
+- **Skills & MCP management (config-only)** — Settings lets you record skills and MCP servers now; the agent will use them when the connector wiring lands (next change: `add-mcp-support`).
 - **Activity view** — a ledger of what jobs the agent ran and which files it actually touched; failed ingests can be retried.
-- **AI is optional** — no provider configured? Tasks, notes, lists, and search still work fully.
-- **Chat is intentionally minimal** — there is no big chat surface; the small debug chat exists only to inspect the configured model. Because work is not a conversation.
+- **AI is optional** — no provider configured? Tasks, notes, lists, search, and alarms still work fully.
+- **Chat is where work needs it** — chat is embedded in typed working areas for grounding, not a central surface; a small debug chat remains to inspect the configured model. Because work is not a conversation.
 
 ## Where it's headed
 
-- **Task types as user-defined workflows** — JIRA task, learning target, technical survey… each type carries its own prompt, skills, tools, and finish behavior; the AI handling is defined by your type, not hardcoded.
-- **A working area per type** — a learning task opens a markdown workspace; a survey task opens a chat-and-record surface; the layout of your work follows the work itself.
-- **Three-column board shell** — lists | tasks | AI focus, one persistent board instead of scattered pages.
-- **Plugin-centric core** — MCP and third-party skills arrive as *tools the agent may use*, granted per task type; the UI becomes something you assemble.
+- **Live connectors** — JIRA/Confluence reading and updating through MCP servers; skills as agent tools; grants per task type (design already specced in `openspec/changes/add-mcp-support/`).
+- **A plugin-centric surface** — the UI becomes something you assemble around the agent core.
 
-Designs live in [`docs/architecture.md`](docs/architecture.md) (component diagram: [`docs/architecture.drawio`](docs/architecture.drawio)).
+Feature behavior is specified in [`openspec/`](openspec/) — the spec source of truth (`openspec/specs/` after archiving, active changes under `openspec/changes/`).
 
 ## Requirements
 
@@ -83,7 +84,7 @@ Credentials and model metadata live in the app's own `auth.json`/`models.json` u
 | Kind | Location |
 | ---- | -------- |
 | Database | SQLite (`app.db`, WAL) in Electron's **userData** — `%APPDATA%` on Windows, `~/.config` on Linux, `~/Library/Application Support` on macOS |
-| Vault | `<userData>/vault/` — `notes/<taskId>.md`, `analyses/<taskId>/`, attached `pdfs/` |
+| Vault | `<userData>/vault/` — working notes as `notes/<taskId>.md` |
 | Wiki | Configurable in **Settings**; defaults to `~/Documents/WorkBoard-Wiki` with `raw/`, `wiki/`, `index.md`, `log.md`, `CLAUDE.md` (the wiki schema), `.history/` snapshots |
 
 Three storage kinds, each doing its own job: SQLite for state, the vault for artifacts, your markdown wiki for durable knowledge.
@@ -117,12 +118,11 @@ Cross-building (e.g. a Windows installer from Linux) needs wine and is unsupport
 
 ## Repository map
 
-- `src/main` — Electron main process: SQLite store (`db.ts`), job machinery (`job-queue.ts` + handlers in `ai/`, `wiki/ingest.ts`, `paper/analysis.ts`, `suggestions.ts`), wiki scaffolding (`wiki/wiki.ts`, `wiki/vault.ts`), paper resolution (`paper/resolve.ts`), and the two agent-runtime seams (`ai/agent-runtime.ts`, `ai/session-factory.ts`) — all Pi SDK usage stays behind these seams.
-- `src/renderer` — React 18 UI (My Day / List / Activity / Settings views, plus a minimal debug Chat).
+- `src/main` — Electron main process: SQLite store + type registry (`db.ts`, `types.ts`), job machinery (`job-queue.ts` + handlers `preprocess.ts`, `suggestions.ts`, `wiki/ingest.ts`), alarms (`alarms.ts`), plugin validation (`plugins.ts`), wiki scaffolding (`wiki/wiki.ts`, `wiki/vault.ts`), and the two agent-runtime seams (`ai/agent-runtime.ts`, `ai/session-factory.ts`) — all Pi SDK usage stays behind these seams.
+- `src/renderer` — React 18 UI: three-column board (`components/board/`), per-kind working areas + chat panel (`components/focus/`), drawer overlays for Activity/Settings/chat (`components/overlays/`), shared primitives (`components/ui/`).
 - `src/shared` — domain types and the IPC contract shared by all three layers.
-- `docs/` — [`architecture.md`](docs/architecture.md) (v2 design) · [`architecture.drawio`](docs/architecture.drawio) · UX layout draft (`workboard-ux.drawio`).
-- `openspec/` — the spec source of truth (behavior specs, archived changes).
-- The wiki pattern guide — every wiki space the app creates is seeded with an `LLM-WiKi.md` (bundled at `src/main/wiki/LLM-WiKi.md`): finished reading tasks become a knowledge base you own.
+- `openspec/` — the spec source of truth (behavior specs, active + archived changes).
+- The wiki pattern guide — every wiki space the app creates is seeded with an `LLM-WiKi.md` (bundled at `src/main/wiki/LLM-WiKi.md`): finished learning notes become a knowledge base you own.
 
 ## License
 

@@ -1,40 +1,38 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../../store'
-import type { Settings, TaskTypeConfig } from '../../../../shared/types'
-import { BUILTIN_TYPE_CONFIGS, allTypeConfigs } from '../../lib/typeCatalog'
+import type { McpServerEntry, Settings, SkillEntry, TaskKind, TaskTypeDef } from '../../../../shared/types'
+import { allTypeConfigs } from '../../lib/typeCatalog'
+import { useDialog } from '../ui/Dialog'
 
 const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
 
-type Tab = 'general' | 'types' | 'ai'
+type Tab = 'general' | 'types' | 'plugins' | 'ai'
 
-// Settings drawer v2 (docs/workboard-ux.html): three capsule tabs at the top
-// (General / Types / AI), each section is its own card. The Types tab owns the
-// built-in catalog (read-only info cards) and the user's custom types (full
-// add/edit/delete). Add/edit opens a modal editor.
+// Settings drawer (spec task-types / skills-mcp-settings): capsule tabs —
+// General (appearance + wiki), Types (the workflow-type registry: built-in
+// presentation editing + custom type CRUD), AI (provider/model/key). Types
+// persist immediately through the types IPC; General/AI share a draft saved
+// with the Save button.
 export function SettingsView() {
-  const { snapshot, saveSettings } = useApp()
+  const { snapshot, types, saveSettings, saveType, deleteType } = useApp()
   const [tab, setTab] = useState<Tab>('general')
 
-  // Drafts live per-tab because each tab has independent save semantics.
-  // General + AI share one Settings draft; Types is a separate customTypes
-  // draft that's never persisted until the user clicks "Save".
   const [draft, setDraft] = useState<Settings | null>(snapshot?.settings ?? null)
-  const [typesDraft, setTypesDraft] = useState<TaskTypeConfig[]>(snapshot?.settings?.customTypes ?? [])
   const [saved, setSaved] = useState(false)
   const [models, setModels] = useState<string[]>([])
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; text?: string; error?: string } | null>(null)
   const [providers, setProviders] = useState<string[]>(FALLBACK_PROVIDERS)
-  const [typeEditor, setTypeEditor] = useState<{ mode: 'add' | 'edit'; existing?: TaskTypeConfig } | null>(null)
-  const [pendingDelete, setPendingDelete] = useState<TaskTypeConfig | null>(null)
+  const [typeEditor, setTypeEditor] = useState<{ mode: 'add' | 'edit'; existing?: TaskTypeDef } | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<TaskTypeDef | null>(null)
+  const [typeError, setTypeError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const { confirm, dialog } = useDialog()
 
-  // Reset drafts whenever the snapshot changes (e.g. AI configured, list
-  // selected) so the UI never lags behind the saved state.
+  // Reset the General/AI draft whenever the snapshot settings change so the
+  // UI never lags behind the saved state.
   useEffect(() => {
-    if (snapshot?.settings) {
-      setDraft(snapshot.settings)
-      setTypesDraft(snapshot.settings.customTypes ?? [])
-    }
+    if (snapshot?.settings) setDraft(snapshot.settings)
   }, [snapshot?.settings])
 
   useEffect(() => {
@@ -57,12 +55,14 @@ export function SettingsView() {
 
   const save = async () => {
     if (!draft) return
-    // Merge typesDraft into the settings draft so both tabs persist together.
-    const merged: Settings = { ...draft, customTypes: typesDraft }
-    await saveSettings(merged)
-    setDraft(merged)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    try {
+      await saveSettings(draft)
+      setSaved(true)
+      setSaveError(null)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (e: any) {
+      setSaveError(e?.message ?? String(e))
+    }
   }
 
   const runTest = async () => {
@@ -74,31 +74,28 @@ export function SettingsView() {
     setTesting(false)
   }
 
-  // Count tasks referencing a custom type key — shown on the delete confirm
-  // so the user knows what'll be affected.
-  const referenceCount = (key: string) =>
-    (snapshot?.tasks ?? []).filter((t) => !t.deletedAt && (t.customTypeKey === key || (t.type as string) === key)).length
+  // Count tasks referencing a type key — shown on the delete confirm so the
+  // user knows what'll fall back to plain.
+  const referenceCount = (key: string) => (snapshot?.tasks ?? []).filter((t) => !t.deletedAt && t.customTypeKey === key).length
 
   const dirty = useMemo(() => {
     if (!draft) return false
-    const origTypes = snapshot?.settings?.customTypes ?? []
     if (draft.theme !== snapshot?.settings.theme) return true
     if (draft.provider !== snapshot?.settings.provider) return true
     if (draft.model !== snapshot?.settings.model) return true
     if ((draft.apiKey ?? '') !== (snapshot?.settings.apiKey ?? '')) return true
     if (draft.wikiPath !== snapshot?.settings.wikiPath) return true
-    if (typesDraft.length !== origTypes.length) return true
-    for (let i = 0; i < typesDraft.length; i++) {
-      const draftType = typesDraft[i]
-      const orig = origTypes[i]
-      if (!draftType || !orig) return true
-      if (draftType.key !== orig.key) return true
-      if (draftType.label !== orig.label) return true
-      if (draftType.emoji !== orig.emoji) return true
-      if ((draftType.description ?? '') !== (orig.description ?? '')) return true
-    }
+    if (JSON.stringify(draft.skills ?? []) !== JSON.stringify(snapshot?.settings.skills ?? [])) return true
+    if (JSON.stringify(draft.mcpServers ?? []) !== JSON.stringify(snapshot?.settings.mcpServers ?? [])) return true
     return false
-  }, [draft, typesDraft, snapshot?.settings])
+  }, [draft, snapshot?.settings])
+
+  // The seed input schema a kind supports — taken from its built-in type.
+  const kindSchema = (kind: TaskKind): TaskTypeDef['inputSchema'] =>
+    types.find((t) => t.key === kind)?.inputSchema ?? []
+
+  const builtinTypes = allTypeConfigs(types).filter((t) => t.isBuiltin)
+  const customTypes = allTypeConfigs(types).filter((t) => !t.isBuiltin)
 
   if (!draft) return <div className="view">Loading…</div>
 
@@ -129,7 +126,16 @@ export function SettingsView() {
         >
           <span className="tab-ico">▤</span>
           Types
-          {typesDraft.length > 0 && <span className="tab-count">{typesDraft.length}</span>}
+          {customTypes.length > 0 && <span className="tab-count">{customTypes.length}</span>}
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === 'plugins'}
+          className={`settings-tab ${tab === 'plugins' ? 'on' : ''}`}
+          onClick={() => setTab('plugins')}
+        >
+          <span className="tab-ico">🔌</span>
+          Plugins
         </button>
         <button
           role="tab"
@@ -175,21 +181,27 @@ export function SettingsView() {
 
       {tab === 'types' && (
         <>
+          {typeError && <div className="warning-box"><p>{typeError}</p><button className="mini-btn" onClick={() => setTypeError(null)}>×</button></div>}
           <section className="settings-section">
             <div className="section-head">
               <h4>Built-in types</h4>
-              <span className="muted">系统内置，不可删除</span>
+              <span className="muted">Presentation is editable; behavior is fixed</span>
             </div>
             <div className="type-card-grid">
-              {BUILTIN_TYPE_CONFIGS.map((c) => (
+              {builtinTypes.map((c) => (
                 <div key={c.key} className="type-card builtin">
                   <div className="tc-emoji">{c.emoji}</div>
                   <div className="tc-main">
                     <div className="tc-label">{c.label}</div>
-                    <code className="tc-key">{c.key}</code>
+                    <code className="tc-key">{c.key} · {c.kind}</code>
                     {c.description && <div className="tc-desc">{c.description}</div>}
                   </div>
-                  <span className="tc-badge">内置</span>
+                  <div className="tc-actions">
+                    <button className="icon-btn tiny" title="Edit presentation" onClick={() => setTypeEditor({ mode: 'edit', existing: c })}>
+                      ✎
+                    </button>
+                    <span className="tc-badge">built-in</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -202,35 +214,27 @@ export function SettingsView() {
                 ＋ New type
               </button>
             </div>
-            {typesDraft.length === 0 ? (
+            {customTypes.length === 0 ? (
               <div className="type-empty">
                 <div className="te-emoji">📦</div>
-                <div className="te-msg">还没有自定义类型</div>
-                <div className="te-sub">点击「＋ New type」创建第一个，或在右侧 AI tab 让 AI 帮你生成</div>
+                <div className="te-msg">No custom types yet</div>
+                <div className="te-sub">Click “＋ New type” to wrap a built-in behavior kind with your own label, emoji, and input fields.</div>
               </div>
             ) : (
               <div className="type-card-grid">
-                {typesDraft.map((c) => (
+                {customTypes.map((c) => (
                   <div key={c.key} className="type-card">
                     <div className="tc-emoji">{c.emoji}</div>
                     <div className="tc-main">
                       <div className="tc-label">{c.label}</div>
-                      <code className="tc-key">{c.key}</code>
+                      <code className="tc-key">{c.key} · {c.kind}</code>
                       {c.description && <div className="tc-desc">{c.description}</div>}
                     </div>
                     <div className="tc-actions">
-                      <button
-                        className="icon-btn tiny"
-                        title="Edit"
-                        onClick={() => setTypeEditor({ mode: 'edit', existing: c })}
-                      >
+                      <button className="icon-btn tiny" title="Edit" onClick={() => setTypeEditor({ mode: 'edit', existing: c })}>
                         ✎
                       </button>
-                      <button
-                        className="icon-btn tiny danger"
-                        title="Delete"
-                        onClick={() => setPendingDelete(c)}
-                      >
+                      <button className="icon-btn tiny danger" title="Delete" onClick={() => setPendingDelete(c)}>
                         🗑
                       </button>
                     </div>
@@ -239,6 +243,31 @@ export function SettingsView() {
               </div>
             )}
           </section>
+        </>
+      )}
+
+      {tab === 'plugins' && draft && (
+        <>
+          {saveError && (
+            <div className="warning-box">
+              <p>Could not save: {saveError}</p>
+              <button className="mini-btn" onClick={() => setSaveError(null)}>×</button>
+            </div>
+          )}
+          <div className="inert-banner muted">
+            Configured-only in this version — the built-in agent does not load skills or connect to MCP servers yet.
+          </div>
+
+          <SkillsSection
+            skills={draft.skills ?? []}
+            onChange={(skills) => update({ skills })}
+            confirmRemove={async (name) => confirm({ title: 'Remove skill', message: `Remove skill “${name}”?`, confirmLabel: 'Remove', danger: true })}
+          />
+          <McpSection
+            servers={draft.mcpServers ?? []}
+            onChange={(mcpServers) => update({ mcpServers })}
+            confirmRemove={async (name) => confirm({ title: 'Remove MCP server', message: `Remove MCP server “${name}”?`, confirmLabel: 'Remove', danger: true })}
+          />
         </>
       )}
 
@@ -297,16 +326,16 @@ export function SettingsView() {
         <TypeEditorModal
           mode={typeEditor.mode}
           existing={typeEditor.existing}
-          takenKeys={new Set([
-            ...BUILTIN_TYPE_CONFIGS.map((c) => c.key),
-            ...typesDraft.filter((c) => c !== typeEditor.existing).map((c) => c.key)
-          ])}
-          onSave={(cfg) => {
-            setTypesDraft((cur) => {
-              if (typeEditor.mode === 'add') return [...cur, cfg]
-              return cur.map((c) => (c.key === typeEditor.existing?.key ? cfg : c))
-            })
-            setTypeEditor(null)
+          takenKeys={new Set(allTypeConfigs(types).filter((c) => c !== typeEditor.existing).map((c) => c.key))}
+          kindSchema={kindSchema}
+          onSave={async (cfg) => {
+            try {
+              await saveType(cfg)
+              setTypeEditor(null)
+              setTypeError(null)
+            } catch (e: any) {
+              setTypeError(e?.message ?? String(e))
+            }
           }}
           onClose={() => setTypeEditor(null)}
         />
@@ -316,72 +345,250 @@ export function SettingsView() {
         <ConfirmDeleteTypeModal
           config={pendingDelete}
           refCount={referenceCount(pendingDelete.key)}
-          onConfirm={() => {
-            setTypesDraft((cur) => cur.filter((c) => c.key !== pendingDelete.key))
+          onConfirm={async () => {
+            try {
+              await deleteType(pendingDelete.key)
+            } catch (e: any) {
+              setTypeError(e?.message ?? String(e))
+            }
             setPendingDelete(null)
           }}
           onClose={() => setPendingDelete(null)}
         />
       )}
+      {dialog}
     </div>
   )
 }
 
-// Modal: add or edit a custom task type. Key is editable only on add (you can
-// always rename the label later). Built-in keys are blocked.
+// Skills management (spec skills-mcp-settings): unique name + description,
+// add/edit/remove with confirmation. Entries persist with settings; inert in
+// v0.8 (see src/main/plugins.ts).
+function SkillsSection({
+  skills,
+  onChange,
+  confirmRemove
+}: {
+  skills: SkillEntry[]
+  onChange: (next: SkillEntry[]) => void
+  confirmRemove: (name: string) => Promise<boolean>
+}) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const dup = (n: string, except?: string) => skills.some((s) => s.name === n && s.name !== except)
+
+  const add = () => {
+    const n = name.trim()
+    if (!n) return setError('Name is required')
+    if (dup(n)) return setError(`Skill "${n}" already exists — names must be unique`)
+    if (!description.trim()) return setError('Description is required')
+    onChange([...skills, { name: n, description: description.trim() }])
+    setName('')
+    setDescription('')
+    setError(null)
+  }
+
+  return (
+    <section className="settings-section">
+      <div className="section-head">
+        <h4>Skills</h4>
+        <span className="muted">not yet active — configuration only</span>
+      </div>
+      {skills.map((s, i) => (
+        <div key={s.name} className="plugin-row">
+          <input value={s.name} disabled title="Name is the key" className="plugin-name" />
+          <input
+            value={s.description}
+            placeholder="Description"
+            onChange={(e) => onChange(skills.map((x, xi) => (xi === i ? { ...x, description: e.target.value } : x)))}
+          />
+          <button
+            className="icon-btn tiny danger"
+            title="Remove"
+            onClick={() =>
+              void confirmRemove(s.name).then((ok) => {
+                if (ok) onChange(skills.filter((x) => x.name !== s.name))
+              })
+            }
+          >
+            🗑
+          </button>
+        </div>
+      ))}
+      {skills.length === 0 && <div className="type-empty"><div className="te-msg">No skills yet</div></div>}
+      <div className="plugin-row">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
+        <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this skill does" />
+        <button className="mini-btn primary" onClick={add}>
+          ＋ Add
+        </button>
+      </div>
+      {error && <div className="error-text">{error}</div>}
+    </section>
+  )
+}
+
+// MCP server management (spec skills-mcp-settings): unique name + a complete
+// stdio transport (command; optional args/env) validated before persistence
+// (renderer checks shape; main re-validates on save).
+function McpSection({
+  servers,
+  onChange,
+  confirmRemove
+}: {
+  servers: McpServerEntry[]
+  onChange: (next: McpServerEntry[]) => void
+  confirmRemove: (name: string) => Promise<boolean>
+}) {
+  const [name, setName] = useState('')
+  const [command, setCommand] = useState('')
+  const [args, setArgs] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const add = () => {
+    const n = name.trim()
+    if (!n) return setError('Name is required')
+    if (servers.some((s) => s.name === n)) return setError(`MCP server "${n}" already exists — names must be unique`)
+    if (!command.trim()) return setError('A command is required for the stdio transport')
+    onChange([
+      ...servers,
+      { name: n, transport: { type: 'stdio', command: command.trim(), args: args.trim() ? args.trim().split(/\s+/) : undefined } }
+    ])
+    setName('')
+    setCommand('')
+    setArgs('')
+    setError(null)
+  }
+
+  return (
+    <section className="settings-section">
+      <div className="section-head">
+        <h4>MCP servers</h4>
+        <span className="muted">not yet active — configuration only</span>
+      </div>
+      {servers.map((s, i) => (
+        <div key={s.name} className="plugin-row">
+          <input value={s.name} disabled title="Name is the key" className="plugin-name" />
+          <input
+            value={s.transport.command}
+            placeholder="command"
+            onChange={(e) =>
+              onChange(servers.map((x, xi) => (xi === i ? { ...x, transport: { ...x.transport, command: e.target.value } } : x)))
+            }
+          />
+          <input
+            value={(s.transport.args ?? []).join(' ')}
+            placeholder="args (space-separated)"
+            onChange={(e) =>
+              onChange(
+                servers.map((x, xi) =>
+                  xi === i ? { ...x, transport: { ...x.transport, args: e.target.value.trim() ? e.target.value.trim().split(/\s+/) : undefined } } : x
+                )
+              )
+            }
+          />
+          <button
+            className="icon-btn tiny danger"
+            title="Remove"
+            onClick={() =>
+              void confirmRemove(s.name).then((ok) => {
+                if (ok) onChange(servers.filter((x) => x.name !== s.name))
+              })
+            }
+          >
+            🗑
+          </button>
+        </div>
+      ))}
+      {servers.length === 0 && <div className="type-empty"><div className="te-msg">No MCP servers yet</div></div>}
+      <div className="plugin-row">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
+        <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="command (e.g. npx)" />
+        <input value={args} onChange={(e) => setArgs(e.target.value)} placeholder="-y some-mcp-server" />
+        <button className="mini-btn primary" onClick={add}>
+          ＋ Add
+        </button>
+      </div>
+      {error && <div className="error-text">{error}</div>}
+    </section>
+  )
+}
+
+// Modal: add or edit a workflow type. Custom types choose a behavior kind and
+// a subset of that kind's supported input fields; built-in types expose only
+// presentation (label/emoji/description). Key is fixed on edit.
 function TypeEditorModal({
   mode,
   existing,
   takenKeys,
+  kindSchema,
   onSave,
   onClose
 }: {
   mode: 'add' | 'edit'
-  existing?: TaskTypeConfig
+  existing?: TaskTypeDef
   takenKeys: Set<string>
-  onSave: (cfg: TaskTypeConfig) => void
+  kindSchema: (kind: TaskKind) => TaskTypeDef['inputSchema']
+  onSave: (cfg: TaskTypeDef) => Promise<void>
   onClose: () => void
 }) {
+  const isBuiltinEdit = mode === 'edit' && !!existing?.isBuiltin
   const [key, setKey] = useState(existing?.key ?? '')
+  const [kind, setKind] = useState<TaskKind>(existing?.kind ?? 'learning')
   const [label, setLabel] = useState(existing?.label ?? '')
   const [emoji, setEmoji] = useState(existing?.emoji ?? '📌')
   const [description, setDescription] = useState(existing?.description ?? '')
+  const [aiGuidance, setAiGuidance] = useState(existing?.aiGuidance ?? '')
+  const supported = kindSchema(kind)
+  const [fieldKeys, setFieldKeys] = useState<Set<string>>(
+    new Set(existing && !existing.isBuiltin ? existing.inputSchema.map((f) => f.key) : supported.map((f) => f.key))
+  )
   const [error, setError] = useState<string | null>(null)
 
   const submit = () => {
     const k = key.trim().replace(/\s+/g, '_').toLowerCase()
-    if (!k) return setError('Key 不能为空')
-    if (!/^[a-z0-9_]{2,32}$/.test(k)) return setError('Key 只能包含小写字母、数字、下划线（2–32 字符）')
-    if (mode === 'add' && takenKeys.has(k)) return setError(`Key「${k}」已被使用`)
-    if (!label.trim()) return setError('Label 不能为空')
-    if (!emoji.trim()) return setError('Emoji 不能为空')
-    onSave({
-      key: k,
+    if (!existing) {
+      if (!k) return setError('Key is required')
+      if (!/^[a-z0-9_]{2,32}$/.test(k)) return setError('Key must be lowercase letters, digits, underscore (2–32 chars)')
+      if (takenKeys.has(k)) return setError(`Key "${k}" is already used`)
+    }
+    if (!label.trim()) return setError('Label is required')
+    if (!emoji.trim()) return setError('Emoji is required')
+    const inputSchema = existing?.isBuiltin ? existing.inputSchema : supported.filter((f) => fieldKeys.has(f.key))
+    void onSave({
+      key: existing?.key ?? k,
+      kind: existing?.isBuiltin ? existing.kind : kind,
       label: label.trim(),
       emoji: emoji.trim().slice(0, 4),
       description: description.trim() || undefined,
-      isCustom: true
+      inputSchema,
+      aiGuidance: (!existing?.isBuiltin && aiGuidance.trim()) || undefined,
+      isBuiltin: existing?.isBuiltin ?? false
     })
   }
+
+  const toggleField = (fk: string) =>
+    setFieldKeys((cur) => {
+      const next = new Set(cur)
+      if (next.has(fk)) next.delete(fk)
+      else next.add(fk)
+      return next
+    })
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <span className="modal-tag">{mode === 'add' ? '＋ NEW' : '✎ EDIT'}</span>
-          <h3>{mode === 'add' ? 'New type' : 'Edit type'}</h3>
+          <h3>{mode === 'add' ? 'New type' : existing?.isBuiltin ? 'Edit built-in presentation' : 'Edit type'}</h3>
         </div>
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="row" style={{ gap: 8, alignItems: 'flex-end' }}>
             <label style={{ flex: 1 }}>
               Key
-              <input
-                value={key}
-                disabled={mode === 'edit'}
-                onChange={(e) => setKey(e.target.value)}
-                placeholder="e.g. code_review"
-                spellCheck={false}
-              />
+              <input value={key} disabled={mode === 'edit'} onChange={(e) => setKey(e.target.value)} placeholder="e.g. code_review" spellCheck={false} />
             </label>
             <label style={{ width: 80 }}>
               Emoji
@@ -393,9 +600,38 @@ function TypeEditorModal({
             <input autoFocus={mode === 'add'} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Code review" />
           </label>
           <label>
-            Description <span className="muted">（可选）</span>
-            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="描述这个类型的用途" />
+            Description
+            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this type is for" />
           </label>
+          {!isBuiltinEdit && (
+            <>
+              <label>
+                Behavior kind
+                <select value={kind} disabled={mode === 'edit'} onChange={(e) => setKind(e.target.value as TaskKind)}>
+                  <option value="plain">plain — notes &amp; suggestion chips only</option>
+                  <option value="learning">learning — prompt/summary, note editor, wiki ingest on Finish</option>
+                  <option value="jira">jira — pasted source, chat, comment drafts</option>
+                </select>
+              </label>
+              {mode === 'add' && (
+                <div className="tif-fields">
+                  <span className="tif-label">Input fields (from this kind)</span>
+                  {supported.map((f) => (
+                    <label key={f.key} className="tif-check">
+                      <input type="checkbox" checked={fieldKeys.has(f.key)} onChange={() => toggleField(f.key)} />
+                      {f.label}
+                      {f.required && <span className="tif-required"> *</span>}
+                      {f.inert && <span className="muted"> (not yet active)</span>}
+                    </label>
+                  ))}
+                </div>
+              )}
+              <label>
+                AI guidance <span className="muted">(optional — appended to this type's pre-process prompt)</span>
+                <textarea value={aiGuidance} onChange={(e) => setAiGuidance(e.target.value)} rows={3} placeholder="e.g. Focus on security review angles." />
+              </label>
+            </>
+          )}
           {error && <div className="error-text">{error}</div>}
         </div>
         <div className="modal-actions">
@@ -417,7 +653,7 @@ function ConfirmDeleteTypeModal({
   onConfirm,
   onClose
 }: {
-  config: TaskTypeConfig
+  config: TaskTypeDef
   refCount: number
   onConfirm: () => void
   onClose: () => void
@@ -427,15 +663,15 @@ function ConfirmDeleteTypeModal({
       <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <span className="modal-tag danger">🗑 DELETE</span>
-          <h3>Delete type「{config.label}」?</h3>
+          <h3>Delete type “{config.label}”?</h3>
         </div>
         <div className="modal-body">
           <p>
             {refCount > 0
-              ? `当前有 ${refCount} 个任务使用此类型。删除后这些任务将回退到 plain 任务，原 customTypeKey 会被清空。`
-              : '当前没有任务使用此类型。'}
+              ? `${refCount} task(s) use this type. They will fall back to plain; their titles, notes, lists, and completion state are kept.`
+              : 'No tasks currently use this type.'}
           </p>
-          <p className="muted">任务本身的标题、笔记和其他字段不会被修改。</p>
+          <p className="muted">The type itself is removed from pickers and this Settings list.</p>
         </div>
         <div className="modal-actions">
           <button className="secondary-btn" onClick={onClose}>

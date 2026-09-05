@@ -1,56 +1,38 @@
 import { useState } from 'react'
 import { useApp } from '../../store'
-import { isPaperLink } from '../../../../shared/link'
 import { allTypeConfigs } from '../../lib/typeCatalog'
 
 // Inline quick capture (spec task-capture): Enter creates the task in the
-// given list; pasting an arXiv/DOI/URL auto-detects a paper-reading task.
-// The id="quick-add" is the focus target for the global 'n' / Ctrl+N
-// shortcut handled in App.tsx.
+// given list. The id="quick-add" is the focus target for the global 'n' /
+// Ctrl+N shortcut handled in App.tsx.
 //
-// Right-side chips let the caller pin the next task's type — useful when you
-// paste a non-link PDF title or a generic plain task. Built-in paper link
-// auto-detection always wins when it matches.
+// Right-side chips pin the next task's type — the pinned type applies to
+// captures until unpinned. Quick capture fills only shared fields; type
+// inputs are completed later from the focus band (or the New-task modal).
 export function QuickAdd({ listId, onCreated }: { listId: string; onCreated?: () => void }) {
-  const { createTask, snapshot } = useApp()
+  const { snapshot, types, createTask } = useApp()
   const [value, setValue] = useState('')
-  // Pinned key: 'plain', 'paper_reading', or any custom type key.
+  // Pinned key: any type key from the registry, or null → plain.
   const [pinnedKey, setPinnedKey] = useState<string | null>(null)
 
-  const configs = allTypeConfigs(snapshot?.settings)
+  const configs = allTypeConfigs(types)
 
   const submit = async () => {
     const v = value.trim()
     if (!v) return
-    const paper = isPaperLink(v)
-    // Effective type: paper link forces paper_reading; otherwise the user's
-    // pin (which may point at a custom type).
-    let builtinType: 'plain' | 'paper_reading'
-    let customKey: string | null = null
-    if (paper) {
-      builtinType = 'paper_reading'
-    } else if (pinnedKey && pinnedKey !== 'plain' && pinnedKey !== 'paper_reading') {
-      builtinType = 'plain'
-      customKey = pinnedKey
-    } else if (pinnedKey === 'paper_reading') {
-      builtinType = 'paper_reading'
-    } else {
-      builtinType = 'plain'
-    }
+    const def = configs.find((c) => c.key === (pinnedKey ?? 'plain')) ?? configs[0]!
     await createTask({
       listId,
       title: v,
-      type: builtinType,
-      customTypeKey: customKey,
-      link: paper ? v : undefined
+      type: def.isBuiltin ? (def.key as 'plain' | 'learning' | 'jira') : 'plain',
+      customTypeKey: def.isBuiltin ? null : def.key
     })
     setValue('')
-    // Keep the pin sticky for follow-up captures in the same session; only a
-    // new paste of a paper link promotes to paper_reading automatically.
+    onCreated?.()
+    // The pin stays sticky for follow-up captures in the same session.
   }
 
-  const detectedPaper = !!value.trim() && isPaperLink(value)
-  const effectiveKey = detectedPaper ? 'paper_reading' : pinnedKey ?? 'plain'
+  const effectiveKey = pinnedKey ?? 'plain'
 
   return (
     <form
@@ -65,7 +47,7 @@ export function QuickAdd({ listId, onCreated }: { listId: string; onCreated?: ()
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="What needs doing?  ·  paste an arXiv link → paper task"
+        placeholder="What needs doing?"
         aria-label="Quick add task"
         autoComplete="off"
       />

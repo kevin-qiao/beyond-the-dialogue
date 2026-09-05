@@ -12,33 +12,34 @@
 
 所以 Beyond the Dialogue 从相反的方向出发，并且我希望它一直如此：
 
-- **超越对话。** AI 的未来不是一个更聪明的聊天框，而是一个理解你的**意图**、在后台把结果做出来的 Agent——读论文、解析链接、分析、起草、整理——而你继续推进自己的一天。
-- **工作不是对话。** 这个应用刻意**弱化聊天、强化任务逻辑**。每一项 AI 能力都挂在任务的生命周期上，而不是挂在输入框上：把一篇论文放进 My Day → Agent 在后台读完后交回结构化分析 → 你写笔记 → **完成**时先把原材料沉淀进你自己的 Wiki → Agent 草拟页面。整个过程你不需要「和 AI 聊天」，你面前的板子上是任务，不是聊天记录。
+- **超越对话。** AI 的未来不是一个更聪明的聊天框，而是一个理解你的**意图**、在后台把结果做出来的 Agent——阅读、解析、分析、起草、整理——而你继续推进自己的一天。
+- **工作不是对话。** 这个应用刻意**弱化聊天、强化任务逻辑**。每一项 AI 能力都挂在任务的生命周期上，而不是挂在输入框上：把一个学习任务放进 My Day → Agent 在后台完成预处理，交回工作提示、摘要与活动建议 → 你写笔记 → **完成**时先把原材料沉淀进你自己的 Wiki → Agent 草拟页面。整个过程你不需要「和 AI 聊天」，你面前的板子上是任务，不是聊天记录。
 - **Agent 只在后台工作。** 它们是被约束的、专注的、带着明确工具与边界的执行者——不是需要你照看的对话对象，也不是抢占注意力的弹窗。
 - **产出永远属于你。** 笔记与 Wiki 都是你能掌控的 Markdown 文件。Agent 是读者、写作者、帮手——不是把你锁进某个生态的钩子。
 - **插件化的未来。** 底层是稳定的 Agent 核心（运行时、任务类型、引擎、技能），表层——布局、面板、功能——应当可以被自由定制：一块你围绕自己的工作流亲手拼装的工作台，而不是别人发货时固定的页面。
 
-我相信 AI 驱动的软件会长成这个样子：结果导向、以任务为中心、可扩展——是一块**工作板**，而不是聊天室。这个仓库就是我对这种形态的尝试：v1 已经在「论文阅读」上按这个方式运转，走向完整愿景（任务类型、按类型定制的工作区、可插拔布局）的设计见 [`docs/architecture.md`](docs/architecture.md)。
+我相信 AI 驱动的软件会长成这个样子：结果导向、以任务为中心、可扩展——是一块**工作板**，而不是聊天室。这个仓库就是我对这种形态的尝试：v0.8 已经以**类型引擎**运转——每个任务都携带一个工作流类型，由类型（而不是写死的流程）决定它的输入、AI 预处理、工作区与完成行为。
 
-## 现在（v1）能做什么
+## 现在（v0.8）能做什么
 
 - **My Day** — 选几个任务放进今天；完成的天亮后自动清空，没做完的留下来。
 - **清单、快捷录入、全局搜索** — 一个按键录入任务（Ctrl+N），全局搜索（Ctrl+K）。
-- **论文阅读任务** — 丢一个 arXiv / DOI / 出版社链接或 PDF，后台 Agent 自动解析论文、提取正文，返回结构化分析（TL;DR、贡献、方法……）。进度实时可见，失败自动重试。
-- **任务类型与链接编辑** — 随时在 *普通任务* 与 *论文阅读* 之间切换；链接一变，旧分析自动作废并重新生成。
-- **笔记 + Wiki 沉淀** — 任意任务都能记笔记；点**完成**时先把原材料复制进 Wiki 的 `raw/`（即使后续全部失败也不丢），再由 Agent 按 Wiki 自己的规则草拟页面；每次落库都有 `.history/` 快照，可回溯可重试。
+- **工作流类型** — 内置 *普通*、*学习*、*JIRA/Confluence* 三种类型；还可以在设置里自定义类型：选择行为类别、名称、表情、输入字段与 AI 指引。新类型不需要写代码。
+- **AI 预处理** — 把类型任务放进 My Day，后台 Agent 生成工作提示、摘要与 2–3 条活动建议；相关输入变化后自动重算。进度实时可见，瞬时失败自动重试。
+- **按类型定制的「工作区」** — 学习任务打开 Markdown 编辑器 + 挂在任务上下文上的聊天面板；JIRA/Confluence 任务打开原文区、聊天与本地评论草稿（v0.8 无连接器，绝不会向远端写入任何内容）。
+- **完成 + Wiki 沉淀** — 学习任务点**完成**时先把原材料复制进 Wiki 的 `raw/`（即使后续全部失败也不丢），再由受限 Agent 按 Wiki 规则把学习笔记写到指定路径；每次落库都有 `.history/` 快照，可回溯可重试。
+- **任务闹钟** — 给任意任务设定日期时间，到点弹出系统通知并打开该任务。
+- **技能与 MCP 管理（仅配置）** — 设置里现在就能登记技能与 MCP 服务器；Agent 真正接入是下一个变更（`add-mcp-support`）的事。
 - **活动视图** — Agent 跑过哪些任务、实际改动了哪些文件，全部留痕；失败的落库可以重试。
-- **AI 是可选项** — 不配置模型，任务、笔记、清单、搜索照常完整可用。
-- **聊天被刻意做得很少** — 只有一个调试入口，用来检查当前配置的模型。因为工作不是对话。
+- **AI 是可选项** — 不配置模型，任务、笔记、清单、搜索、闹钟照常完整可用。
+- **聊天出现在需要的地方** — 聊天面板嵌在类型工作区里用于「带着上下文提问」，不再是中心界面；另保留一个调试入口检查模型。因为工作不是对话。
 
 ## 方向
 
-- **任务类型即自定义工作流** — JIRA 任务、学习目标、技术调研……每种类型自带提示词、技能、工具与收尾行为；AI 怎么干活由「类型」说了算，而不是写死在代码里。
-- **按类型定制的「工作区」** — 学习任务打开 Markdown 工作区，调研任务打开「对话 + 记录」区：界面的形态跟随工作的形态。
-- **三栏工作板** — 清单 | 任务 | AI 工作区，一屏到底，不再是一页页跳转。
-- **插件化的核心** — MCP 与第三方技能将以「Agent 可用的工具」形态接入、按任务类型授权；界面终将变成你可以自由拼装的东西。
+- **活的连接器** — 通过 MCP 服务器读写 JIRA/Confluence；技能成为 Agent 可用工具，按任务类型授权（设计已在 `openspec/changes/add-mcp-support/` 中定稿）。
+- **插件化的表层** — 界面终将变成你可以围绕 Agent 核心自由拼装的东西。
 
-设计与架构见 [`docs/architecture.md`](docs/architecture.md)（组件图：[`docs/architecture.drawio`](docs/architecture.drawio)）。
+行为规格以 [`openspec/`](openspec/) 为准（归档后的主规格在 `openspec/specs/`，进行中的变更在 `openspec/changes/`）。
 
 ## 环境要求
 
@@ -83,7 +84,7 @@ npm run dev
 | 类别 | 位置 |
 | ---- | ---- |
 | 数据库 | SQLite（`app.db`，WAL），在 Electron 的 **userData** 下 — Windows 为 `%APPDATA%`，Linux 为 `~/.config`，macOS 为 `~/Library/Application Support` |
-| Vault | `<userData>/vault/` — `notes/<taskId>.md`、`analyses/<taskId>/`、附件 `pdfs/` |
+| Vault | `<userData>/vault/` — 工作笔记 `notes/<taskId>.md` |
 | Wiki | 在**设置**中可改；默认 `~/Documents/WorkBoard-Wiki`，内含 `raw/`、`wiki/`、`index.md`、`log.md`、`CLAUDE.md`（Wiki 规则）与 `.history/` 快照 |
 
 三类存储各司其职：SQLite 管状态，Vault 管中间产物，你自己的 Markdown Wiki 沉淀最终知识。
@@ -117,12 +118,11 @@ npm run dist        # electron-vite build + electron-builder → release/
 
 ## 代码结构
 
-- `src/main` — Electron 主进程：SQLite 存储（`db.ts`）、任务队列机制（`job-queue.ts`，handler 分布在 `ai/`、`wiki/ingest.ts`、`paper/analysis.ts`、`suggestions.ts`）、Wiki 脚手架（`wiki/wiki.ts`、`wiki/vault.ts`）、论文解析（`paper/resolve.ts`），以及两个 Agent 运行时接缝（`ai/agent-runtime.ts`、`ai/session-factory.ts`）——所有 Pi SDK 调用都被挡在这两个接缝之后。
-- `src/renderer` — React 18 界面（My Day / List / Activity / Settings，外加一个极简调试 Chat）。
+- `src/main` — Electron 主进程：SQLite 存储与类型注册表（`db.ts`、`types.ts`）、任务队列机制（`job-queue.ts`，handler 在 `preprocess.ts`、`suggestions.ts`、`wiki/ingest.ts`）、闹钟（`alarms.ts`）、插件校验（`plugins.ts`）、Wiki 脚手架（`wiki/wiki.ts`、`wiki/vault.ts`），以及两个 Agent 运行时接缝（`ai/agent-runtime.ts`、`ai/session-factory.ts`）——所有 Pi SDK 调用都被挡在这两个接缝之后。
+- `src/renderer` — React 18 界面：三栏工作板（`components/board/`）、按类型的工作区与聊天面板（`components/focus/`）、抽屉浮层（`components/overlays/`）、共享控件（`components/ui/`）。
 - `src/shared` — 三端共享的领域类型与 IPC 契约。
-- `docs/` — [`architecture.md`](docs/architecture.md)（v2 设计）· [`architecture.drawio`](docs/architecture.drawio) · UX 布局草稿（`workboard-ux.drawio`）。
-- `openspec/` — 行为规格的源头（OpenSpec：规格与已归档的变更）。
-- Wiki 模式指南 — 应用创建的每个 Wiki 空间都会植入一份 `LLM-WiKi.md`（模板位于 `src/main/wiki/LLM-WiKi.md`）：读完的内容沉淀为属于你自己的知识库。
+- `openspec/` — 行为规格的源头（OpenSpec：规格、进行中与已归档的变更）。
+- Wiki 模式指南 — 应用创建的每个 Wiki 空间都会植入一份 `LLM-WiKi.md`（模板位于 `src/main/wiki/LLM-WiKi.md`）：完成的学习笔记沉淀为属于你自己的知识库。
 
 ## 协议
 

@@ -9,7 +9,7 @@ function stateBadge(state: string): string {
 }
 
 function JobRow({ job }: { job: JobProgressEvent }) {
-  const title = job.kind === 'analysis' ? 'Paper analysis' : job.kind === 'suggestion' ? 'Suggestions' : job.kind
+  const title = job.kind === 'preprocess' ? 'Pre-process' : job.kind === 'suggestion' ? 'Suggestions' : job.kind
   return (
     <div className={`activity-row state-${job.state}`}>
       <div className="activity-head">
@@ -58,7 +58,7 @@ export function ActivityView() {
         <span className="muted">Agent work — live</span>
       </div>
       {activity.length === 0 && jobs.length === 0 && (
-        <div className="empty-hint">Nothing running yet. Add a paper task to analyze it, or finish one to ingest it into your wiki.</div>
+        <div className="empty-hint">Nothing running yet. Add a typed task to My Day to pre-process it, or finish one to ingest it into your wiki.</div>
       )}
       {jobs.length > 0 && (
         <div className="activity-list">

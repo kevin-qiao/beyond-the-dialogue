@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import type { JobProgressEvent, ToastPayload } from '../../shared/ipc'
-import type { AppSnapshot, ChatMessage, IngestRecord, List, PaperAnalysis, Settings, Suggestion, Task } from '../../shared/types'
+import type { CreateTaskArgs, JobProgressEvent, ToastPayload, UpdateTaskArgs } from '../../shared/ipc'
+import type { AppSnapshot, ChatMessage, IngestRecord, List, Settings, Suggestion, Task, TaskTypeDef } from '../../shared/types'
 
 interface AppState {
   snapshot: AppSnapshot | null
@@ -34,22 +34,24 @@ interface AppContextValue extends AppState {
   chatStreaming: string | null
   chatRunning: boolean
   chatError: string | null
-  sendChat: (text: string) => Promise<void>
+  sendChat: (text: string, taskId?: string) => Promise<void>
   resetChat: () => Promise<void>
   setQuery: (q: string) => void
   searchTasks: (tasks: Task[]) => Task[]
   createList: (name: string) => Promise<List>
   renameList: (id: string, name: string) => Promise<List>
   deleteList: (id: string) => Promise<void>
-  createTask: (args: { listId: string; title: string; notes?: string; type: 'plain' | 'paper_reading'; customTypeKey?: string | null; link?: string }) => Promise<Task>
-  updateTask: (id: string, patch: { title?: string; notes?: string; link?: string; type?: 'plain' | 'paper_reading'; customTypeKey?: string | null }) => Promise<Task>
+  createTask: (args: CreateTaskArgs) => Promise<Task>
+  updateTask: (args: UpdateTaskArgs) => Promise<Task>
   deleteTask: (id: string) => Promise<void>
   toggleTask: (id: string) => Promise<Task>
   setMyDay: (id: string, inMyDay: boolean) => Promise<Task>
+  setAlarm: (id: string, alarmAt: string | null) => Promise<Task>
+  finishTask: (id: string) => Promise<Task>
+  runPreprocess: (id: string) => Promise<Task>
   saveNote: (taskId: string, content: string) => Promise<void>
-  attachPdf: (taskId: string, pdfPath: string) => Promise<Task>
-  requestReanalysis: (id: string) => Promise<Task>
-  resolveMismatch: (id: string, action: 'confirm' | 'correct' | 'attach') => Promise<Task>
+  saveType: (type: TaskTypeDef) => Promise<TaskTypeDef>
+  deleteType: (key: string) => Promise<void>
   retryJob: (jobId: string) => Promise<void>
   cancelJob: (jobId: string) => Promise<void>
   saveSettings: (s: Settings) => Promise<Settings>
@@ -59,6 +61,7 @@ interface AppContextValue extends AppState {
   tasksForList: (listId: string) => Task[]
   myDayTasks: Task[]
   activity: IngestRecord[]
+  types: TaskTypeDef[]
 }
 
 const AppCtx = createContext<AppContextValue | null>(null)
@@ -80,6 +83,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [chatRunning, setChatRunning] = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
   const snapshotRef = useRef<AppSnapshot | null>(null)
+  // Which surface (task id | null = debug chat) owns the current transcript.
+  const chatOwnerRef = useRef<string | null>(null)
 
   useEffect(() => {
     snapshotRef.current = snapshot
@@ -143,10 +148,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         })
       }
     })
-    const offAnalysis = window.api.onAnalysisUpdated((a: PaperAnalysis) => {
+    const offPreprocess = window.api.onPreprocessUpdated((p) => {
       setSnapshot((prev) => {
         if (!prev) return prev
-        return { ...prev, analyses: { ...prev.analyses, [a.taskId]: a } }
+        return { ...prev, preprocess: { ...prev.preprocess, [p.taskId]: p } }
       })
     })
     const offSug = window.api.onSuggestionsUpdated((s: Suggestion[]) => {
@@ -154,6 +159,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!prev) return prev
         return { ...prev, suggestions: s }
       })
+    })
+    const offSettings = window.api.onSettingsUpdated((s) => {
+      setSnapshot((prev) => (prev ? { ...prev, settings: s } : prev))
+    })
+    const offTypes = window.api.onTypesUpdated((types) => {
+      setSnapshot((prev) => (prev ? { ...prev, taskTypes: types } : prev))
     })
     const offToast = window.api.onToast((t) => {
       setToast({ message: t.message, view: t.view })
@@ -185,18 +196,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setChatRunning(false)
       setChatError(e.error)
     })
+    const offOpenTask = window.api.onOpenTask((taskId) => {
+      setSelectedTaskId(taskId)
+    })
     return () => {
       offTask()
       offList()
       offJob()
-      offAnalysis()
+      offPreprocess()
       offSug()
+      offSettings()
+      offTypes()
       offToast()
       offIngest()
       offIngestProgress()
       offChatDelta()
       offChatDone()
       offChatError()
+      offOpenTask()
     }
   }, [mutateTask, refresh])
 
@@ -224,11 +241,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       chatStreaming,
       chatRunning,
       chatError,
-      sendChat: async (text) => {
+      sendChat: async (text, taskId) => {
         setChatError(null)
-        setChatMessages((prev) => [...prev, { role: 'user', content: text }])
+        // Conversations are per-surface (design D4): a different owner task
+        // starts a fresh transcript — mirroring the main-side conversation
+        // reset, which captures grounding context on the first send.
+        const ownerChanged = (chatOwnerRef.current ?? null) !== (taskId ?? null)
+        if (ownerChanged) chatOwnerRef.current = taskId ?? null
+        setChatMessages((prev) => (ownerChanged ? [{ role: 'user', content: text }] : [...prev, { role: 'user', content: text }]))
         setChatRunning(true)
-        await window.api.sendChat(text)
+        await window.api.sendChat({ text, taskId })
       },
       resetChat: async () => {
         await window.api.resetChat()
@@ -260,8 +282,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         mutateTask(t)
         return t
       },
-      updateTask: async (id, patch) => {
-        const t = await window.api.updateTask({ id, ...patch })
+      updateTask: async (args) => {
+        const t = await window.api.updateTask(args)
         mutateTask(t)
         return t
       },
@@ -279,26 +301,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         mutateTask(t)
         return t
       },
+      setAlarm: async (id, alarmAt) => {
+        const t = await window.api.setAlarm({ id, alarmAt })
+        mutateTask(t)
+        return t
+      },
+      finishTask: async (id) => {
+        const t = await window.api.finishTask({ id })
+        mutateTask(t)
+        return t
+      },
+      runPreprocess: async (id) => {
+        const t = await window.api.runPreprocess({ id })
+        mutateTask(t)
+        return t
+      },
       saveNote: async (taskId, content) => {
         const n = await window.api.saveNote({ taskId, content })
-        // Keep the snapshot's notes fresh so controlled editors (plain-task
-        // textarea) reflect what was saved.
+        // Keep the snapshot's notes fresh so controlled editors reflect what
+        // was saved.
         setSnapshot((prev) => prev && { ...prev, notes: { ...prev.notes, [taskId]: n } })
       },
-      attachPdf: async (taskId, pdfPath) => {
-        const t = await window.api.attachPdf({ taskId, pdfPath })
-        mutateTask(t)
-        return t
+      saveType: async (type) => {
+        const saved = await window.api.saveType({ type })
+        await refresh()
+        return saved
       },
-      requestReanalysis: async (id) => {
-        const t = await window.api.requestReanalysis({ id })
-        mutateTask(t)
-        return t
-      },
-      resolveMismatch: async (id, action) => {
-        const t = await window.api.resolveMismatch({ id, action })
-        mutateTask(t)
-        return t
+      deleteType: async (key) => {
+        await window.api.deleteType({ key })
+        await refresh()
       },
       retryJob: (jobId) => window.api.retryJob({ jobId }),
       cancelJob: (jobId) => window.api.cancelJob({ jobId }),
@@ -317,18 +348,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       tasksForList: (listId) => (snap?.tasks ?? []).filter((t) => t.listId === listId),
       myDayTasks: (snap?.tasks ?? []).filter((t) => t.inMyDay),
       activity: snap?.ingestHistory ?? [],
+      types: snap?.taskTypes ?? [],
       query,
       setQuery,
       searchTasks: (tasks) => {
         const q = query.trim().toLowerCase()
         if (!q) return tasks
         return tasks.filter((t) => {
-          const a = snap?.analyses[t.id]
+          const p = snap?.preprocess[t.id]
           return (
             t.title.toLowerCase().includes(q) ||
-            (t.paperTitle ?? '').toLowerCase().includes(q) ||
             t.notes.toLowerCase().includes(q) ||
-            (a?.tldr ?? '').toLowerCase().includes(q)
+            (p?.summary ?? '').toLowerCase().includes(q)
           )
         })
       }

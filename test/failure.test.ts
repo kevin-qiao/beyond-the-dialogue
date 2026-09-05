@@ -3,13 +3,11 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { openDB, migrate, saveSettings, getTask, listIngest, getJob } from '../src/main/db'
+import { openDB, migrate, saveSettings, getTask, listIngest, getJob, saveNotes } from '../src/main/db'
 import { JobQueue } from '../src/main/job-queue'
-import { runAnalysisJob } from '../src/main/paper/analysis'
-import { runSuggestionJob } from '../src/main/suggestions'
+import { runPreprocessJob } from '../src/main/preprocess'
 import { runIngestJob } from '../src/main/wiki/ingest'
 import { setSessionFactory, setSimplePromptOverride, type CreateJobSessionOptions } from '../src/main/ai/session-factory'
-import { setResolverOverride, type ResolvedPaper } from '../src/main/paper/resolve'
 import { setUserDataRoot } from '../src/main/paths'
 import { ensureVault } from '../src/main/wiki/vault'
 import { serviceCreateList, serviceCreateTask } from '../src/main/tasks'
@@ -24,59 +22,67 @@ function fresh() {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-const GOOD_RESOLVE: ResolvedPaper = {
-  title: 'A Real Paper Title',
-  authors: ['Jane Doe'],
-  abstract: 'An abstract of the paper.',
-  pdfUrl: null,
-  level: 'abstract',
-  source: 'crossref'
+function configured(dir: string, conn: ReturnType<typeof openDB>) {
+  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath: path.join(dir, 'wiki-space'), defaultListId: null, maxConcurrentJobs: 2, showWelcome: false, theme: 'light', skills: [], mcpServers: [] })
 }
 
 before(() => {
   setSimplePromptOverride(async () => JSON.stringify(['Suggestion one', 'Suggestion two']))
 })
 
-test('8.2a no API key: analysis fails fast, task marked failed, no corruption', async () => {
+test('8.2a no API key: preprocess fails fast, task marked failed, no corruption', async () => {
   const { conn } = fresh()
   const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
-  q.register('analysis', runAnalysisJob)
+  q.register('preprocess', runPreprocessJob)
   const list = serviceCreateList(conn.db, 'L')
-  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'paper_reading', link: 'https://arxiv.org/abs/2301.00001' })
-  const job = q.enqueue('analysis', t.id)
+  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'learn x', type: 'learning', inputs: { target: 'x' } })
+  const job = q.enqueue('preprocess', t.id)
   await sleep(120)
   const j = getJob(conn.db, job.id)!
   assert.equal(j.state, 'failed')
   assert.ok(j.error && j.error.includes('AI not configured'))
   const task = getTask(conn.db, t.id)!
-  assert.equal(task.analysisStatus, 'failed')
-  assert.equal(task.title, 'p')
+  assert.equal(task.preprocessStatus, 'failed')
+  assert.equal(task.title, 'learn x')
   conn.close()
 })
 
-test('8.2b invalid link: analysis fails with human-readable reason, retry affordance', async () => {
-  const { conn } = fresh()
-  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath: '', defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
-  setResolverOverride(async () => ({ kind: 'unsupported', message: 'Unsupported link. Provide an arXiv link, a DOI, or a publisher URL.' }))
+test('8.2c learning preprocess outputs persist and land as chips', async () => {
+  const { conn, dir } = fresh()
+  configured(dir, conn)
+  const output = JSON.stringify({
+    generatedPrompt: 'You are helping me learn eigenvalues…',
+    summary: 'A learning task about linear algebra.',
+    suggestions: ['Work through 2x2 examples first', 'Connect to SVD notes']
+  })
+  setSessionFactory(async (_o: CreateJobSessionOptions) => ({
+    subscribe: () => () => {},
+    messages: [{ role: 'assistant', content: [{ type: 'text', text: output }] }],
+    async prompt() {},
+    async abort() {}
+  }))
   const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
-  q.register('analysis', runAnalysisJob)
+  q.register('preprocess', runPreprocessJob)
   const list = serviceCreateList(conn.db, 'L')
-  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'paper_reading', link: 'not-a-link' })
-  const job = q.enqueue('analysis', t.id)
-  await sleep(120)
+  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'Eigenvalues', type: 'learning', inputs: { target: 'Eigenvalues' } })
+  const job = q.enqueue('preprocess', t.id)
+  await sleep(250)
   const j = getJob(conn.db, job.id)!
-  assert.equal(j.state, 'failed')
-  assert.ok(j.error && j.error.includes('Unsupported link'))
+  assert.equal(j.state, 'done', j.error)
   const task = getTask(conn.db, t.id)!
-  assert.equal(task.analysisStatus, 'failed')
-  assert.ok(task.analysisError)
+  assert.equal(task.preprocessStatus, 'ready')
+  const { getPreprocess, listSuggestions } = await import('../src/main/db')
+  const p = getPreprocess(conn.db, t.id)!
+  assert.ok(p.generatedPrompt.startsWith('You are helping'))
+  assert.ok(p.inputsHash, 'hash recorded for the re-run gate')
+  assert.equal(p.suggestions.length, 2)
+  assert.equal(listSuggestions(conn.db, t.id).length, 2, 'suggestions land as dismissible chips')
   conn.close()
 })
 
-test('8.2c paywalled link (no open PDF) degrades to abstract-only analysis', async () => {
-  const { conn } = fresh()
-  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath: '', defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
-  // Scripted session producing a normal analysis.
+test('8.2c2 jira/confluence preprocess: page kind produces quality summary from pasted source', async () => {
+  const { conn, dir } = fresh()
+  configured(dir, conn)
   setSessionFactory(async (_o: CreateJobSessionOptions) => ({
     subscribe: () => () => {},
     messages: [
@@ -86,12 +92,9 @@ test('8.2c paywalled link (no open PDF) degrades to abstract-only analysis', asy
           {
             type: 'text',
             text: JSON.stringify({
-              tldr: 'Abstract-only summary.',
-              contributions: ['a', 'b'],
-              method: 'm',
-              results: 'r',
-              prerequisites: [],
-              suggestions: [{ kind: 'effort', title: 'e', body: 'b' }]
+              generatedPrompt: '',
+              summary: 'The page explains the release process but is missing a rollback section.',
+              suggestions: ['Add a rollback section', 'Update the stale links']
             })
           }
         ]
@@ -100,59 +103,51 @@ test('8.2c paywalled link (no open PDF) degrades to abstract-only analysis', asy
     async prompt() {},
     async abort() {}
   }))
-  // DOI link resolves metadata but has no pdfUrl -> abstract level.
-  setResolverOverride(async () => ({ ...GOOD_RESOLVE, level: 'abstract', pdfUrl: null }))
   const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
-  q.register('analysis', runAnalysisJob)
+  q.register('preprocess', runPreprocessJob)
   const list = serviceCreateList(conn.db, 'L')
-  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'Paywalled Paper', type: 'paper_reading', link: 'https://doi.org/10.1000/xyz' })
-  const job = q.enqueue('analysis', t.id)
+  const t = serviceCreateTask(conn.db, {
+    listId: list.id,
+    title: 'Fix the release doc',
+    type: 'jira',
+    inputs: { sourceKind: 'page', sourceText: 'How we release. Steps 1-4. (no rollback)', target: 'Improve the page' }
+  })
+  const job = q.enqueue('preprocess', t.id)
   await sleep(250)
   const j = getJob(conn.db, job.id)!
   assert.equal(j.state, 'done', j.error)
-  const task = getTask(conn.db, t.id)!
-  assert.equal(task.analysisStatus, 'abstract_only')
-  assert.equal(task.analysisLevel, 'abstract')
+  const { getPreprocess } = await import('../src/main/db')
+  const p = getPreprocess(conn.db, t.id)!
+  assert.ok(p.summary.includes('rollback'), 'confluence summary assesses quality of the pasted content')
+  assert.equal(p.kind, 'jira')
   conn.close()
 })
 
-test('8.2d provider 429 mid-analysis: auto-retry with backoff then success', async () => {
-  const { conn } = fresh()
-  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath: '', defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
-  setResolverOverride(async () => ({ ...GOOD_RESOLVE, level: 'abstract', pdfUrl: null }))
+test('8.2d provider 429 mid-preprocess: auto-retry with backoff then success', async () => {
+  const { conn, dir } = fresh()
+  configured(dir, conn)
   let calls = 0
   setSessionFactory(async (_o: CreateJobSessionOptions) => {
     calls++
+    const attempt = calls
     return {
       subscribe: () => () => {},
       messages: [],
       async prompt() {
-        if (calls < 3) throw new Error('Rate limit exceeded (429)')
+        if (attempt < 3) throw new Error('Rate limit exceeded (429)')
         this.messages.push({
           role: 'assistant',
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                tldr: 'ok',
-                contributions: ['a'],
-                method: 'm',
-                results: 'r',
-                prerequisites: [],
-                suggestions: [{ kind: 'effort', title: 'e', body: 'b' }]
-              })
-            }
-          ]
+          content: [{ type: 'text', text: JSON.stringify({ generatedPrompt: 'p', summary: 'ok', suggestions: ['a'] }) }]
         })
       },
       async abort() {}
     }
   })
   const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
-  q.register('analysis', runAnalysisJob)
+  q.register('preprocess', runPreprocessJob)
   const list = serviceCreateList(conn.db, 'L')
-  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'paper_reading', link: 'https://arxiv.org/abs/2301.00001' })
-  const job = q.enqueue('analysis', t.id)
+  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'learning', inputs: { target: 'x' } })
+  const job = q.enqueue('preprocess', t.id)
   await sleep(500)
   const j = getJob(conn.db, job.id)!
   assert.equal(j.state, 'done', j.error)
@@ -162,15 +157,13 @@ test('8.2d provider 429 mid-analysis: auto-retry with backoff then success', asy
 
 test('8.2e agent failure mid-ingest: deposit survives, task complete, retry succeeds', async () => {
   const { conn, dir } = fresh()
-  const wikiPath = path.join(dir, 'wiki-space')
-  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath, defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
+  configured(dir, conn)
   ensureVault()
   const list = serviceCreateList(conn.db, 'L')
-  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'paper_reading' })
+  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'learning' })
   const notePath = path.join(dir, 'vault', 'notes', `${t.id}.md`)
   fs.mkdirSync(path.dirname(notePath), { recursive: true })
   fs.writeFileSync(notePath, '# notes')
-  const { saveNotes } = await import('../src/main/db')
   saveNotes(conn.db, { taskId: t.id, notePath, content: '# notes' })
 
   const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
@@ -178,14 +171,16 @@ test('8.2e agent failure mid-ingest: deposit survives, task complete, retry succ
   let calls = 0
   setSessionFactory(async (_o: CreateJobSessionOptions) => {
     calls++
+    const n = calls
     return {
       subscribe: () => () => {},
       messages: [],
       async prompt() {
-        if (calls === 1) throw new Error('provider overloaded (503)')
-        const slug = `paper-${t.id.slice(0, 6)}`
-        fs.mkdirSync(path.join(wikiPath, 'wiki', 'sources'), { recursive: true })
-        fs.writeFileSync(path.join(wikiPath, 'wiki', 'sources', `${slug}.md`), '# summary')
+        if (n === 1) throw new Error('provider overloaded (503)')
+        const wikiPath = path.join(dir, 'wiki-space')
+        const slug = `learning-note-${t.id.slice(0, 6)}`
+        fs.mkdirSync(path.join(wikiPath, 'learning-notes'), { recursive: true })
+        fs.writeFileSync(path.join(wikiPath, 'learning-notes', `${slug}.md`), '# curated')
         fs.appendFileSync(path.join(wikiPath, 'log.md'), '\n## [2026-01-01] ingest | x\n')
       },
       async abort() {}
@@ -198,24 +193,22 @@ test('8.2e agent failure mid-ingest: deposit survives, task complete, retry succ
   assert.equal(recs.length, 1)
   assert.equal(recs[0]!.state, 'done', recs[0]!.error ?? '')
   // Deposit survived the transient failure: raw/ has the note.
-  const rawNote = path.join(wikiPath, 'raw', t.id, 'reading-notes.md')
-  assert.ok(fs.existsSync(rawNote), 'deposit survived agent failure')
-  const sources = fs.readdirSync(path.join(wikiPath, 'wiki', 'sources'))
-  assert.ok(sources.length >= 1, 'retry produced the source page')
+  const rawDir = path.join(dir, 'wiki-space', 'raw', t.id)
+  assert.ok(fs.readdirSync(rawDir).some((f) => f.endsWith('.md')), 'deposit survived agent failure')
+  const curated = path.join(dir, 'wiki-space', 'learning-notes', `learning-note-${t.id.slice(0, 6)}.md`)
+  assert.ok(fs.existsSync(curated), 'retry produced the curated note')
   conn.close()
 })
 
 test('8.2f permanent ingest failure: surfaced failed, deposit intact', async () => {
   const { conn, dir } = fresh()
-  const wikiPath = path.join(dir, 'wiki-space')
-  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath, defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
+  configured(dir, conn)
   ensureVault()
   const list = serviceCreateList(conn.db, 'L')
-  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'paper_reading' })
+  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'learning' })
   const notePath = path.join(dir, 'vault', 'notes', `${t.id}.md`)
   fs.mkdirSync(path.dirname(notePath), { recursive: true })
   fs.writeFileSync(notePath, '# notes')
-  const { saveNotes } = await import('../src/main/db')
   saveNotes(conn.db, { taskId: t.id, notePath, content: '# notes' })
 
   const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
@@ -235,7 +228,7 @@ test('8.2f permanent ingest failure: surfaced failed, deposit intact', async () 
   assert.equal(recs[0]!.state, 'failed')
   assert.ok(recs[0]!.error && recs[0]!.error.length > 0, 'human-readable failure')
   // Deposit survives even permanent failure.
-  const rawNote = path.join(wikiPath, 'raw', t.id, 'reading-notes.md')
-  assert.ok(fs.existsSync(rawNote), 'deposit survives permanent failure')
+  const rawDir = path.join(dir, 'wiki-space', 'raw', t.id)
+  assert.ok(fs.readdirSync(rawDir).some((f) => f.endsWith('.md')), 'deposit survives permanent failure')
   conn.close()
 })

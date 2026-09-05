@@ -2,7 +2,20 @@ import { DatabaseSync } from 'node:sqlite'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { IngestRecord, JobRecord, List, PaperAnalysis, ReadingNotes, Settings, Suggestion, Task } from '../shared/types'
+import type {
+  IngestRecord,
+  JobRecord,
+  List,
+  McpServerEntry,
+  Settings,
+  SkillEntry,
+  Suggestion,
+  Task,
+  TaskKind,
+  TaskNote,
+  TaskPreprocess,
+  TaskTypeDef
+} from '../shared/types'
 
 export interface DB {
   db: DatabaseSync
@@ -24,19 +37,16 @@ CREATE TABLE IF NOT EXISTS tasks (
   list_id TEXT NOT NULL REFERENCES lists(id),
   title TEXT NOT NULL,
   notes TEXT NOT NULL DEFAULT '',
-  type TEXT NOT NULL DEFAULT 'plain' CHECK (type IN ('plain','paper_reading')),
+  type TEXT NOT NULL DEFAULT 'plain' CHECK (type IN ('plain','learning','jira')),
   custom_type_key TEXT,
+  inputs TEXT NOT NULL DEFAULT '{}',
   completed INTEGER NOT NULL DEFAULT 0,
   completed_at TEXT,
   in_my_day INTEGER NOT NULL DEFAULT 0,
   my_day_added_at TEXT,
-  link TEXT,
-  paper_title TEXT,
-  analysis_level TEXT CHECK (analysis_level IN ('full','abstract','metadata')),
-  analysis_status TEXT NOT NULL DEFAULT 'none' CHECK (analysis_status IN ('none','queued','running','ready','abstract_only','failed')),
-  mismatch_state TEXT NOT NULL DEFAULT 'none' CHECK (mismatch_state IN ('none','warning','confirmed','corrected')),
-  analysis_error TEXT,
-  pdf_path TEXT,
+  preprocess_status TEXT NOT NULL DEFAULT 'none' CHECK (preprocess_status IN ('none','queued','running','ready','failed')),
+  preprocess_error TEXT,
+  alarm_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   deleted_at TEXT
@@ -44,9 +54,22 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_list ON tasks(list_id) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_tasks_mine ON tasks(in_my_day) WHERE deleted_at IS NULL AND in_my_day = 1;
 
+CREATE TABLE IF NOT EXISTS task_types (
+  key TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('plain','learning','jira')),
+  label TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  description TEXT,
+  color TEXT,
+  input_schema TEXT NOT NULL DEFAULT '[]',
+  ai_guidance TEXT,
+  is_builtin INTEGER NOT NULL DEFAULT 0,
+  sort INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS enrichment_jobs (
   id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL CHECK (kind IN ('analysis','suggestion','ingest')),
+  kind TEXT NOT NULL CHECK (kind IN ('preprocess','suggestion','ingest')),
   task_id TEXT,
   state TEXT NOT NULL CHECK (state IN ('queued','running','done','failed')),
   step_label TEXT,
@@ -59,20 +82,18 @@ CREATE TABLE IF NOT EXISTS enrichment_jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_state ON enrichment_jobs(state);
 
-CREATE TABLE IF NOT EXISTS paper_analysis (
+CREATE TABLE IF NOT EXISTS task_preprocess (
   task_id TEXT PRIMARY KEY REFERENCES tasks(id),
-  level TEXT NOT NULL CHECK (level IN ('full','abstract','metadata')),
-  status TEXT NOT NULL,
-  tldr TEXT NOT NULL DEFAULT '',
-  contributions TEXT NOT NULL DEFAULT '[]',
-  method TEXT NOT NULL DEFAULT '',
-  results TEXT NOT NULL DEFAULT '',
-  prerequisites TEXT NOT NULL DEFAULT '[]',
-  suggestions TEXT NOT NULL DEFAULT '[]',
+  kind TEXT NOT NULL CHECK (kind IN ('plain','learning','jira')),
+  summary TEXT NOT NULL DEFAULT '',
+  suggestions_json TEXT NOT NULL DEFAULT '[]',
+  generated_prompt TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'none',
+  inputs_hash TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS reading_notes (
+CREATE TABLE IF NOT EXISTS task_notes (
   task_id TEXT PRIMARY KEY REFERENCES tasks(id),
   note_path TEXT NOT NULL,
   content TEXT NOT NULL DEFAULT '',
@@ -112,7 +133,85 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 );
 `
 
+// ---- built-in type seeds ----
+
+// The canonical definitions of the three built-in types. The migration seeds
+// these into task_types (INSERT OR IGNORE so later user edits to
+// presentation survive re-migration); custom types of a kind inherit that
+// kind's inputSchema unless they declare their own subset.
+export const LEARNING_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
+  { key: 'target', label: 'Target', type: 'text', required: true, placeholder: 'The concept or question to learn' },
+  { key: 'link', label: 'Link', type: 'url', placeholder: 'https://… (optional, stored as context)' },
+  { key: 'filePath', label: 'File', type: 'file', placeholder: 'Optional attachment kept for the record' },
+  { key: 'purpose', label: 'Purpose / Prompt', type: 'textarea', placeholder: 'What you want the note to cover' },
+  { key: 'learningNotePath', label: 'Learning-note path', type: 'text', placeholder: 'Defaults inside the wiki' },
+  { key: 'skill', label: 'Skill', type: 'select', optionsSource: 'skills', inert: true },
+  { key: 'mcp', label: 'MCP server', type: 'select', optionsSource: 'mcpServers', inert: true }
+]
+
+export const JIRA_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
+  {
+    key: 'sourceKind',
+    label: 'Source kind',
+    type: 'select',
+    required: true,
+    immutable: true,
+    options: [
+      { value: 'issue', label: 'JIRA issue' },
+      { value: 'page', label: 'Confluence page' }
+    ]
+  },
+  { key: 'sourceLink', label: 'Link', type: 'url', placeholder: 'Ticket/page URL (reference only in v0.8)' },
+  { key: 'sourceText', label: 'Source content', type: 'textarea', required: true, placeholder: 'Paste the issue/page content' },
+  { key: 'target', label: 'Target / Purpose', type: 'textarea', required: true, placeholder: 'What you want done with it' },
+  { key: 'comments', label: 'Comment drafts', type: 'textarea', hidden: true, placeholder: 'Draft comments for the issue/page (local only)' },
+  { key: 'skill', label: 'Skill', type: 'select', optionsSource: 'skills', inert: true },
+  { key: 'mcp', label: 'MCP server', type: 'select', optionsSource: 'mcpServers', inert: true }
+]
+
+export function builtinTypeSeeds(): TaskTypeDef[] {
+  return [
+    {
+      key: 'plain',
+      kind: 'plain',
+      label: 'Plain task',
+      emoji: '📝',
+      description: 'A plain task — notes and suggestions only, no AI pre-process',
+      inputSchema: [],
+      isBuiltin: true
+    },
+    {
+      key: 'learning',
+      kind: 'learning',
+      label: 'Learning',
+      emoji: '🎓',
+      description: 'Learn a concept: AI prompt + summary, markdown note, Finish ingests to the wiki',
+      inputSchema: LEARNING_INPUT_SCHEMA,
+      isBuiltin: true
+    },
+    {
+      key: 'jira',
+      kind: 'jira',
+      label: 'JIRA / Confluence',
+      emoji: '🎫',
+      description: 'Work an issue or page from pasted content: summaries, chat, comment drafts',
+      inputSchema: JIRA_INPUT_SCHEMA,
+      isBuiltin: true
+    }
+  ]
+}
+
 // ---- row mappers ----
+
+function parseInputs(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'string' || !value.trim()) return {}
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
 
 export function mapTask(r: any): Task {
   return {
@@ -122,17 +221,14 @@ export function mapTask(r: any): Task {
     notes: r.notes,
     type: r.type,
     customTypeKey: r.custom_type_key ?? null,
+    inputs: parseInputs(r.inputs),
+    preprocessStatus: r.preprocess_status ?? 'none',
+    preprocessError: r.preprocess_error ?? null,
+    alarmAt: r.alarm_at ?? null,
     completed: !!r.completed,
     completedAt: r.completed_at,
     inMyDay: !!r.in_my_day,
     myDayAddedAt: r.my_day_added_at,
-    link: r.link,
-    paperTitle: r.paper_title,
-    analysisLevel: r.analysis_level,
-    analysisStatus: r.analysis_status,
-    mismatchState: r.mismatch_state,
-    analysisError: r.analysis_error,
-    pdfPath: r.pdf_path,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     deletedAt: r.deleted_at
@@ -165,22 +261,48 @@ function mapJob(r: any): JobRecord {
   }
 }
 
-function mapAnalysis(r: any): PaperAnalysis {
+function mapType(r: any): TaskTypeDef {
+  let inputSchema: TaskTypeDef['inputSchema'] = []
+  try {
+    const parsed = JSON.parse(r.input_schema)
+    if (Array.isArray(parsed)) inputSchema = parsed
+  } catch {
+    // Corrupt schema → treat as no declared inputs rather than crash.
+  }
+  return {
+    key: r.key,
+    kind: r.kind,
+    label: r.label,
+    emoji: r.emoji,
+    description: r.description ?? undefined,
+    color: r.color ?? undefined,
+    inputSchema,
+    aiGuidance: r.ai_guidance ?? undefined,
+    isBuiltin: !!r.is_builtin
+  }
+}
+
+function mapPreprocess(r: any): TaskPreprocess {
+  let suggestions: string[] = []
+  try {
+    const parsed = JSON.parse(r.suggestions_json)
+    if (Array.isArray(parsed)) suggestions = parsed.filter((s): s is string => typeof s === 'string')
+  } catch {
+    // fall through with empty list
+  }
   return {
     taskId: r.task_id,
-    level: r.level,
+    kind: r.kind,
+    summary: r.summary,
+    suggestions,
+    generatedPrompt: r.generated_prompt,
     status: r.status,
-    tldr: r.tldr,
-    contributions: JSON.parse(r.contributions),
-    method: r.method,
-    results: r.results,
-    prerequisites: JSON.parse(r.prerequisites),
-    suggestions: JSON.parse(r.suggestions),
+    inputsHash: r.inputs_hash ?? '',
     updatedAt: r.updated_at
   }
 }
 
-function mapNotes(r: any): ReadingNotes {
+function mapNotes(r: any): TaskNote {
   return {
     taskId: r.task_id,
     notePath: r.note_path,
@@ -244,12 +366,142 @@ export function migrate(db: DatabaseSync): void {
     mark(2)
   }
 
+  // v2 → v3: the type engine (task-type-workflows D1). Rebuilds `tasks`
+  // (drops paper columns; adds inputs/alarm_at/preprocess state; maps legacy
+  // paper_reading rows to learning with link folded into inputs), swaps the
+  // jobs kind CHECK (analysis → preprocess, dropping stale analysis rows),
+  // drops paper_analysis, renames reading_notes → task_notes, and moves
+  // settings.customTypes into the new task_types table.
+  if (!ran(3)) {
+    const cols = db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'inputs')) {
+      db.exec(`
+        CREATE TABLE tasks_new (
+          id TEXT PRIMARY KEY,
+          list_id TEXT NOT NULL REFERENCES lists(id),
+          title TEXT NOT NULL,
+          notes TEXT NOT NULL DEFAULT '',
+          type TEXT NOT NULL DEFAULT 'plain' CHECK (type IN ('plain','learning','jira')),
+          custom_type_key TEXT,
+          inputs TEXT NOT NULL DEFAULT '{}',
+          completed INTEGER NOT NULL DEFAULT 0,
+          completed_at TEXT,
+          in_my_day INTEGER NOT NULL DEFAULT 0,
+          my_day_added_at TEXT,
+          preprocess_status TEXT NOT NULL DEFAULT 'none' CHECK (preprocess_status IN ('none','queued','running','ready','failed')),
+          preprocess_error TEXT,
+          alarm_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT
+        )`)
+      const rows = db.prepare('SELECT * FROM tasks').all() as any[]
+      const ins = db.prepare(
+        `INSERT INTO tasks_new (id, list_id, title, notes, type, custom_type_key, inputs, completed, completed_at,
+           in_my_day, my_day_added_at, preprocess_status, preprocess_error, alarm_at, created_at, updated_at, deleted_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      )
+      for (const r of rows) {
+        const type = r.type === 'paper_reading' ? 'learning' : r.type
+        const inputs = r.type === 'paper_reading' && r.link ? JSON.stringify({ link: r.link }) : '{}'
+        ins.run(
+          r.id, r.list_id, r.title, r.notes, type, r.custom_type_key ?? null, inputs,
+          r.completed, r.completed_at, r.in_my_day, r.my_day_added_at,
+          'none', null, null,
+          r.created_at, r.updated_at, r.deleted_at
+        )
+      }
+      db.exec('DROP TABLE tasks')
+      db.exec('ALTER TABLE tasks_new RENAME TO tasks')
+      db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_list ON tasks(list_id) WHERE deleted_at IS NULL')
+      db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_mine ON tasks(in_my_day) WHERE deleted_at IS NULL AND in_my_day = 1')
+    }
+
+    // Jobs table: the old CHECK allowed 'analysis' and not 'preprocess'.
+    // Rebuild only when the stored DDL still names 'analysis' (string check
+    // on sqlite_master — PRAGMA cannot read CHECK constraints).
+    const jobsDdl = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='enrichment_jobs'").get() as { sql: string } | undefined)?.sql ?? ''
+    if (jobsDdl.includes("'analysis'")) {
+      db.exec(`
+        CREATE TABLE enrichment_jobs_new (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL CHECK (kind IN ('preprocess','suggestion','ingest')),
+          task_id TEXT,
+          state TEXT NOT NULL CHECK (state IN ('queued','running','done','failed')),
+          step_label TEXT,
+          progress TEXT,
+          error TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          started_at TEXT,
+          finished_at TEXT
+        )`)
+      db.exec(
+        `INSERT INTO enrichment_jobs_new SELECT id, kind, task_id, state, step_label, progress, error, attempts, created_at, started_at, finished_at
+         FROM enrichment_jobs WHERE kind != 'analysis'`
+      )
+      db.exec('DROP TABLE enrichment_jobs')
+      db.exec('ALTER TABLE enrichment_jobs_new RENAME TO enrichment_jobs')
+      db.exec('CREATE INDEX IF NOT EXISTS idx_jobs_state ON enrichment_jobs(state)')
+    }
+
+    db.exec('DROP TABLE IF EXISTS paper_analysis')
+
+    // Rename reading_notes → task_notes. Note: openDB() already created the
+    // new-shape task_notes (IF NOT EXISTS), so on legacy DBs the rows must be
+    // moved out of reading_notes and the old table dropped.
+    const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map((r) => r.name)
+    if (tables.includes('reading_notes')) {
+      if (tables.includes('task_notes')) {
+        db.exec('INSERT OR IGNORE INTO task_notes SELECT task_id, note_path, content, updated_at FROM reading_notes')
+        db.exec('DROP TABLE reading_notes')
+      } else {
+        db.exec('ALTER TABLE reading_notes RENAME TO task_notes')
+      }
+    }
+
+    // Ensure the new-shape tables exist on legacy DBs (SCHEMA ran before the
+    // rebuild above; re-running the IF NOT EXISTS batch is harmless).
+    db.exec(SCHEMA)
+
+    // Move user-defined types out of the settings blob.
+    const ctRow = db.prepare("SELECT value FROM settings WHERE key = 'customTypes'").get() as { value: string } | undefined
+    if (ctRow) {
+      try {
+        const parsed = JSON.parse(ctRow.value)
+        if (Array.isArray(parsed)) {
+          const insType = db.prepare(
+            `INSERT OR IGNORE INTO task_types (key, kind, label, emoji, description, color, input_schema, ai_guidance, is_builtin, sort)
+             VALUES (?, 'learning', ?, ?, ?, ?, ?, NULL, 0, ?)`
+          )
+          parsed.forEach((c: any, i: number) => {
+            if (c && typeof c.key === 'string' && typeof c.label === 'string' && typeof c.emoji === 'string') {
+              insType.run(c.key, c.label, c.emoji, c.description ?? null, c.color ?? null, JSON.stringify(LEARNING_INPUT_SCHEMA), 100 + i)
+            }
+          })
+        }
+      } catch {
+        // Corrupt blob — drop it; built-ins still seed below.
+      }
+      db.prepare("DELETE FROM settings WHERE key = 'customTypes'").run()
+    }
+    mark(3)
+  }
+
   // Seed a default list on first open.
   const row = db.prepare('SELECT COUNT(*) AS n FROM lists').get() as { n: number }
   if (row.n === 0) {
     const now = new Date().toISOString()
     db.prepare('INSERT INTO lists (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)').run(randomUUID(), 'Inbox', now, now)
   }
+
+  // Seed the built-in types (create-only: later edits to their presentation
+  // survive because this never overwrites existing rows).
+  const insType = db.prepare(
+    `INSERT OR IGNORE INTO task_types (key, kind, label, emoji, description, color, input_schema, ai_guidance, is_builtin, sort)
+     VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, 1, ?)`
+  )
+  builtinTypeSeeds().forEach((t, i) => insType.run(t.key, t.kind, t.label, t.emoji, t.description ?? null, JSON.stringify(t.inputSchema), i))
 }
 
 // ---- Settings ----
@@ -263,7 +515,38 @@ const DEFAULT_SETTINGS: Settings = {
   maxConcurrentJobs: 2,
   showWelcome: true,
   theme: 'light',
-  customTypes: []
+  skills: [],
+  mcpServers: []
+}
+
+function parseSkills(value: unknown): SkillEntry[] {
+  try {
+    const parsed = JSON.parse(String(value))
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (s): s is SkillEntry => s && typeof s.name === 'string' && typeof s.description === 'string'
+    )
+  } catch {
+    return []
+  }
+}
+
+function parseMcpServers(value: unknown): McpServerEntry[] {
+  try {
+    const parsed = JSON.parse(String(value))
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (s): s is McpServerEntry =>
+        s &&
+        typeof s.name === 'string' &&
+        s.transport &&
+        typeof s.transport === 'object' &&
+        s.transport.type === 'stdio' &&
+        typeof s.transport.command === 'string'
+    )
+  } catch {
+    return []
+  }
 }
 
 export function loadSettings(db: DatabaseSync): Settings {
@@ -279,19 +562,8 @@ export function loadSettings(db: DatabaseSync): Settings {
     else if (r.key === 'maxConcurrentJobs') out.maxConcurrentJobs = parseInt(r.value, 10) || 2
     else if (r.key === 'showWelcome') out.showWelcome = r.value !== '0'
     else if (r.key === 'theme') out.theme = r.value === 'dark' ? 'dark' : 'light'
-    else if (r.key === 'customTypes') {
-      try {
-        const parsed = JSON.parse(r.value)
-        if (Array.isArray(parsed)) {
-          out.customTypes = parsed.filter(
-            (c): c is Settings['customTypes'][number] =>
-              c && typeof c.key === 'string' && typeof c.label === 'string' && typeof c.emoji === 'string'
-          )
-        }
-      } catch {
-        // Corrupt JSON → keep default empty list. User can re-add types.
-      }
-    }
+    else if (r.key === 'skills') out.skills = parseSkills(r.value)
+    else if (r.key === 'mcpServers') out.mcpServers = parseMcpServers(r.value)
   }
   return out
 }
@@ -306,7 +578,8 @@ export function saveSettings(db: DatabaseSync, s: Settings): void {
   upsert.run('maxConcurrentJobs', String(s.maxConcurrentJobs))
   upsert.run('showWelcome', s.showWelcome ? '1' : '0')
   upsert.run('theme', s.theme === 'dark' ? 'dark' : 'light')
-  upsert.run('customTypes', JSON.stringify(s.customTypes ?? []))
+  upsert.run('skills', JSON.stringify(s.skills ?? []))
+  upsert.run('mcpServers', JSON.stringify(s.mcpServers ?? []))
 }
 
 // ---- Lists ----
@@ -342,22 +615,20 @@ export function createTask(
     listId: string
     title: string
     notes?: string
-    type?: 'plain' | 'paper_reading'
+    type?: Task['type']
     customTypeKey?: string | null
-    link?: string
+    inputs?: Record<string, unknown>
   }
 ): Task {
   const now = new Date().toISOString()
   const id = randomUUID()
   const type = data.type ?? 'plain'
   const customTypeKey = data.customTypeKey ?? null
+  const inputs = JSON.stringify(data.inputs ?? {})
   db.prepare(
-    `INSERT INTO tasks (id, list_id, title, notes, type, custom_type_key, in_my_day, analysis_status, mismatch_state, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 0, 'none', 'none', ?, ?)`
-  ).run(id, data.listId, data.title, data.notes ?? '', type, customTypeKey, now, now)
-  if (type === 'paper_reading' && data.link) {
-    db.prepare('UPDATE tasks SET link = ? WHERE id = ?').run(data.link, id)
-  }
+    `INSERT INTO tasks (id, list_id, title, notes, type, custom_type_key, inputs, in_my_day, preprocess_status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'none', ?, ?)`
+  ).run(id, data.listId, data.title, data.notes ?? '', type, customTypeKey, inputs, now, now)
   return getTask(db, id)!
 }
 
@@ -382,13 +653,10 @@ export function updateTask(db: DatabaseSync, id: string, patch: Partial<Task>): 
     notes: 'notes',
     type: 'type',
     customTypeKey: 'custom_type_key',
-    link: 'link',
-    paperTitle: 'paper_title',
-    analysisLevel: 'analysis_level',
-    analysisStatus: 'analysis_status',
-    mismatchState: 'mismatch_state',
-    analysisError: 'analysis_error',
-    pdfPath: 'pdf_path',
+    inputs: 'inputs',
+    preprocessStatus: 'preprocess_status',
+    preprocessError: 'preprocess_error',
+    alarmAt: 'alarm_at',
     completed: 'completed',
     completedAt: 'completed_at',
     inMyDay: 'in_my_day',
@@ -401,6 +669,7 @@ export function updateTask(db: DatabaseSync, id: string, patch: Partial<Task>): 
     fields.push(`${col} = ?`)
     if (k === 'completed') values.push(v ? 1 : 0)
     else if (k === 'inMyDay') values.push(v ? 1 : 0)
+    else if (k === 'inputs') values.push(JSON.stringify(v ?? {}))
     else values.push((v as string | number | null) ?? null)
   }
   fields.push('updated_at = ?')
@@ -413,6 +682,51 @@ export function updateTask(db: DatabaseSync, id: string, patch: Partial<Task>): 
 export function deleteTask(db: DatabaseSync, id: string): void {
   const now = new Date().toISOString()
   db.prepare('UPDATE tasks SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id)
+}
+
+// ---- Task types (registry) ----
+
+export function listTypes(db: DatabaseSync): TaskTypeDef[] {
+  const rows = db.prepare('SELECT * FROM task_types ORDER BY is_builtin DESC, sort ASC, key ASC').all()
+  return rows.map(mapType)
+}
+
+export function getType(db: DatabaseSync, key: string): TaskTypeDef | null {
+  const r = db.prepare('SELECT * FROM task_types WHERE key = ?').get(key)
+  return r ? mapType(r) : null
+}
+
+export function upsertType(db: DatabaseSync, t: TaskTypeDef): TaskTypeDef {
+  db.prepare(
+    `INSERT INTO task_types (key, kind, label, emoji, description, color, input_schema, ai_guidance, is_builtin, sort)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET kind=excluded.kind, label=excluded.label, emoji=excluded.emoji,
+       description=excluded.description, color=excluded.color, input_schema=excluded.input_schema,
+       ai_guidance=excluded.ai_guidance, is_builtin=excluded.is_builtin, sort=excluded.sort`
+  ).run(
+    t.key,
+    t.kind,
+    t.label,
+    t.emoji,
+    t.description ?? null,
+    t.color ?? null,
+    JSON.stringify(t.inputSchema ?? []),
+    t.aiGuidance ?? null,
+    t.isBuiltin ? 1 : 0,
+    0
+  )
+  return getType(db, t.key)!
+}
+
+export function deleteType(db: DatabaseSync, key: string): void {
+  db.prepare('DELETE FROM task_types WHERE key = ?').run(key)
+}
+
+// Reassign tasks referencing a removed custom type back to `plain`
+// (spec: removing a custom type keeps core fields).
+export function reassignTasksFromType(db: DatabaseSync, key: string): void {
+  const now = new Date().toISOString()
+  db.prepare("UPDATE tasks SET type = 'plain', custom_type_key = NULL, inputs = '{}', updated_at = ? WHERE custom_type_key = ?").run(now, key)
 }
 
 // ---- Jobs ----
@@ -479,70 +793,48 @@ export function listRecentJobs(db: DatabaseSync, limit = 50): JobRecord[] {
   return rows.map(mapJob)
 }
 
-// ---- Analysis ----
+// ---- Pre-process ----
 
-export function getAnalysis(db: DatabaseSync, taskId: string): PaperAnalysis | null {
-  const r = db.prepare('SELECT * FROM paper_analysis WHERE task_id = ?').get(taskId)
-  return r ? mapAnalysis(r) : null
+export function getPreprocess(db: DatabaseSync, taskId: string): TaskPreprocess | null {
+  const r = db.prepare('SELECT * FROM task_preprocess WHERE task_id = ?').get(taskId)
+  return r ? mapPreprocess(r) : null
 }
 
-export function saveAnalysis(db: DatabaseSync, a: Omit<PaperAnalysis, 'updatedAt'>): PaperAnalysis {
+export function savePreprocess(db: DatabaseSync, p: Omit<TaskPreprocess, 'updatedAt'>): TaskPreprocess {
   const now = new Date().toISOString()
-  const existing = getAnalysis(db, a.taskId)
+  const existing = getPreprocess(db, p.taskId)
   if (existing) {
     db.prepare(
-      `UPDATE paper_analysis SET level=?, status=?, tldr=?, contributions=?, method=?, results=?, prerequisites=?, suggestions=?, updated_at=? WHERE task_id=?`
-    ).run(
-      a.level,
-      a.status,
-      a.tldr,
-      JSON.stringify(a.contributions),
-      a.method,
-      a.results,
-      JSON.stringify(a.prerequisites),
-      JSON.stringify(a.suggestions),
-      now,
-      a.taskId
-    )
+      `UPDATE task_preprocess SET kind=?, summary=?, suggestions_json=?, generated_prompt=?, status=?, inputs_hash=?, updated_at=? WHERE task_id=?`
+    ).run(p.kind, p.summary, JSON.stringify(p.suggestions), p.generatedPrompt, p.status, p.inputsHash ?? '', now, p.taskId)
   } else {
     db.prepare(
-      `INSERT INTO paper_analysis (task_id, level, status, tldr, contributions, method, results, prerequisites, suggestions, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      a.taskId,
-      a.level,
-      a.status,
-      a.tldr,
-      JSON.stringify(a.contributions),
-      a.method,
-      a.results,
-      JSON.stringify(a.prerequisites),
-      JSON.stringify(a.suggestions),
-      now
-    )
+      `INSERT INTO task_preprocess (task_id, kind, summary, suggestions_json, generated_prompt, status, inputs_hash, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(p.taskId, p.kind, p.summary, JSON.stringify(p.suggestions), p.generatedPrompt, p.status, p.inputsHash ?? '', now)
   }
-  return getAnalysis(db, a.taskId)!
+  return getPreprocess(db, p.taskId)!
 }
 
 // ---- Notes ----
 
-export function getNotes(db: DatabaseSync, taskId: string): ReadingNotes | null {
-  const r = db.prepare('SELECT * FROM reading_notes WHERE task_id = ?').get(taskId)
+export function getNotes(db: DatabaseSync, taskId: string): TaskNote | null {
+  const r = db.prepare('SELECT * FROM task_notes WHERE task_id = ?').get(taskId)
   return r ? mapNotes(r) : null
 }
 
-export function saveNotes(db: DatabaseSync, n: Omit<ReadingNotes, 'updatedAt'>): ReadingNotes {
+export function saveNotes(db: DatabaseSync, n: Omit<TaskNote, 'updatedAt'>): TaskNote {
   const now = new Date().toISOString()
   const existing = getNotes(db, n.taskId)
   if (existing) {
-    db.prepare('UPDATE reading_notes SET content = ?, note_path = ?, updated_at = ? WHERE task_id = ?').run(
+    db.prepare('UPDATE task_notes SET content = ?, note_path = ?, updated_at = ? WHERE task_id = ?').run(
       n.content,
       n.notePath,
       now,
       n.taskId
     )
   } else {
-    db.prepare('INSERT INTO reading_notes (task_id, note_path, content, updated_at) VALUES (?, ?, ?, ?)').run(
+    db.prepare('INSERT INTO task_notes (task_id, note_path, content, updated_at) VALUES (?, ?, ?, ?)').run(
       n.taskId,
       n.notePath,
       n.content,
@@ -574,6 +866,12 @@ export function addSuggestion(db: DatabaseSync, taskId: string, text: string): S
 export function dismissSuggestion(db: DatabaseSync, suggestionId: string): Suggestion {
   db.prepare('UPDATE suggestions SET dismissed = 1 WHERE id = ?').run(suggestionId)
   return mapSuggestion(db.prepare('SELECT * FROM suggestions WHERE id = ?').get(suggestionId))
+}
+
+// Clear a task's suggestion chips before a pre-process re-run regenerates
+// them (spec: outputs refresh when relevant inputs change).
+export function clearSuggestions(db: DatabaseSync, taskId: string): void {
+  db.prepare('DELETE FROM suggestions WHERE task_id = ?').run(taskId)
 }
 
 // ---- Ingest ledger ----

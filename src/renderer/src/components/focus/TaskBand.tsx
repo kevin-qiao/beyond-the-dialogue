@@ -1,56 +1,62 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Task } from '../../../../shared/types'
 import { useApp } from '../../store'
 import { useDialog } from '../ui/Dialog'
-import { typeMeta, statusChip } from '../board/status'
+import { effectiveType } from '../../lib/typeCatalog'
+import { statusChip } from '../board/status'
+import { TaskInputsForm } from '../board/TaskInputsForm'
 
-// AI band of the focus column (spec app-layout): everything about the selected
-// task except its notes — header/title/type editing, link & paper info, agent
-// status and step progress, analysis output, suggestions, and the actions
-// (My Day, complete, Finish→wiki, delete). Notes live in TaskNotes.
+// AI band of the focus column (spec app-layout, design D4): everything about
+// the selected task except its working note — header/title/type editing,
+// per-type inputs, alarm, pre-process status + outputs, and the actions
+// (My Day, complete, Finish, delete). Notes live in TaskNotes.
 export function TaskBand({ task }: { task: Task }) {
-  const { snapshot, toggleTask, setMyDay, deleteTask, updateTask, requestReanalysis, attachPdf, resolveMismatch, notify, cancelJob, liveJobs } = useApp()
-  const analysis = snapshot?.analyses[task.id]
+  const { snapshot, types, toggleTask, setMyDay, deleteTask, updateTask, finishTask, runPreprocess, setAlarm, notify, cancelJob, liveJobs } = useApp()
+  const def = effectiveType(task, types)
+  const preprocess = snapshot?.preprocess[task.id]
   const notes = snapshot?.notes[task.id]
   const activeJob = liveJobs.find((j) => j.taskId === task.id && (j.state === 'running' || j.state === 'queued'))
-  const meta = typeMeta(task.type)
-  const customMeta = task.customTypeKey ? typeMeta(task.customTypeKey) : null
-  const chip = statusChip(task, activeJob)
-  const [pdfPickerOpen, setPdfPickerOpen] = useState(false)
+  const chip = statusChip(task, types)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.title)
-  const [editingLink, setEditingLink] = useState(false)
-  const [linkDraft, setLinkDraft] = useState(task.link ?? '')
-  const { confirm, prompt, dialog } = useDialog()
+  const [inputsDraft, setInputsDraft] = useState<Record<string, unknown>>(task.inputs)
+  const [alarmDraft, setAlarmDraft] = useState('')
+  const { confirm, dialog } = useDialog()
 
-  const saveLink = () => {
-    setEditingLink(false)
-    const v = linkDraft.trim()
-    // Send the raw value (possibly empty) — clearing a link is a valid edit.
-    if (v !== (task.link ?? '')) void updateTask(task.id, { link: v })
-  }
+  // Remount on task switch resets the drafts.
+  useEffect(() => {
+    setTitleDraft(task.title)
+    setInputsDraft(task.inputs)
+    setAlarmDraft(task.alarmAt ? task.alarmAt.slice(0, 16) : '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.id])
+
+  const isAgentic = def.kind !== 'plain'
+  const running = task.preprocessStatus === 'queued' || task.preprocessStatus === 'running'
 
   // Type change supports built-ins and custom type keys. Selecting a custom
-  // key sets customTypeKey; selecting a built-in clears it. Downgrading FROM
-  // paper_reading requires confirmation because it strips enrichment.
+  // key sets customTypeKey + that key's built-in behavior stays via the def;
+  // built-in selections clear customTypeKey. Inputs are discarded on switch
+  // (main clears them; spec task-types).
   const handleTypeChange = async (newKey: string) => {
-    const isBuiltin = newKey === 'plain' || newKey === 'paper_reading'
-    const isCustom = !isBuiltin
-    if (newKey === task.type && (!task.customTypeKey || task.customTypeKey === newKey)) return
-
-    if (task.type === 'paper_reading' && newKey !== 'paper_reading') {
+    if (newKey === def.key) return
+    const target = types.find((t) => t.key === newKey)
+    if (!target) return
+    if (target.kind !== 'plain' || def.kind !== 'plain') {
       const ok = await confirm({
-        title: 'Convert away from paper reading?',
-        message: 'The paper link, analysis, and attached PDF will be removed from this task.',
-        confirmLabel: 'Convert',
+        title: 'Change task type?',
+        message: 'The type-specific inputs will be cleared for this task. Title, description, list, notes, and completion are kept.',
+        confirmLabel: 'Change type',
         danger: true
       })
       if (!ok) return
     }
-    void updateTask(task.id, {
-      type: isCustom ? 'plain' : (newKey as 'plain' | 'paper_reading'),
-      customTypeKey: isCustom ? newKey : null
-    })
+    const patch: { id: string; type?: Task['type']; customTypeKey?: string | null } = {
+      id: task.id,
+      type: target.isBuiltin ? (target.key as Task['type']) : 'plain',
+      customTypeKey: target.isBuiltin ? null : target.key
+    }
+    void updateTask(patch)
   }
 
   const handleDeleteClick = async () => {
@@ -63,53 +69,41 @@ export function TaskBand({ task }: { task: Task }) {
     if (ok) void deleteTask(task.id)
   }
 
+  const saveInputs = () => {
+    void updateTask({ id: task.id, inputs: inputsDraft })
+  }
+
+  const saveTitle = () => {
+    setEditingTitle(false)
+    if (titleDraft !== task.title && titleDraft.trim()) void updateTask({ id: task.id, title: titleDraft.trim() })
+  }
+
   const handleFinishClick = async () => {
-    const hasNote = (notes?.content ?? '').trim().length > 0
-    if (!hasNote) {
-      const ok = await confirm({
-        title: 'Finish without notes?',
-        message: 'Your reading note is empty. Nothing will be ingested to your wiki if you finish now.',
-        confirmLabel: 'Finish anyway',
-        danger: true
-      })
-      if (!ok) return
+    if (def.kind === 'learning') {
+      const hasNote = (notes?.content ?? '').trim().length > 0
+      if (!hasNote) {
+        const ok = await confirm({
+          title: 'Finish without notes?',
+          message: 'Your learning note is empty. Nothing meaningful will be ingested to your wiki if you finish now.',
+          confirmLabel: 'Finish anyway',
+          danger: true
+        })
+        if (!ok) return
+      }
     }
-    void handleFinish()
-  }
-
-  const handleCorrectLink = async () => {
-    const newLink = await prompt({
-      title: 'Correct link',
-      message: 'Enter the correct paper link (arXiv / DOI / publisher URL):',
-      placeholder: 'https://arxiv.org/abs/…'
-    })
-    if (newLink) {
-      void updateTask(task.id, { link: newLink })
-      void resolveMismatch(task.id, 'correct')
+    try {
+      await finishTask(task.id)
+    } catch (e: any) {
+      notify(e?.message ?? 'Finish failed')
     }
   }
 
-  const isPaper = task.type === 'paper_reading'
-
-  const handleFinish = async () => {
-    await window.api.finishTask({ id: task.id })
-  }
-
-  const runAnalysis = () => {
+  const runPre = () => {
     if (!snapshot?.aiConfigured) {
-      notify('AI not configured — open Settings to enable analysis')
+      notify('AI not configured — open Settings to enable pre-processing')
       return
     }
-    void requestReanalysis(task.id)
-  }
-
-  const attachPdfFromFile = async () => {
-    const fp = await window.api.choosePdf()
-    if (fp) {
-      await attachPdf(task.id, fp)
-      await requestReanalysis(task.id)
-      setPdfPickerOpen(false)
-    }
+    void runPreprocess(task.id).catch((e: any) => notify(e?.message ?? 'Pre-process failed'))
   }
 
   return (
@@ -120,15 +114,12 @@ export function TaskBand({ task }: { task: Task }) {
             autoFocus
             value={titleDraft}
             onChange={(e) => setTitleDraft(e.target.value)}
-            onBlur={() => {
-              setEditingTitle(false)
-              if (titleDraft !== task.title) void updateTask(task.id, { title: titleDraft })
-            }}
+            onBlur={saveTitle}
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
           />
         ) : (
           <h3>
-            <span className="f-emoji">{meta.emoji}</span>
+            <span className="f-emoji">{def.emoji}</span>
             <span className="f-title">{task.title}</span>
             <button className="title-edit-btn" title="Edit title" onClick={() => setEditingTitle(true)}>
               ✎
@@ -136,24 +127,23 @@ export function TaskBand({ task }: { task: Task }) {
           </h3>
         )}
         <div className="f-meta">
-          <span className="type-tag">{customMeta?.label ?? meta.label}</span>
-          <code className="type-key">{customMeta ? task.customTypeKey : task.type}</code>
+          <span className="type-tag">{def.label}</span>
+          <code className="type-key">{def.key}</code>
           {chip}
+          {task.alarmAt && <span className="badge" title="Alarm set">⏰ {new Date(task.alarmAt).toLocaleString()}</span>}
         </div>
         <div className="detail-actions">
           <select
             className="type-select"
-            value={task.customTypeKey ?? task.type}
+            value={def.key}
             onChange={(e) => void handleTypeChange(e.target.value)}
             title="Task type"
           >
-            {(snapshot?.settings?.customTypes ?? []).map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.emoji} {c.label}（自定义）
+            {types.map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.emoji} {t.label}{t.isBuiltin ? '' : '（custom）'}
               </option>
             ))}
-            <option value="plain">📝 Plain task</option>
-            <option value="paper_reading">📄 Paper reading</option>
           </select>
           <button className={`day-toggle ${task.inMyDay ? 'in' : ''}`} onClick={() => void setMyDay(task.id, !task.inMyDay)}>
             {task.inMyDay ? '★ In My Day' : '☆ Add to My Day'}
@@ -169,179 +159,117 @@ export function TaskBand({ task }: { task: Task }) {
 
       {task.completed && <div className="completed-banner">Completed {task.completedAt ? new Date(task.completedAt).toLocaleString() : ''}</div>}
 
-      {isPaper && (
-        <>
-          <div className="paper-info">
-            <div className="muted link-row">
-              <span>
-                Link: {task.link ?? '(none)'}
-                <button className="title-edit-btn" title="Edit link" onClick={() => setEditingLink(true)}>
-                  ✎
-                </button>
-              </span>
-              {editingLink && (
-                <input
-                  autoFocus
-                  className="link-input"
-                  value={linkDraft}
-                  onChange={(e) => setLinkDraft(e.target.value)}
-                  onBlur={saveLink}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') saveLink()
-                    if (e.key === 'Escape') {
-                      setEditingLink(false)
-                      setLinkDraft(task.link ?? '')
-                    }
-                  }}
-                  placeholder="arXiv / DOI / publisher URL"
-                />
-              )}
-            </div>
-            {task.paperTitle && task.paperTitle !== task.title && <div>Resolved title: {task.paperTitle}</div>}
-            {task.analysisLevel && <span className="badge">{task.analysisLevel} analysis</span>}
-            {task.analysisStatus === 'abstract_only' && <span className="badge warn">abstract-only</span>}
+      {def.inputSchema.length > 0 && (
+        <section className="settings-section inputs-section">
+          <div className="section-head">
+            <h4>Details</h4>
+            <button className="mini-btn" onClick={saveInputs}>
+              Save
+            </button>
           </div>
-
-          {task.mismatchState === 'warning' && (
-            <div className="warning-box">
-              <p>
-                The resolved paper title looks different from your task name. Verify the link points to the right paper before
-                relying on the results.
-              </p>
-              <div className="row">
-                <button className="primary-btn" onClick={() => void resolveMismatch(task.id, 'confirm')}>
-                  It's correct
-                </button>
-                <button className="secondary-btn" onClick={() => void handleCorrectLink()}>
-                  Correct link
-                </button>
-                <button className="secondary-btn" onClick={() => setPdfPickerOpen(true)}>
-                  Attach PDF instead
-                </button>
-              </div>
-            </div>
-          )}
-
-          <section className="analysis-section">
-            <div className="section-head">
-              <h4>Analysis</h4>
-              <div className="row">
-                {task.analysisStatus === 'queued' || task.analysisStatus === 'running' ? (
-                  <>
-                    <span className="badge running">running…</span>
-                    {activeJob && (
-                      <button className="mini-btn cancel" onClick={() => void cancelJob(activeJob.jobId)}>
-                        Cancel
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <button className="mini-btn" onClick={runAnalysis}>
-                      Re-analyze
-                    </button>
-                    <button className="mini-btn" onClick={() => setPdfPickerOpen(true)}>
-                      Attach PDF
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-            {task.analysisStatus === 'failed' && (
-              <div className="warning-box">
-                <p>Analysis failed: {task.analysisError ?? 'unknown error'}</p>
-                <button className="primary-btn" onClick={runAnalysis}>
-                  Retry
-                </button>
-              </div>
-            )}
-            {/* Step timeline — shown while a job is in flight or just completed. */}
-            {(task.analysisStatus === 'queued' || task.analysisStatus === 'running' || (analysis && !task.completed)) && (
-              <StepTimeline status={task.analysisStatus} liveStepLabel={activeJob?.stepLabel ?? null} />
-            )}
-            {!analysis && task.analysisStatus !== 'queued' && task.analysisStatus !== 'running' && (
-              <div className="empty-hint">
-                {task.analysisStatus === 'failed'
-                  ? 'Analysis failed.'
-                  : 'No analysis yet. Add this task to My Day to start analysis, or click Re-analyze.'}
-              </div>
-            )}
-            {analysis && (
-              <div className="analysis-cards">
-                <AnalysisCard kind="tldr" title="TLDR">
-                  <p>{analysis.tldr}</p>
-                </AnalysisCard>
-                <AnalysisCard kind="contrib" title="Contributions">
-                  <ul>
-                    {analysis.contributions.map((c, i) => (
-                      <li key={i}>{c}</li>
-                    ))}
-                  </ul>
-                </AnalysisCard>
-                <AnalysisCard kind="method" title="Method">
-                  <p>{analysis.method}</p>
-                </AnalysisCard>
-                <AnalysisCard kind="results" title="Results">
-                  <p>{analysis.results}</p>
-                </AnalysisCard>
-                {analysis.prerequisites.length > 0 && (
-                  <AnalysisCard kind="prereq" title="Prerequisites">
-                    <ul>
-                      {analysis.prerequisites.map((p, i) => (
-                        <li key={i}>{p}</li>
-                      ))}
-                    </ul>
-                  </AnalysisCard>
-                )}
-                <AnalysisCard kind="suggest" title="Reading suggestions">
-                  {analysis.suggestions.map((s) => (
-                    <div key={s.id} className="suggestion-card">
-                      <strong>{s.title}</strong>
-                      <p>{s.body}</p>
-                    </div>
-                  ))}
-                </AnalysisCard>
-                <div className="token-foot">
-                  <span className="tf-item">prompt <b>~4.8k</b></span>
-                  <span className="sep" />
-                  <span className="tf-item">completion <b>~1.3k</b></span>
-                  <span className="sep" />
-                  <span className="tf-item">total <b>~6.1k</b></span>
-                  <span className="tf-total">≈ ¥0.12</span>
-                </div>
-              </div>
-            )}
-          </section>
-
-          {!task.completed && (
-            <div className="finish-row">
-              <button className="finish-btn" onClick={() => void handleFinishClick()}>
-                Finish → ingest to wiki
-              </button>
-            </div>
-          )}
-        </>
+          <TaskInputsForm
+            def={def}
+            values={inputsDraft}
+            onChange={setInputsDraft}
+            settings={snapshot?.settings}
+            lockedKeys={def.inputSchema.filter((f) => f.immutable).map((f) => f.key)}
+          />
+        </section>
       )}
 
-      {pdfPickerOpen && (
-        <div className="modal-backdrop" onClick={() => setPdfPickerOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <span className="modal-tag">📎 Attach</span>
-              <h3>Attach PDF</h3>
-            </div>
-            <div className="modal-body">
-              <p className="muted">Attach a local PDF to use as the full-text source. Analysis will be re-run using it.</p>
-            </div>
-            <div className="modal-actions">
-              <button className="secondary-btn" onClick={() => setPdfPickerOpen(false)}>
-                Cancel
+      <section className="settings-section alarm-section">
+        <div className="section-head">
+          <h4>Alarm</h4>
+          <div className="row">
+            <input type="datetime-local" value={alarmDraft} onChange={(e) => setAlarmDraft(e.target.value)} />
+            <button
+              className="mini-btn"
+              disabled={!alarmDraft}
+              onClick={() => void setAlarm(task.id, new Date(alarmDraft).toISOString()).then(() => notify('Alarm set'))}
+            >
+              Set
+            </button>
+            {task.alarmAt && (
+              <button className="mini-btn" onClick={() => void setAlarm(task.id, null)}>
+                Clear
               </button>
-              <button className="primary-btn" onClick={() => void attachPdfFromFile()}>
-                Choose file…
-              </button>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {isAgentic && (
+        <section className="analysis-section">
+          <div className="section-head">
+            <h4>Pre-process</h4>
+            <div className="row">
+              {running ? (
+                <>
+                  <span className="badge running">working…</span>
+                  {activeJob && (
+                    <button className="mini-btn cancel" onClick={() => void cancelJob(activeJob.jobId)}>
+                      Cancel
+                    </button>
+                  )}
+                </>
+              ) : (
+                <button className="mini-btn" onClick={runPre}>
+                  {preprocess ? 'Re-run' : 'Run now'}
+                </button>
+              )}
             </div>
           </div>
+
+          {task.preprocessStatus === 'failed' && (
+            <div className="warning-box">
+              <p>Pre-process failed: {task.preprocessError ?? 'unknown error'}</p>
+              <button className="primary-btn" onClick={runPre}>
+                Retry
+              </button>
+            </div>
+          )}
+
+          {running && <div className="muted live-step">{activeJob?.stepLabel ?? (task.preprocessStatus === 'queued' ? 'queued…' : 'working…')}</div>}
+
+          {!preprocess && !running && task.preprocessStatus !== 'failed' && (
+            <div className="empty-hint">
+              {snapshot?.aiConfigured
+                ? `No pre-process yet. Add this task to My Day to generate the ${def.kind} summary and suggestions, or click Run now.`
+                : 'No pre-process yet. AI is not configured — set up a provider in Settings first.'}
+            </div>
+          )}
+
+          {preprocess && (
+            <div className="analysis-cards">
+              {preprocess.generatedPrompt && (
+                <PreCard kind="prompt" title="Working prompt">
+                  <p className="generated-prompt">{preprocess.generatedPrompt}</p>
+                </PreCard>
+              )}
+              {preprocess.summary && (
+                <PreCard kind="summary" title="Summary">
+                  <p>{preprocess.summary}</p>
+                </PreCard>
+              )}
+              {preprocess.suggestions.length > 0 && (
+                <PreCard kind="suggest" title="Activity suggestions">
+                  <ul>
+                    {preprocess.suggestions.map((s, i) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ul>
+                </PreCard>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      {isAgentic && !task.completed && (
+        <div className="finish-row">
+          <button className="finish-btn" onClick={() => void handleFinishClick()}>
+            {def.kind === 'learning' ? 'Finish → ingest to wiki' : 'Finish'}
+          </button>
         </div>
       )}
       {dialog}
@@ -349,11 +277,11 @@ export function TaskBand({ task }: { task: Task }) {
   )
 }
 
-// Analysis card with iconified header + left accent rail (v2.1 polish).
-// `kind` picks an icon glyph and accent color; everything else stays generic.
-function AnalysisCard({ kind, title, children }: { kind: 'tldr' | 'contrib' | 'method' | 'results' | 'prereq' | 'suggest'; title: string; children: React.ReactNode }) {
-  const cls = kind === 'contrib' ? 'accent-blue' : kind === 'method' ? 'accent-ok' : kind === 'results' ? 'accent-warn' : ''
-  const glyph = kind === 'tldr' ? 'T' : kind === 'contrib' ? 'C' : kind === 'method' ? 'M' : kind === 'results' ? 'R' : kind === 'prereq' ? 'P' : 'S'
+// Pre-process output card with iconified header + accent rail (reuses the v2
+// analysis-card visuals).
+function PreCard({ kind, title, children }: { kind: 'prompt' | 'summary' | 'suggest'; title: string; children: React.ReactNode }) {
+  const cls = kind === 'summary' ? 'accent-blue' : kind === 'suggest' ? 'accent-ok' : ''
+  const glyph = kind === 'prompt' ? 'P' : kind === 'summary' ? 'S' : 'A'
   return (
     <div className={`analysis-card ${cls}`}>
       <div className="card-head">
@@ -363,43 +291,4 @@ function AnalysisCard({ kind, title, children }: { kind: 'tldr' | 'contrib' | 'm
       {children}
     </div>
   )
-}
-
-// Step progress timeline shown while analysis is in flight (or just finished).
-// Uses an inferred fixed 4-step paper-reading pipeline (resolve → extract →
-// analyse → suggestions). The active step lights up in the accent color.
-function StepTimeline({ status, liveStepLabel }: { status: string | null; liveStepLabel: string | null }) {
-  const steps = [
-    { key: 'resolve', label: 'Resolve paper' },
-    { key: 'extract', label: 'Extract content' },
-    { key: 'analyse', label: 'Analyse method & results' },
-    { key: 'suggest', label: 'Compose suggestions' }
-  ]
-  const activeIdx =
-    status === 'queued' ? 0 : status === 'running' ? Math.min(2, inferLiveStepIdx(liveStepLabel)) : status === 'ready' ? steps.length : 0
-  return (
-    <div className="step-timeline">
-      {steps.map((s, i) => {
-        const cls = i < activeIdx ? 'done' : i === activeIdx && status === 'running' ? 'active' : i === activeIdx && status === 'queued' ? 'active' : ''
-        const elapsed = i <= activeIdx ? `${(i + 1) * 2}.${i + 4}s` : ''
-        return (
-          <div key={s.key} className={`step ${cls}`}>
-            <span className="step-bullet">{i < activeIdx ? '✓' : i + 1}</span>
-            <span className="step-label">{s.label}</span>
-            <span className="step-elapsed">{elapsed}</span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function inferLiveStepIdx(label: string | null): number {
-  if (!label) return 1
-  const l = label.toLowerCase()
-  if (l.includes('resolv')) return 0
-  if (l.includes('extract') || l.includes('read')) return 1
-  if (l.includes('analy') || l.includes('analys')) return 2
-  if (l.includes('suggest')) return 3
-  return 1
 }

@@ -34,18 +34,19 @@ test('4.5 suggestion job with no API key degrades gracefully (no-op, task unaffe
   db.close()
 })
 
-test('4.5 analysis job with no key fails cleanly with retryable/no-key message', async () => {
+test('4.5 preprocess job with no key fails cleanly and marks the task failed', async () => {
   const { db } = freshDB()
+  const { runPreprocessJob } = await import('../src/main/preprocess')
   const q = new JobQueue(db.db, 2, { baseRetryMs: 5 })
-  // register a no-key analysis stub that mirrors the real guard
-  q.register('analysis', async () => {
-    throw new Error('AI not configured: no API key')
-  })
+  q.register('preprocess', runPreprocessJob)
   const l = listLists(db.db)[0]!
-  const t = createTask(db.db, { listId: l.id, title: 'paper', type: 'paper_reading', link: 'https://arxiv.org/abs/2301.00001' })
-  const job = q.enqueue('analysis', t.id)
-  await sleep(80)
+  const t = createTask(db.db, { listId: l.id, title: 'learn X', type: 'learning', inputs: { target: 'X' } })
+  const job = q.enqueue('preprocess', t.id)
+  await sleep(120)
   const j = getJob(db.db, job.id)!
-  assert.ok(j.state === 'failed' || j.state === 'done', `job ended in ${j.state}`)
+  assert.equal(j.state, 'failed', `job ended in ${j.state}`)
+  assert.ok(j.error && j.error.includes('AI not configured'))
+  const after = getTask(db.db, t.id)!
+  assert.equal(after.preprocessStatus, 'failed', 'task shows the failure for retry')
   db.close()
 })

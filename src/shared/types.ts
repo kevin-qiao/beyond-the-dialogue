@@ -1,41 +1,78 @@
 // Shared domain types used by main, preload, and renderer.
 
-// ---- Task management ----
+// ---- Task types (v0.8 type engine) ----
 
-export type BuiltinTaskType = 'plain' | 'paper_reading'
-// Tasks carry one of the two built-in types in `type`; a custom type (defined
-// by the user in settings) is referenced via `customTypeKey`. The catalog
-// (renderer/src/lib/typeCatalog.ts) resolves the effective type for UI.
-export type TaskType = BuiltinTaskType
+// A task's `type` column holds one of the built-in type keys. A user-defined
+// type is referenced via `customTypeKey` and resolves through the task_types
+// registry. The kind governs behavior (inputs contract, pre-process, working
+// area, finish); custom types choose a kind (design D2).
+export type TaskType = 'plain' | 'learning' | 'jira'
+export type TaskKind = 'plain' | 'learning' | 'jira'
 
-// Configurable task type — the two built-ins are also expressible as configs
-// (with isCustom=false) so the UI can iterate a single list.
-export interface TaskTypeConfig {
-  // Stable key. For built-ins this matches BuiltinTaskType; for custom types
-  // it must be unique across settings.customTypes.
+export const BUILTIN_TYPE_KEYS: TaskType[] = ['plain', 'learning', 'jira']
+export const KINDS: TaskKind[] = ['plain', 'learning', 'jira']
+
+// A declared input field on a workflow type. The renderer draws a generic
+// form from these; the main `types` service validates task inputs against
+// them before persistence.
+export interface TypeInputField {
   key: string
+  label: string
+  type: 'text' | 'textarea' | 'url' | 'file' | 'select'
+  required?: boolean
+  // Static options for `select` fields (e.g. jira sourceKind).
+  options?: { value: string; label: string }[]
+  // Dynamic options sourced from settings collections (skill/MCP selectors).
+  optionsSource?: 'skills' | 'mcpServers'
+  // Placeholder selectors (skill/MCP in v0.8): stored with the task but with
+  // no effect on the agent session. Rendered labeled "not yet active".
+  inert?: boolean
+  // Set at creation only (jira sourceKind): later edits to the value are
+  // rejected.
+  immutable?: boolean
+  // Declared but rendered by the working area, not the generic inputs form
+  // (e.g. the jira comment drafts, which live in the task's inputs).
+  hidden?: boolean
+  placeholder?: string
+}
+
+// A workflow type definition — built-in rows (isBuiltin) and user-defined
+// types share one registry persisted in the task_types table.
+export interface TaskTypeDef {
+  key: string
+  kind: TaskKind
   label: string
   emoji: string
   description?: string
-  // True for user-defined types. Built-ins are always false.
-  isCustom: boolean
-  // Optional accent override; falls back to type-color mapping at render time.
   color?: string
+  inputSchema: TypeInputField[]
+  // Extra guidance injected into this type's pre-process system prompt.
+  aiGuidance?: string
+  isBuiltin: boolean
 }
 
-export const BUILTIN_TYPE_KEYS: BuiltinTaskType[] = ['plain', 'paper_reading']
+// ---- Skills & MCP (configuration entries, inert in v0.8 — design D6) ----
 
-export type AnalysisStatus =
-  | 'none'
-  | 'queued'
-  | 'running'
-  | 'ready'
-  | 'abstract_only'
-  | 'failed'
+export interface SkillEntry {
+  name: string
+  description: string
+}
 
-export type AnalysisLevel = 'full' | 'abstract' | 'metadata'
+export interface McpTransportConfig {
+  type: 'stdio'
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+}
 
-export type MismatchState = 'none' | 'warning' | 'confirmed' | 'corrected'
+export interface McpServerEntry {
+  name: string
+  transport: McpTransportConfig
+}
+
+// ---- Task management ----
+
+export type PreprocessStatus = 'none' | 'queued' | 'running' | 'ready' | 'failed'
 
 export interface List {
   id: string
@@ -51,22 +88,20 @@ export interface Task {
   title: string
   notes: string
   type: TaskType
-  // Optional pointer to a user-defined type in settings.customTypes. Takes
-  // precedence over `type` at display time (UI catalog). Persisted separately
-  // so the built-in CHECK constraint on `type` stays valid.
+  // Optional pointer to a user-defined type in the task_types registry. Takes
+  // precedence over `type` at display/dispatch time.
   customTypeKey: string | null
+  // Values for the effective type's declared inputs (keyed by field key).
+  inputs: Record<string, unknown>
+  // AI pre-process lifecycle: none → queued → running → ready | failed.
+  preprocessStatus: PreprocessStatus
+  preprocessError: string | null
+  // Optional per-task alarm (ISO timestamp), null = no alarm armed.
+  alarmAt: string | null
   completed: boolean
   completedAt: string | null
   inMyDay: boolean
   myDayAddedAt: string | null
-  // paper-reading enrichment fields
-  link: string | null
-  paperTitle: string | null
-  analysisLevel: AnalysisLevel | null
-  analysisStatus: AnalysisStatus
-  mismatchState: MismatchState
-  analysisError: string | null
-  pdfPath: string | null
   // audit
   createdAt: string
   updatedAt: string
@@ -92,14 +127,15 @@ export interface Settings {
   maxConcurrentJobs: number
   showWelcome: boolean
   theme: 'light' | 'dark'
-  // User-defined task types. Built-ins are always available even when this
-  // array is empty.
-  customTypes: TaskTypeConfig[]
+  // Managed plugin entries (config-only in v0.8; nothing on the agent path
+  // reads them). Custom task types moved to the task_types table.
+  skills: SkillEntry[]
+  mcpServers: McpServerEntry[]
 }
 
 // ---- Jobs ----
 
-export type JobKind = 'analysis' | 'suggestion' | 'ingest'
+export type JobKind = 'preprocess' | 'suggestion' | 'ingest'
 export type JobState = 'queued' | 'running' | 'done' | 'failed'
 
 export interface JobRecord {
@@ -116,31 +152,28 @@ export interface JobRecord {
   finishedAt: string | null
 }
 
-// ---- Paper analysis ----
+// ---- Pre-process (per-kind AI outputs produced on My Day add) ----
 
-export interface ReadingSuggestion {
-  id: string
-  kind: 'order' | 'effort' | 'question'
-  title: string
-  body: string
-}
-
-export interface PaperAnalysis {
+export interface TaskPreprocess {
   taskId: string
-  level: AnalysisLevel
-  status: AnalysisStatus
-  tldr: string
-  contributions: string[]
-  method: string
-  results: string
-  prerequisites: string[]
-  suggestions: ReadingSuggestion[]
+  kind: TaskKind
+  // Markdown summary produced by the kind's pre-process routine.
+  summary: string
+  // Dismissible activity suggestion chips (also mirrored into the
+  // suggestions table for the existing chip UI).
+  suggestions: string[]
+  // Working prompt that seeds the task's chat context.
+  generatedPrompt: string
+  status: PreprocessStatus
+  // Hash of the inputs this output was computed from — gates re-runs when
+  // relevant inputs change while the task sits in My Day (design D3).
+  inputsHash: string
   updatedAt: string
 }
 
 // ---- Notes ----
 
-export interface ReadingNotes {
+export interface TaskNote {
   taskId: string
   notePath: string
   content: string
@@ -174,18 +207,14 @@ export interface ChatMessage {
 
 // ---- Views ----
 
-export interface MyDayTask extends Task {
-  suggestions: Suggestion[]
-  analysis: PaperAnalysis | null
-}
-
 export interface AppSnapshot {
   lists: List[]
   tasks: Task[]
   suggestions: Suggestion[]
-  analyses: Record<string, PaperAnalysis>
-  notes: Record<string, ReadingNotes>
+  preprocess: Record<string, TaskPreprocess>
+  notes: Record<string, TaskNote>
   settings: Settings
+  taskTypes: TaskTypeDef[]
   aiConfigured: boolean
   ingestHistory: IngestRecord[]
 }

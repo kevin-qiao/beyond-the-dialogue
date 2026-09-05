@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react'
 import { useApp } from '../../store'
 import type { Settings } from '../../../../shared/types'
 
-const SAMPLE_PAPER_URL = 'https://arxiv.org/abs/2301.00001'
 const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
 
 // One-time first-run welcome (spec first-run): explains the three-step flow,
-// hosts the AI config card, and offers a sample paper to try immediately.
-// Dismissed by Skip or by saving AI settings (main-side showWelcome flag).
+// hosts the AI config card, and offers a sample learning task to try
+// immediately. Dismissed by Skip or by saving AI settings (main-side
+// showWelcome flag).
 export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const { snapshot, saveSettings, createTask } = useApp()
   const [draft, setDraft] = useState<Settings | null>(snapshot?.settings ?? null)
@@ -51,18 +51,19 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
     if (!listId) return
     await createTask({
       listId,
-      title: 'NFTrig: Using Blockchain for Math Education',
-      type: 'paper_reading',
-      link: SAMPLE_PAPER_URL
+      title: 'Linear algebra review',
+      type: 'learning',
+      inputs: { target: 'Eigenvalues and why they matter' }
     })
-    // If AI is configured the analysis auto-starts (spec analysis-lifecycle).
+    // Adding the sample to My Day runs the learning pre-process once AI is
+    // configured (spec task-types: per-type AI pre-processing).
     if (snapshot?.aiConfigured) await skip()
   }
 
   return (
     <div className="view welcome">
       <h2 className="welcome-title">Welcome to Beyond the Dialogue</h2>
-      <p className="muted welcome-sub">A to-do board where an AI agent reads papers with you and files them into your personal wiki.</p>
+      <p className="muted welcome-sub">A to-do board where an AI agent works each kind of task with you and files the results into your personal wiki.</p>
       {onOpenSettings && (
         <div className="row welcome-settings-row">
           <button className="mini-btn" onClick={onOpenSettings}>
@@ -73,16 +74,16 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
 
       <div className="welcome-steps">
         <div className="card">
-          <h5>1 · Paste a paper link</h5>
-          <p>arXiv / DOI / any publisher URL — the app creates the task and the agent starts reading it right away.</p>
+          <h5>1 · Pick a task type</h5>
+          <p>Learning, JIRA/Confluence, plain, or your own types — each type declares its inputs and its AI flow.</p>
         </div>
         <div className="card">
-          <h5>2 · Read with the agent's help</h5>
-          <p>TLDR, contributions, reading suggestions — take notes in markdown right next to the analysis.</p>
+          <h5>2 · Work with the agent's help</h5>
+          <p>Add a task to My Day and the agent pre-processes it: a working prompt, a summary, and activity suggestions.</p>
         </div>
         <div className="card">
           <h5>3 · Finish → it files itself into your wiki</h5>
-          <p>Notes and summary land in your wiki (Obsidian-ready); index and log updated, nothing to configure.</p>
+          <p>Finished learning notes land in your wiki (Obsidian-ready); index and log updated, nothing to configure.</p>
         </div>
       </div>
 
@@ -128,7 +129,7 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
 
       <div className="row">
         <button className="finish-btn welcome-sample" onClick={() => void trySample()}>
-          Try a sample paper →
+          Try a sample learning task →
         </button>
       </div>
       <button className="mini-btn welcome-skip" onClick={() => void skip()}>

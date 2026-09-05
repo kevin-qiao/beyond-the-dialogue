@@ -1,18 +1,18 @@
 import * as path from 'node:path'
 import type { JobContext } from '../job-queue'
-import { getTask, getAnalysis, getNotes, loadSettings, updateIngest } from '../db'
+import { getTask, getNotes, loadSettings, updateIngest } from '../db'
 import { createJobSession } from '../ai/session-factory'
-import { piAgentDir } from '../paths'
-import { depositTask, resolveWikiPath, snapshotWikiFiles, diffTouchedFiles } from './wiki'
+import { effectiveTypeDef } from '../types'
+import { depositTask, resolveLearningNotePath, resolveWikiPath, snapshotWikiFiles, diffTouchedFiles } from './wiki'
 
-const INGEST_SYSTEM_PROMPT = `You are the maintainer of a personal knowledge wiki. You will ingest a finished paper into the wiki by following the workflow in the CLAUDE.md schema file in your working directory.
+const INGEST_SYSTEM_PROMPT = `You are the maintainer of a personal knowledge wiki. You will ingest a finished learning note into the wiki by following the workflow in the CLAUDE.md schema file in your working directory.
 
 Your job:
 1. Read CLAUDE.md to learn the wiki conventions.
 2. Read the raw deposit under the task's folder in raw/.
-3. Write a source summary page under wiki/sources/.
-4. Update index.md to include it.
-5. Update related entity/concept pages where applicable.
+3. Write (or update) the curated learning note at the learning-note path given in the request.
+4. Update or create related entity/concept pages under wiki/ where applicable.
+5. Update index.md to include the new/updated pages.
 6. Append an entry to log.md using the required convention.
 
 You have read/write/edit/grep/find/ls tools only. Never use a shell. Work only within this wiki directory. Do not modify anything under raw/.`
@@ -30,7 +30,7 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
 
   ctx.setStep('Depositing', 'Copying note + summary into raw/')
   const deposit = depositTask(db, taskId)
-  if (deposit.files.length === 0) throw new Error('nothing to ingest: task has no notes or analysis')
+  if (deposit.files.length === 0) throw new Error('nothing to ingest: task has no notes or AI summary')
   // Record the deposit files in the ledger (activity view).
   updateIngest(db, job.id, { depositFiles: deposit.files })
 
@@ -56,13 +56,16 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   })
 
   const note = getNotes(db, taskId)
-  const analysis = getAnalysis(db, taskId)
-  const prompt = `Ingest this finished paper into the wiki.
+  const def = effectiveTypeDef(db, task)
+  const { rel } = resolveLearningNotePath(wikiPath, task.inputs.learningNotePath, task.title, taskId)
+  const prompt = `Ingest this finished learning note into the wiki.
 
-Paper task: ${task.title}
+Task: ${task.title}
+Type: ${def?.label ?? task.type}
 Raw deposit folder: ${path.join('raw', taskId)}/
-Reading notes present: ${note && note.content.trim() ? 'yes' : 'no'}
-Analysis present: ${analysis ? 'yes' : 'no'}
+Learning-note path (curated note target, relative to the wiki): ${rel || 'learning-notes/'}
+Working note present: ${note && note.content.trim() ? 'yes' : 'no'}
+AI summary present: ${deposit.files.includes('ai-summary.md') ? 'yes' : 'no'}
 
 Follow the CLAUDE.md workflow. When done, list the files you created or modified.`
 
