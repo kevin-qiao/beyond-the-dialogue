@@ -69,6 +69,8 @@ Storage lands under `%APPDATA%`; the default wiki at `C:\Users\<you>\Documents\W
 
 > If you copy the project from a WSL2/Linux checkout, **delete `node_modules` first** — it contains Linux-native binaries (esbuild) that won't run on Windows. Re-run `npm install`.
 
+> For building and packaging on Windows (native rendering, NSIS installer), see [`WINDOWS.md`](WINDOWS.md).
+
 ## Configuring AI
 
 Open **Settings → AI provider**, then:
