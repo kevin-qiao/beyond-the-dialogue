@@ -166,8 +166,8 @@ test('v3 migration: paper rows become learning, notes and core fields preserved'
     CREATE TABLE enrichment_jobs (id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('analysis','suggestion','ingest')), task_id TEXT, state TEXT NOT NULL, step_label TEXT, progress TEXT, error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT);
     CREATE TABLE paper_analysis (task_id TEXT PRIMARY KEY, level TEXT, status TEXT, tldr TEXT, contributions TEXT, method TEXT, results TEXT, prerequisites TEXT, suggestions TEXT, updated_at TEXT);
     CREATE TABLE reading_notes (task_id TEXT PRIMARY KEY, note_path TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL);
-    CREATE TABLE suggestions (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, text TEXT NOT NULL, dismissed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
-    CREATE TABLE ingest_ledger (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, state TEXT NOT NULL, deposit_files TEXT NOT NULL DEFAULT '[]', touched_files TEXT NOT NULL DEFAULT '[]', error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT);
+    CREATE TABLE suggestions (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), text TEXT NOT NULL, dismissed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+    CREATE TABLE ingest_ledger (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), state TEXT NOT NULL, deposit_files TEXT NOT NULL DEFAULT '[]', touched_files TEXT NOT NULL DEFAULT '[]', error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT);
     CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
     INSERT INTO schema_migrations VALUES (2, '2026-01-01T00:00:00.000Z');
@@ -184,6 +184,10 @@ test('v3 migration: paper rows become learning, notes and core fields preserved'
   legacy.prepare("INSERT INTO settings VALUES ('customTypes', ?)").run(JSON.stringify([{ key: 'code_review', label: 'Code review', emoji: '🧐', isCustom: true }]))
   legacy.prepare('INSERT INTO reading_notes VALUES (?,?,?,?)').run('t1', '/tmp/t1.md', '# my paper notes', now)
   legacy.prepare('INSERT INTO enrichment_jobs (id,kind,task_id,state,attempts,created_at) VALUES (?,?,?,?,?,?)').run('j1', 'analysis', 't1', 'done', 1, now)
+  // Child rows referencing the tasks table (regression: DROP TABLE tasks used
+  // to hit an immediate FK violation with foreign_keys=ON when these exist).
+  legacy.prepare('INSERT INTO suggestions (id,task_id,text,dismissed,created_at) VALUES (?,?,?,?,?)').run('s1', 't1', 'read section 2', 0, now)
+  legacy.prepare('INSERT INTO ingest_ledger (id,task_id,state,deposit_files,attempts,created_at) VALUES (?,?,?,?,?,?)').run('i1', 't1', 'done', '[]', 1, now)
   legacy.close()
 
   const db = openDB(dir)
@@ -211,5 +215,13 @@ test('v3 migration: paper rows become learning, notes and core fields preserved'
   // paper_analysis dropped, stale analysis jobs removed.
   assert.equal(db.db.prepare("SELECT 1 FROM sqlite_master WHERE name='paper_analysis'").get(), undefined)
   assert.equal(db.db.prepare("SELECT 1 FROM enrichment_jobs WHERE kind='analysis'").get(), undefined)
+
+  // FK-bearing child rows survived the tasks rebuild.
+  assert.equal((db.db.prepare("SELECT content FROM task_notes WHERE task_id='t1'").get() as { content: string }).content, '# my paper notes')
+  assert.ok(db.db.prepare("SELECT 1 FROM suggestions WHERE id='s1' AND task_id='t1'").get(), 'suggestion referencing the old task survived')
+  assert.ok(db.db.prepare("SELECT 1 FROM ingest_ledger WHERE id='i1' AND task_id='t1'").get(), 'ingest ledger row survived')
+  // And foreign keys still enforce after the rebuild.
+  db.db.prepare("PRAGMA foreign_keys = ON").run()
+  assert.throws(() => db.db.prepare('INSERT INTO suggestions (id,task_id,text,dismissed,created_at) VALUES (?,?,?,?,?)').run('x1', 'no-such-task', 'x', 0, now))
   db.close()
 })

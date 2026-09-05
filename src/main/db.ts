@@ -375,46 +375,56 @@ export function migrate(db: DatabaseSync): void {
   if (!ran(3)) {
     const cols = db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]
     if (!cols.some((c) => c.name === 'inputs')) {
-      db.exec(`
-        CREATE TABLE tasks_new (
-          id TEXT PRIMARY KEY,
-          list_id TEXT NOT NULL REFERENCES lists(id),
-          title TEXT NOT NULL,
-          notes TEXT NOT NULL DEFAULT '',
-          type TEXT NOT NULL DEFAULT 'plain' CHECK (type IN ('plain','learning','jira')),
-          custom_type_key TEXT,
-          inputs TEXT NOT NULL DEFAULT '{}',
-          completed INTEGER NOT NULL DEFAULT 0,
-          completed_at TEXT,
-          in_my_day INTEGER NOT NULL DEFAULT 0,
-          my_day_added_at TEXT,
-          preprocess_status TEXT NOT NULL DEFAULT 'none' CHECK (preprocess_status IN ('none','queued','running','ready','failed')),
-          preprocess_error TEXT,
-          alarm_at TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          deleted_at TEXT
-        )`)
-      const rows = db.prepare('SELECT * FROM tasks').all() as any[]
-      const ins = db.prepare(
-        `INSERT INTO tasks_new (id, list_id, title, notes, type, custom_type_key, inputs, completed, completed_at,
-           in_my_day, my_day_added_at, preprocess_status, preprocess_error, alarm_at, created_at, updated_at, deleted_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-      )
-      for (const r of rows) {
-        const type = r.type === 'paper_reading' ? 'learning' : r.type
-        const inputs = r.type === 'paper_reading' && r.link ? JSON.stringify({ link: r.link }) : '{}'
-        ins.run(
-          r.id, r.list_id, r.title, r.notes, type, r.custom_type_key ?? null, inputs,
-          r.completed, r.completed_at, r.in_my_day, r.my_day_added_at,
-          'none', null, null,
-          r.created_at, r.updated_at, r.deleted_at
+      // Rebuild tasks (copy rows, drop the paper columns). DROPping a table
+      // whose children hold rows fails with foreign_keys=ON, and a crash mid-
+      // rebuild can leave a dangling tasks_new — so switch FKs off around the
+      // swap and clean up any leftover staging table first.
+      db.exec('DROP TABLE IF EXISTS tasks_new')
+      db.exec('PRAGMA foreign_keys = OFF;')
+      try {
+        db.exec(`
+          CREATE TABLE tasks_new (
+            id TEXT PRIMARY KEY,
+            list_id TEXT NOT NULL REFERENCES lists(id),
+            title TEXT NOT NULL,
+            notes TEXT NOT NULL DEFAULT '',
+            type TEXT NOT NULL DEFAULT 'plain' CHECK (type IN ('plain','learning','jira')),
+            custom_type_key TEXT,
+            inputs TEXT NOT NULL DEFAULT '{}',
+            completed INTEGER NOT NULL DEFAULT 0,
+            completed_at TEXT,
+            in_my_day INTEGER NOT NULL DEFAULT 0,
+            my_day_added_at TEXT,
+            preprocess_status TEXT NOT NULL DEFAULT 'none' CHECK (preprocess_status IN ('none','queued','running','ready','failed')),
+            preprocess_error TEXT,
+            alarm_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+          )`)
+        const rows = db.prepare('SELECT * FROM tasks').all() as any[]
+        const ins = db.prepare(
+          `INSERT INTO tasks_new (id, list_id, title, notes, type, custom_type_key, inputs, completed, completed_at,
+             in_my_day, my_day_added_at, preprocess_status, preprocess_error, alarm_at, created_at, updated_at, deleted_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         )
+        for (const r of rows) {
+          const type = r.type === 'paper_reading' ? 'learning' : r.type
+          const inputs = r.type === 'paper_reading' && r.link ? JSON.stringify({ link: r.link }) : '{}'
+          ins.run(
+            r.id, r.list_id, r.title, r.notes, type, r.custom_type_key ?? null, inputs,
+            r.completed, r.completed_at, r.in_my_day, r.my_day_added_at,
+            'none', null, null,
+            r.created_at, r.updated_at, r.deleted_at
+          )
+        }
+        db.exec('DROP TABLE tasks')
+        db.exec('ALTER TABLE tasks_new RENAME TO tasks')
+        db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_list ON tasks(list_id) WHERE deleted_at IS NULL')
+        db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_mine ON tasks(in_my_day) WHERE deleted_at IS NULL AND in_my_day = 1')
+      } finally {
+        db.exec('PRAGMA foreign_keys = ON;')
       }
-      db.exec('DROP TABLE tasks')
-      db.exec('ALTER TABLE tasks_new RENAME TO tasks')
-      db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_list ON tasks(list_id) WHERE deleted_at IS NULL')
-      db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_mine ON tasks(in_my_day) WHERE deleted_at IS NULL AND in_my_day = 1')
     }
 
     // Jobs table: the old CHECK allowed 'analysis' and not 'preprocess'.
