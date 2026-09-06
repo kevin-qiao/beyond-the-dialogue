@@ -6,6 +6,11 @@ import { FocusColumn } from './components/focus/FocusColumn'
 import { DrawerHost } from './components/overlays/DrawerHost'
 import { WelcomeView } from './components/overlays/WelcomeView'
 import { CommandPalette } from './components/overlays/CommandPalette'
+import { IconActivity, IconChat, IconMoon, IconSearch, IconSettings, IconSun } from './components/ui/icons'
+
+// Platform-aware shortcut label for the command palette hint (⌘K on macOS,
+// Ctrl K everywhere else).
+const MOD_KEY = navigator.platform.toLowerCase().includes('mac') ? '⌘K' : 'Ctrl K'
 
 // Small circular progress ring used in the topbar to show today's completion
 // ratio. Clickable — jumps back to My Day view.
@@ -104,11 +109,11 @@ export function App() {
   return (
     <div className="app" data-theme={snapshot.settings.theme}>
       <header className="topbar">
-        <a className="logo" href="#" onClick={(e) => e.preventDefault()}>
+        <div className="logo">
           <span className="mark">BeTD</span>
           <span className="name">Beyond the Dialogue</span>
           <span className="tag">v2 · preview</span>
-        </a>
+        </div>
 
         {snapshot && (
           <TodayProgress
@@ -138,7 +143,9 @@ export function App() {
             }
           }}
         >
-          <span className="search-icon">⌕</span>
+          <span className="search-icon">
+            <IconSearch />
+          </span>
           <input
             id="global-search"
             className="search-input"
@@ -157,7 +164,7 @@ export function App() {
               ✕ clear
             </button>
           ) : (
-            <span className="kbd-hint">⌘K</span>
+            <span className="kbd-hint">{MOD_KEY}</span>
           )}
         </div>
         <div className="topbar-actions">
@@ -166,10 +173,10 @@ export function App() {
             title="Activity — agent work"
             onClick={() => openDrawer('activity')}
           >
-            ▤
+            <IconActivity />
           </button>
           <button className="icon-btn top-action" title="Debug chat" onClick={() => openDrawer('chat')}>
-            💬
+            <IconChat />
           </button>
           <button
             className="icon-btn top-action"
@@ -178,10 +185,10 @@ export function App() {
               void saveSettings({ ...snapshot.settings, theme: snapshot.settings.theme === 'light' ? 'dark' : 'light' })
             }
           >
-            {snapshot?.settings.theme === 'light' ? '☾' : '☀'}
+            {snapshot?.settings.theme === 'light' ? <IconMoon /> : <IconSun />}
           </button>
           <button className="icon-btn top-action" title="Settings" onClick={() => openDrawer('settings')}>
-            ⚙
+            <IconSettings />
           </button>
         </div>
       </header>

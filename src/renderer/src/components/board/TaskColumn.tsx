@@ -6,6 +6,7 @@ import { QuickAdd } from './QuickAdd'
 import { TaskForm } from './TaskForm'
 import { TaskContextMenu } from './TaskContextMenu'
 import { useDialog } from '../ui/Dialog'
+import { IconInbox, IconPlus } from '../ui/icons'
 import { allTypeConfigs, typeFilterKey } from '../../lib/typeCatalog'
 
 interface Scope {
@@ -93,10 +94,12 @@ export function TaskColumn() {
         <div className="task-col-title">
           <h2>{scope.header}</h2>
           {scope.dateSub && (
-            <span className="date-sub">{scope.dateSub}</span>
-          )}
-          {scope.rollover && (
-            <span className="rollover-hint">completed clears next day, open tasks stay</span>
+            <span
+              className="date-sub"
+              title={scope.rollover ? 'Completed tasks clear at the next day; open tasks stay in My Day' : undefined}
+            >
+              {scope.dateSub}
+            </span>
           )}
           {totalCount > 0 && (
             <div className="col-progress" aria-hidden>
@@ -112,11 +115,11 @@ export function TaskColumn() {
           {scope.tasks.length > 0 && !q && <span className="count">{open.length}</span>}
           {scope.captureListId && (
             <button
-              className="primary-btn new-task-btn-col"
+              className="new-task-btn-col"
               onClick={() => setShowNewTask(true)}
               title="New task"
             >
-              ＋ New task
+              <IconPlus /> New task
             </button>
           )}
         </div>

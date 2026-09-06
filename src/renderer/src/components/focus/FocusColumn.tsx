@@ -3,6 +3,7 @@ import { useApp } from '../../store'
 import { TaskBand } from './TaskBand'
 import { TaskNotes } from './TaskNotes'
 import { JiraArea } from './JiraArea'
+import { IconChevronDown, IconChevronLeft, IconChevronRight, IconChevronUp, IconTarget } from '../ui/icons'
 import { effectiveKind, effectiveType } from '../../lib/typeCatalog'
 
 interface Props {
@@ -25,7 +26,10 @@ export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
     // (spec app-layout) so the three columns persist.
     return (
       <aside className="focus-col">
-        <div className="detail-empty focus-empty">Select a task to open its AI band and working area.</div>
+        <div className="detail-empty focus-empty">
+          <IconTarget />
+          <p>Select a task to open its AI band and working area.</p>
+        </div>
       </aside>
     )
   }

@@ -401,11 +401,6 @@ h3 {
   font-size: 12px;
 }
 
-.empty-hint {
-  color: var(--text-muted);
-  padding: 24px 0;
-}
-
 /* Buttons */
 button {
   font: inherit;
@@ -533,21 +528,28 @@ button {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 4px 0 16px;
 }
 
 .task-row {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
 }
 
 .task-row:hover {
-  border-color: var(--accent);
+  background: var(--bg-hover);
+  border-color: transparent;
+}
+
+.task-row.selected {
+  background: var(--bg-panel);
+  box-shadow: inset 0 0 0 1px var(--border-2);
 }
 
 .task-row.done .task-title {
@@ -573,10 +575,6 @@ button {
 .task-main {
   flex: 1;
   min-width: 0;
-}
-
-.task-title {
-  font-weight: 500;
 }
 
 .task-tldr {
@@ -1384,16 +1382,20 @@ button {
 }
 
 .task-column {
-  width: 330px;
+  width: 332px;
   flex-shrink: 0;
   min-width: 0;
-  padding: 18px 16px;
+  padding: 16px 14px 12px;
   overflow-y: auto;
+  background: var(--bg);
   border-right: 1px solid var(--border);
 }
 
 .task-col-head {
   align-items: flex-start;
+  padding: 4px 4px 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
 }
 
 .task-col-title {
@@ -1405,10 +1407,42 @@ button {
 
 .task-col-title h2 {
   overflow-wrap: break-word;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+.task-col-title .date-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 4px;
+  letter-spacing: 0.02em;
 }
 
 .new-task-btn-col {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--text);
+  color: var(--bg);
+  border: 1px solid var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
   white-space: nowrap;
+  box-shadow: var(--shadow-xs);
+}
+
+.new-task-btn-col:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow-accent);
+  transform: translateY(-1px);
 }
 
 /* Task row right-click context menu */
@@ -1458,7 +1492,7 @@ button {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-panel);
+  background: var(--bg);
   border-left: 1px solid var(--border);
   position: relative;
 }
@@ -1489,6 +1523,9 @@ button {
 }
 
 .focus-ctrl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1769,6 +1806,8 @@ button {
 .search-icon {
   position: absolute;
   left: 11px;
+  display: inline-flex;
+  align-items: center;
   color: var(--text-faint);
   pointer-events: none;
   font-size: 15px;
@@ -1891,24 +1930,6 @@ button {
 }
 
 /* Task column */
-.task-column {
-  width: 328px;
-  padding: 14px 12px 0;
-  background: var(--bg);
-  border-right: 1px solid var(--border);
-}
-
-.task-col-head {
-  padding: 0 2px 10px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 0;
-}
-
-.task-col-title h2 {
-  font-size: 18px;
-  font-weight: 600;
-}
-
 .count {
   color: var(--text-faint);
   font-size: 11px;
@@ -1916,52 +1937,8 @@ button {
   text-transform: none;
 }
 
-.new-task-btn-col {
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 17px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-2);
-  color: var(--text-muted);
-  border-radius: 8px;
-}
-
-.new-task-btn-col:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  filter: none;
-}
-
 .quick-add:focus-within {
   border-color: var(--accent);
-}
-
-.task-list {
-  padding: 4px 0 16px;
-}
-
-.task-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border-color: transparent;
-  background: transparent;
-}
-
-.task-row:hover {
-  background: var(--bg-hover);
-  border-color: transparent;
-}
-
-.task-row.selected {
-  background: var(--bg-panel);
-  box-shadow: inset 0 0 0 1px var(--border-2);
 }
 
 .t-emoji {
@@ -1969,15 +1946,6 @@ button {
   width: 22px;
   text-align: center;
   flex-shrink: 0;
-}
-
-.task-title {
-  font-size: 13.5px;
-  font-weight: 500;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .task-meta {
@@ -2120,13 +2088,22 @@ button {
 }
 
 /* Focus column */
-.focus-col {
-  background: var(--bg-panel);
-  border-left: 1px solid var(--border);
+.focus-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 40px 24px;
+  color: var(--text-faint);
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.5;
 }
 
-.focus-empty {
-  color: var(--text-faint);
+.focus-empty svg {
+  opacity: 0.45;
 }
 
 .focus-toolbar {
@@ -2525,6 +2502,9 @@ select,
 
 /* Top action buttons — round + better hover */
 .top-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 34px;
   height: 34px;
   border-radius: 50%;
@@ -2661,40 +2641,6 @@ select,
 .ai-working .presence-dot, .ai-queued .presence-dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); animation: st-pulse 1.2s ease-in-out infinite; }
 
 /* ===== TASK COLUMN v2.1 ===== */
-.task-column {
-  width: 332px;
-  padding: 16px 14px 12px;
-  background: var(--bg);
-}
-
-.task-col-head {
-  padding: 4px 4px 14px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 0;
-}
-
-.task-col-title h2 {
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-  line-height: 1.2;
-}
-
-.task-col-title .date-sub {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-faint);
-  margin-top: 4px;
-  letter-spacing: 0.02em;
-}
-
-.task-col-title .rollover-hint {
-  font-family: var(--font-ui);
-  font-size: 11px;
-  color: var(--text-faint);
-  margin-top: 2px;
-}
-
 /* Progress mini-bar (my-day completed vs total) */
 .col-progress {
   height: 4px;
@@ -2728,24 +2674,6 @@ select,
   display: flex;
   align-items: center;
   gap: 6px;
-}
-.new-task-btn-col {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: var(--text);
-  color: var(--bg);
-  border: 1px solid var(--text);
-  font-size: 17px;
-  font-weight: 500;
-  box-shadow: var(--shadow-xs);
-}
-.new-task-btn-col:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  box-shadow: var(--shadow-accent);
-  transform: translateY(-1px);
 }
 
 /* Type filter chips row (sits above task list) */
@@ -2949,9 +2877,14 @@ select,
   font-size: 13.5px;
   font-weight: 500;
   color: var(--text);
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+  /* Two-line clamp: long titles stay readable instead of being cut off
+     at one line; anything longer still truncates with an ellipsis. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .task-meta {
@@ -3864,10 +3797,23 @@ select,
 
 /* ===== Empty hint refinement ===== */
 .empty-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
   color: var(--text-faint);
-  padding: 28px 8px;
+  padding: 36px 16px;
   font-size: 13px;
+  line-height: 1.5;
   text-align: center;
+}
+
+.empty-hint svg {
+  opacity: 0.45;
+}
+
+.empty-hint p {
+  max-width: 30ch;
 }
 
 /* ===== Typeahead for monospace counts ===== */
@@ -4080,6 +4026,17 @@ select,
   outline: none;
 }
 .search-wrap:focus-visible {
+  box-shadow: var(--ring-focus);
+}
+
+/* Keyboard focus visibility — a consistent accent ring on interactive
+   elements (Electron shows no default focus outline on most controls). */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role='button']:focus-visible {
+  outline: none;
   box-shadow: var(--ring-focus);
 }
 

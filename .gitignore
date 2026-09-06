@@ -7,3 +7,6 @@ dist/
 
 # Local OpenSpec workflow data - not versioned
 openspec/
+
+# Local agent workspace - not versioned
+.workbuddy/

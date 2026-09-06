@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useApp } from '../../store'
+import { IconPlus } from '../ui/icons'
 import { allTypeConfigs } from '../../lib/typeCatalog'
 
 // Inline quick capture (spec task-capture): Enter creates the task in the
@@ -43,7 +44,9 @@ export function QuickAdd({ listId, onCreated }: { listId: string; onCreated?: ()
         void submit()
       }}
     >
-      <span className="qa-plus">＋</span>
+      <span className="qa-plus">
+        <IconPlus />
+      </span>
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}

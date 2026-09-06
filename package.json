@@ -44,6 +44,7 @@
     "esbuild@0.21.5": true,
     "@google/genai@1.52.0": true,
     "protobufjs@7.6.5": true,
-    "protobufjs@7.6.6": true
+    "protobufjs@7.6.6": true,
+    "esbuild@0.28.2": true
   }
 }
