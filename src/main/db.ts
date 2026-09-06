@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS task_preprocess (
   task_id TEXT PRIMARY KEY REFERENCES tasks(id),
   kind TEXT NOT NULL CHECK (kind IN ('plain','learning','jira')),
   summary TEXT NOT NULL DEFAULT '',
+  analysis TEXT NOT NULL DEFAULT '',
   suggestions_json TEXT NOT NULL DEFAULT '[]',
   generated_prompt TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'none',
@@ -141,9 +142,8 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 // kind's inputSchema unless they declare their own subset.
 export const LEARNING_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
   { key: 'target', label: 'Target', type: 'text', required: true, placeholder: 'The concept or question to learn' },
-  { key: 'link', label: 'Link', type: 'url', placeholder: 'https://… (optional, stored as context)' },
-  { key: 'filePath', label: 'File', type: 'file', placeholder: 'Optional attachment kept for the record' },
-  { key: 'purpose', label: 'Purpose / Prompt', type: 'textarea', placeholder: 'What you want the note to cover' },
+  { key: 'filePath', label: 'File', type: 'file', placeholder: 'Optional markdown (.md) attachment' },
+  { key: 'purpose', label: 'Prompt', type: 'textarea', placeholder: 'What you want the learning note to cover (injected into the learning prompt)' },
   { key: 'learningNotePath', label: 'Learning-note path', type: 'text', placeholder: 'Defaults inside the wiki' },
   { key: 'skill', label: 'Skill', type: 'select', optionsSource: 'skills', inert: true },
   { key: 'mcp', label: 'MCP server', type: 'select', optionsSource: 'mcpServers', inert: true }
@@ -294,6 +294,7 @@ function mapPreprocess(r: any): TaskPreprocess {
     taskId: r.task_id,
     kind: r.kind,
     summary: r.summary,
+    analysis: r.analysis ?? '',
     suggestions,
     generatedPrompt: r.generated_prompt,
     status: r.status,
@@ -498,6 +499,52 @@ export function migrate(db: DatabaseSync): void {
     mark(3)
   }
 
+  // v3 → v4: learning-type refinements (remove link input, add pre-process
+  // "analysis" intention field, refresh the built-in learning input schema).
+  if (!ran(4)) {
+    const ppCols = db.prepare('PRAGMA table_info(task_preprocess)').all() as { name: string }[]
+    if (!ppCols.some((c) => c.name === 'analysis')) {
+      db.exec('ALTER TABLE task_preprocess ADD COLUMN analysis TEXT NOT NULL DEFAULT \'\'')
+    }
+
+    // Built-ins seed via INSERT OR IGNORE, so an already-migrated DB keeps the
+    // old learning schema — refresh it here (and strip the removed `link`).
+    db.prepare("UPDATE task_types SET input_schema = ? WHERE key = 'learning' AND is_builtin = 1")
+      .run(JSON.stringify(LEARNING_INPUT_SCHEMA))
+
+    // Strip `link` from any learning-kind type schema (custom types copied the
+    // old built-in schema on creation) and from every task's inputs JSON.
+    const stripField = (schema: string): string | null => {
+      let parsed: unknown[]
+      try {
+        parsed = JSON.parse(schema)
+      } catch {
+        return null
+      }
+      if (!Array.isArray(parsed)) return null
+      const next = parsed.filter((f: any) => f && f.key !== 'link')
+      return next.length === parsed.length ? null : JSON.stringify(next)
+    }
+    for (const t of db.prepare("SELECT key, input_schema FROM task_types WHERE kind = 'learning'").all() as { key: string; input_schema: string }[]) {
+      const stripped = stripField(t.input_schema)
+      if (stripped) db.prepare('UPDATE task_types SET input_schema = ? WHERE key = ?').run(stripped, t.key)
+    }
+    const updInputs = db.prepare('UPDATE tasks SET inputs = ? WHERE id = ?')
+    for (const t of db.prepare('SELECT id, inputs FROM tasks').all() as { id: string; inputs: string }[]) {
+      let parsed: Record<string, unknown>
+      try {
+        parsed = JSON.parse(t.inputs)
+      } catch {
+        continue
+      }
+      if (parsed && typeof parsed === 'object' && 'link' in parsed) {
+        delete parsed.link
+        updInputs.run(JSON.stringify(parsed), t.id)
+      }
+    }
+    mark(4)
+  }
+
   // Seed a default list on first open.
   const row = db.prepare('SELECT COUNT(*) AS n FROM lists').get() as { n: number }
   if (row.n === 0) {
@@ -534,7 +581,7 @@ function parseSkills(value: unknown): SkillEntry[] {
     const parsed = JSON.parse(String(value))
     if (!Array.isArray(parsed)) return []
     return parsed.filter(
-      (s): s is SkillEntry => s && typeof s.name === 'string' && typeof s.description === 'string'
+      (s): s is SkillEntry => s && typeof s.name === 'string' && typeof s.path === 'string' && typeof s.description === 'string'
     )
   } catch {
     return []
@@ -815,13 +862,13 @@ export function savePreprocess(db: DatabaseSync, p: Omit<TaskPreprocess, 'update
   const existing = getPreprocess(db, p.taskId)
   if (existing) {
     db.prepare(
-      `UPDATE task_preprocess SET kind=?, summary=?, suggestions_json=?, generated_prompt=?, status=?, inputs_hash=?, updated_at=? WHERE task_id=?`
-    ).run(p.kind, p.summary, JSON.stringify(p.suggestions), p.generatedPrompt, p.status, p.inputsHash ?? '', now, p.taskId)
+      `UPDATE task_preprocess SET kind=?, summary=?, analysis=?, suggestions_json=?, generated_prompt=?, status=?, inputs_hash=?, updated_at=? WHERE task_id=?`
+    ).run(p.kind, p.summary, p.analysis, JSON.stringify(p.suggestions), p.generatedPrompt, p.status, p.inputsHash ?? '', now, p.taskId)
   } else {
     db.prepare(
-      `INSERT INTO task_preprocess (task_id, kind, summary, suggestions_json, generated_prompt, status, inputs_hash, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(p.taskId, p.kind, p.summary, JSON.stringify(p.suggestions), p.generatedPrompt, p.status, p.inputsHash ?? '', now)
+      `INSERT INTO task_preprocess (task_id, kind, summary, analysis, suggestions_json, generated_prompt, status, inputs_hash, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(p.taskId, p.kind, p.summary, p.analysis, JSON.stringify(p.suggestions), p.generatedPrompt, p.status, p.inputsHash ?? '', now)
   }
   return getPreprocess(db, p.taskId)!
 }

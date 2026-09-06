@@ -12,7 +12,7 @@ test('7.1 skills/MCP persist with settings and reload intact (AppSnapshot source
   const db = openDB(dir)
   migrate(db.db)
   const s = settings({
-    skills: [{ name: 'web-search', description: 'Search the web' }],
+    skills: [{ name: 'web-search', description: 'Search the web', path: '/skills/web-search' }],
     mcpServers: [{ name: 'jira', transport: { type: 'stdio', command: 'npx', args: ['-y', 'atlassian-mcp'], env: { TOKEN: 'x' } } }]
   })
   saveSettings(db.db, s)
@@ -41,11 +41,11 @@ function settings(partial: Partial<Settings>): Settings {
   }
 }
 
-test('skills validation: unique names, description required', () => {
-  assert.deepEqual(validatePluginEntries(settings({ skills: [{ name: 'a', description: 'does a' }] })), [])
-  assert.ok(validatePluginEntries(settings({ skills: [{ name: 'a', description: '' }] })).some((e) => /description is required/.test(e)))
+test('skills validation: unique names, path required (description optional)', () => {
+  assert.deepEqual(validatePluginEntries(settings({ skills: [{ name: 'a', description: 'does a', path: '/skills/a' }] })), [])
+  assert.ok(validatePluginEntries(settings({ skills: [{ name: 'a', description: '', path: '' }] })).some((e) => /source path is required/.test(e)))
   assert.ok(
-    validatePluginEntries(settings({ skills: [{ name: 'a', description: 'x' }, { name: 'a', description: 'y' }] })).some((e) => /unique/.test(e))
+    validatePluginEntries(settings({ skills: [{ name: 'a', description: 'x', path: '/s/a' }, { name: 'a', description: 'y', path: '/s/b' }] })).some((e) => /unique/.test(e))
   )
 })
 

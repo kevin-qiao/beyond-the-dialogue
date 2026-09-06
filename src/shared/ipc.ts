@@ -1,4 +1,4 @@
-import type { AppSnapshot, List, Settings, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from './types'
+import type { AppSnapshot, List, Settings, SkillEntry, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from './types'
 
 // IPC channel names. Commands are renderer -> main invokes; events are
 // main -> renderer pushes.
@@ -19,6 +19,7 @@ export const IPC = {
   runPreprocess: 'tasks:run-preprocess',
   finishTask: 'tasks:finish',
   chooseFile: 'dialog:choose-file',
+  importSkill: 'skills:import',
   saveNote: 'notes:save',
   listTypes: 'types:list',
   saveType: 'types:save',
@@ -148,6 +149,7 @@ export interface RendererApi {
   runPreprocess: (args: { id: string }) => Promise<Task>
   finishTask: (args: { id: string }) => Promise<Task>
   chooseFile: () => Promise<string | null>
+  importSkill: () => Promise<SkillEntry | null>
   saveNote: (args: SaveNoteArgs) => Promise<TaskNote>
   listTypes: () => Promise<TaskTypeDef[]>
   saveType: (args: SaveTypeArgs) => Promise<TaskTypeDef>

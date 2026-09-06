@@ -13,22 +13,27 @@ import type { TaskKind } from '../shared/types'
 interface PreprocessOutput {
   generatedPrompt: string
   summary: string
+  analysis: string
   suggestions: string[]
 }
 
-function learningPrompt(context: string, aiGuidance: string): string {
-  return `You are a learning coach embedded in a to-do app. A user is about to study a topic. From the task context below produce exactly one JSON object:
+function learningPrompt(context: string, userPrompt: string, aiGuidance: string): string {
+  return `You are a learning coach embedded in a to-do app. A user is about to study a topic. From the user's prompt and the task context below produce exactly one JSON object:
 
 {
   "generatedPrompt": "a working prompt the user can start from — 1-3 sentences addressing them directly ('You are helping me learn ...')",
   "summary": "a concise paragraph on what this learning task is about and why it matters",
+  "analysis": "one sentence guessing what the user most likely intends to accomplish with this learning task",
   "suggestions": ["2 to 3 concrete activities for tackling it (max ~12 words each)"]
 }
 
 ${aiGuidance ? `Type-specific guidance: ${aiGuidance}\n` : ''}
 Rules:
-- Work ONLY from the task's own text (title, notes, target, purpose). Do not invent links or claim to have read attachments.
+- Work ONLY from the user's prompt and the task's own text (title, notes, target). Do not invent links or claim to have read attachments.
 - Output ONLY the JSON object. No markdown fences, no commentary.
+
+===USER PROMPT===
+${userPrompt || '(none)'}
 
 ===TASK CONTEXT===
 ${context}`
@@ -58,8 +63,6 @@ function buildContext(task: { title: string; notes: string }, inputs: Record<str
   const lines = [`Title: ${task.title}`, `Description/notes: ${task.notes || '(none)'}`]
   if (kind === 'learning') {
     if (inputs.target) lines.push(`Target: ${inputs.target}`)
-    if (inputs.purpose) lines.push(`Purpose: ${inputs.purpose}`)
-    if (inputs.link) lines.push(`Link (context only): ${inputs.link}`)
   } else if (kind === 'jira') {
     lines.push(`Source kind: ${inputs.sourceKind === 'page' ? 'Confluence page' : 'JIRA issue'}`)
     if (inputs.sourceLink) lines.push(`Source link (reference only): ${inputs.sourceLink}`)
@@ -78,6 +81,7 @@ function parseOutput(text: string): PreprocessOutput {
   return {
     generatedPrompt: typeof parsed.generatedPrompt === 'string' ? parsed.generatedPrompt : '',
     summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+    analysis: typeof parsed.analysis === 'string' ? parsed.analysis : '',
     suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.filter((s: unknown): s is string => typeof s === 'string' && s.trim()).slice(0, 3) : []
   }
 }
@@ -116,7 +120,7 @@ export async function runPreprocessJob(ctx: JobContext): Promise<void> {
 
   const prompt =
     kind === 'learning'
-      ? learningPrompt(buildContext(task, task.inputs, kind), def?.aiGuidance ?? '')
+      ? learningPrompt(buildContext(task, task.inputs, kind), typeof task.inputs.purpose === 'string' ? task.inputs.purpose : '', def?.aiGuidance ?? '')
       : jiraPrompt(typeof task.inputs.sourceKind === 'string' ? task.inputs.sourceKind : 'issue', buildContext(task, task.inputs, kind), def?.aiGuidance ?? '')
 
   const session = await createJobSession({
@@ -144,6 +148,7 @@ export async function runPreprocessJob(ctx: JobContext): Promise<void> {
       taskId,
       kind,
       summary: out.summary,
+      analysis: out.analysis,
       suggestions: out.suggestions,
       generatedPrompt: out.generatedPrompt,
       status: 'ready',

@@ -67,12 +67,21 @@ export function NotesEditor({ taskId, initial, onSave }: { taskId: string; initi
         <button className={`mini-btn ${!preview ? 'active' : ''}`} onClick={() => setPreview(false)}>
           Write
         </button>
-        <button className={`mini-btn ${preview ? 'active' : ''}`} onClick={() => setPreview(true)}>
+        <button
+          className={`mini-btn ${preview ? 'active' : ''}`}
+          onClick={() => {
+            setHtml(md.render(viewRef.current?.state.doc.toString() ?? ''))
+            setPreview(true)
+          }}
+        >
           Preview
         </button>
         {savedAt && <span className="muted">saved {savedAt}</span>}
       </div>
-      {preview ? <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: html }} /> : <div ref={containerRef} className="cm-editor-host" />}
+      {/* The editor host stays mounted (hidden via CSS) so the CodeMirror view
+          survives Write→Preview→Write toggles; the preview is a sibling. */}
+      <div ref={containerRef} className="cm-editor-host" style={{ display: preview ? 'none' : '' }} />
+      {preview && <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: html }} />}
     </div>
   )
 }

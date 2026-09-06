@@ -8,13 +8,14 @@ interface Props {
   jobStep: { stepLabel: string | null; state: string } | null
   selected?: boolean
   onSelect: () => void
+  onContextMenu: (e: React.MouseEvent, task: Task) => void
 }
 
 // Board task row: emoji · title · type label + status dot-chip on the first
 // line; quick actions (star/complete/cancel) on the right, revealed on hover
 // so the row stays scannable. Pre-processing is triggered from My Day / the
 // focus band — the row never runs jobs itself.
-export function TaskRow({ task, jobStep, selected, onSelect }: Props) {
+export function TaskRow({ task, jobStep, selected, onSelect, onContextMenu }: Props) {
   const { snapshot, types, toggleTask, setMyDay, cancelJob, liveJobs } = useApp()
   const suggestions = snapshot?.suggestions.filter((s) => s.taskId === task.id && !s.dismissed) ?? []
   const activeJob = liveJobs.find((j) => j.taskId === task.id && (j.state === 'running' || j.state === 'queued'))
@@ -22,7 +23,7 @@ export function TaskRow({ task, jobStep, selected, onSelect }: Props) {
   const chip = statusChip(task, types, jobStep)
 
   return (
-    <div className={`task-row ${task.completed ? 'done' : ''} ${selected ? 'selected' : ''}`} onClick={onSelect}>
+    <div className={`task-row ${task.completed ? 'done' : ''} ${selected ? 'selected' : ''}`} onClick={onSelect} onContextMenu={(e) => onContextMenu(e, task)}>
       <span className="t-emoji">{def.emoji}</span>
       <div className="task-main">
         <div className="task-title">{task.title}</div>

@@ -32,6 +32,7 @@ import { notePathFor } from './wiki/vault'
 import { resolveWikiPath, resolveLearningNotePath } from './wiki/wiki'
 import { createTypeDef, deleteTypeDef, effectiveKind, effectiveTypeDef, getTypeDef, hasUnfilledRequiredInputs, listTypeDefs, preprocessInputHash, updateTypeDef, validateInputsForWrite } from './types'
 import { validatePluginEntries } from './plugins'
+import { importSkillFolder } from './skills'
 import { IPC } from '../shared/ipc'
 import type { AppSnapshot, Settings, Task, TaskTypeDef } from '../shared/types'
 
@@ -82,7 +83,7 @@ function buildChatContext(d: DatabaseSync, taskId: string): string | undefined {
     kind === 'learning' && pp?.generatedPrompt ? `Working prompt: ${pp.generatedPrompt}` : '',
     pp?.summary ? `Pre-process summary: ${pp.summary}` : '',
     kind === 'learning' && typeof task.inputs.target === 'string' ? `Target: ${task.inputs.target}` : '',
-    kind === 'learning' && typeof task.inputs.purpose === 'string' ? `Purpose: ${task.inputs.purpose}` : '',
+    kind === 'learning' && typeof task.inputs.purpose === 'string' ? `Prompt: ${task.inputs.purpose}` : '',
     kind === 'jira' ? `Source kind: ${task.inputs.sourceKind === 'page' ? 'Confluence page' : 'JIRA issue'}` : '',
     kind === 'jira' && typeof task.inputs.sourceText === 'string' ? `Pasted source content:\n${task.inputs.sourceText.slice(0, 60_000)}` : '',
     kind === 'learning' && note?.content ? `Current learning note:\n${note.content.slice(0, 60_000)}` : ''
@@ -353,9 +354,17 @@ function registerIpc(): void {
     return task
   })
   ipcMain.handle(IPC.chooseFile, async () => {
-    const res = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile'] })
+    const res = await dialog.showOpenDialog(mainWindow!, {
+      properties: ['openFile'],
+      filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }]
+    })
     if (res.canceled || res.filePaths.length === 0) return null
     return res.filePaths[0]
+  })
+  ipcMain.handle(IPC.importSkill, async () => {
+    const res = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory'] })
+    if (res.canceled || res.filePaths.length === 0) return null
+    return importSkillFolder(res.filePaths[0])
   })
   ipcMain.handle(IPC.listTypes, () => listTypeDefs(d()))
   ipcMain.handle(IPC.saveType, (_e, args) => {

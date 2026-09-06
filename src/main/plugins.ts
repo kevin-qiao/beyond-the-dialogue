@@ -15,7 +15,7 @@ export function validatePluginEntries(s: Settings): string[] {
     if (!sk.name?.trim()) errors.push(`skill #${i + 1}: name is required`)
     else if (skillNames.has(sk.name)) errors.push(`skill "${sk.name}": name must be unique`)
     else skillNames.add(sk.name)
-    if (!sk.description?.trim()) errors.push(`skill "${sk.name ?? i + 1}": description is required`)
+    if (!sk.path?.trim()) errors.push(`skill "${sk.name ?? i + 1}": a source path is required`)
   }
   const serverNames = new Set<string>()
   for (const [i, sv] of (s.mcpServers ?? []).entries()) {

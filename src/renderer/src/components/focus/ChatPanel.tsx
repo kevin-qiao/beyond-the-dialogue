@@ -31,7 +31,7 @@ export function ChatPanel({ taskId, label = 'Ask the agent anything' }: { taskId
   return (
     <div className="chat-panel">
       <div className="chat-messages">
-        {chatMessages.length === 0 && !chatStreaming && <div className="empty-hint">{label}</div>}
+        {label && chatMessages.length === 0 && !chatStreaming && <div className="empty-hint">{label}</div>}
         {chatMessages.map((m, i) => (
           <div key={i} className={`chat-msg ${m.role}`}>
             {m.content}

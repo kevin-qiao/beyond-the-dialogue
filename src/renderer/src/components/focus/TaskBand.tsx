@@ -241,18 +241,18 @@ export function TaskBand({ task }: { task: Task }) {
 
           {preprocess && (
             <div className="analysis-cards">
-              {preprocess.generatedPrompt && (
-                <PreCard kind="prompt" title="Working prompt">
-                  <p className="generated-prompt">{preprocess.generatedPrompt}</p>
-                </PreCard>
-              )}
               {preprocess.summary && (
                 <PreCard kind="summary" title="Summary">
                   <p>{preprocess.summary}</p>
                 </PreCard>
               )}
+              {preprocess.analysis && (
+                <PreCard kind="analysis" title="Analysis">
+                  <p>{preprocess.analysis}</p>
+                </PreCard>
+              )}
               {preprocess.suggestions.length > 0 && (
-                <PreCard kind="suggest" title="Activity suggestions">
+                <PreCard kind="suggest" title="Suggestions">
                   <ul>
                     {preprocess.suggestions.map((s, i) => (
                       <li key={i}>{s}</li>
@@ -265,10 +265,10 @@ export function TaskBand({ task }: { task: Task }) {
         </section>
       )}
 
-      {isAgentic && !task.completed && (
+      {isAgentic && def.kind !== 'learning' && !task.completed && (
         <div className="finish-row">
           <button className="finish-btn" onClick={() => void handleFinishClick()}>
-            {def.kind === 'learning' ? 'Finish → ingest to wiki' : 'Finish'}
+            Finish
           </button>
         </div>
       )}
@@ -279,9 +279,9 @@ export function TaskBand({ task }: { task: Task }) {
 
 // Pre-process output card with iconified header + accent rail (reuses the v2
 // analysis-card visuals).
-function PreCard({ kind, title, children }: { kind: 'prompt' | 'summary' | 'suggest'; title: string; children: React.ReactNode }) {
+function PreCard({ kind, title, children }: { kind: 'summary' | 'analysis' | 'suggest'; title: string; children: React.ReactNode }) {
   const cls = kind === 'summary' ? 'accent-blue' : kind === 'suggest' ? 'accent-ok' : ''
-  const glyph = kind === 'prompt' ? 'P' : kind === 'summary' ? 'S' : 'A'
+  const glyph = kind === 'summary' ? 'S' : kind === 'analysis' ? 'A' : '✦'
   return (
     <div className={`analysis-card ${cls}`}>
       <div className="card-head">

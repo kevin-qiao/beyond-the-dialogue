@@ -65,7 +65,7 @@ export function TaskInputsForm({
               </select>
             ) : field.type === 'file' ? (
               <span className="tif-file-row">
-                <input value={val(field.key)} disabled={locked} placeholder={field.placeholder ?? ''} onChange={(e) => set(field.key, e.target.value)} />
+                <input value={val(field.key)} disabled={locked} accept=".md,.markdown" placeholder={field.placeholder ?? ''} onChange={(e) => set(field.key, e.target.value)} />
                 <button
                   type="button"
                   className="mini-btn"

@@ -1411,6 +1411,47 @@ button {
   white-space: nowrap;
 }
 
+/* Task row right-click context menu */
+.ctx-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 160px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.ctx-item:hover {
+  background: var(--bg-input);
+}
+
+.ctx-item.danger {
+  color: var(--danger);
+}
+
+.ctx-item.danger:hover {
+  background: var(--accent-soft);
+}
+
 /* Focus column */
 .focus-col {
   flex: 1;
@@ -1462,7 +1503,8 @@ button {
 }
 
 .focus-band {
-  flex: 0 1 46%;
+  flex: 0 0 auto;
+  max-height: 46%;
   min-height: 96px;
   overflow-y: auto;
   border-bottom: 1px solid var(--border);
@@ -1524,6 +1566,55 @@ button {
   min-height: 140px;
   resize: none;
   margin-top: 0;
+}
+
+/* Working-area sections fill their column and scroll instead of overlapping
+   the band (plain/learning/jira share the focus column). */
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.learning-chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.jira-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.jira-source {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.source-text {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.jira-comments {
+  flex-shrink: 0;
+}
+
+.jira-chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ---- Top bar actions (drawer entry points) ---- */

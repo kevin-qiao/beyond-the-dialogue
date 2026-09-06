@@ -197,7 +197,7 @@ test('v3 migration: paper rows become learning, notes and core fields preserved'
   assert.equal(t1.type, 'learning', 'paper_reading row maps to learning')
   assert.equal(t1.inMyDay, true, 'My Day membership preserved')
   assert.equal(t1.title, 'NFTrig paper', 'title preserved')
-  assert.equal(t1.inputs.link, 'https://arxiv.org/abs/2301.00001', 'link folded into inputs')
+  assert.equal(t1.inputs.link, undefined, 'link input removed (v4 migration strips it)')
   assert.equal(t1.preprocessStatus, 'none', 'analysis status does not carry over')
   assert.equal(listTasks(db.db).length, 2)
 

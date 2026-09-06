@@ -46,7 +46,7 @@ test('6.3 deposit writes note + AI summary into raw/ under a title-derived name'
   const noteFile = path.join(dir, 'note.md')
   fs.writeFileSync(noteFile, '# my note')
   saveNotes(conn.db, { taskId: t.id, notePath: noteFile, content: '# my note' })
-  savePreprocess(conn.db, { taskId: t.id, kind: 'learning', summary: 'A summary.', suggestions: ['s'], generatedPrompt: 'p', status: 'ready', inputsHash: 'h' })
+  savePreprocess(conn.db, { taskId: t.id, kind: 'learning', summary: 'A summary.', analysis: 'Review eigenvalues.', suggestions: ['s'], generatedPrompt: 'p', status: 'ready', inputsHash: 'h' })
   const deposit = depositTask(conn.db, t.id)
   assert.ok(deposit.rawDir.startsWith(wikiPath))
   assert.ok(deposit.files.includes('linear-algebra-review.md'), `got ${deposit.files}`)

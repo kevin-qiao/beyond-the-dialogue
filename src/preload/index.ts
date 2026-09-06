@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent } from '../shared/ipc'
-import type { IngestRecord, List, Settings, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from '../shared/types'
+import type { IngestRecord, List, Settings, SkillEntry, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from '../shared/types'
 
 const api: RendererApi = {
   getSnapshot: () => ipcRenderer.invoke(IPC.getSnapshot),
@@ -18,6 +18,7 @@ const api: RendererApi = {
   runPreprocess: (args) => ipcRenderer.invoke(IPC.runPreprocess, args),
   finishTask: (args) => ipcRenderer.invoke(IPC.finishTask, args),
   chooseFile: () => ipcRenderer.invoke(IPC.chooseFile),
+  importSkill: () => ipcRenderer.invoke(IPC.importSkill) as Promise<SkillEntry | null>,
   saveNote: (args) => ipcRenderer.invoke(IPC.saveNote, args),
   listTypes: () => ipcRenderer.invoke(IPC.listTypes),
   saveType: (args) => ipcRenderer.invoke(IPC.saveType, args),

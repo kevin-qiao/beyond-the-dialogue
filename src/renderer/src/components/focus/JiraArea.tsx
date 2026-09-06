@@ -58,10 +58,7 @@ export function JiraArea({ task }: { task: Task }) {
         <textarea value={comments} onChange={(e) => scheduleSave(e.target.value)} rows={5} placeholder="Draft a comment for the issue/page…" />
       </section>
       <section className="jira-chat">
-        <div className="section-head">
-          <h4>Ask the agent</h4>
-        </div>
-        <ChatPanel taskId={task.id} label="Ask anything about the pasted issue or page content." />
+        <ChatPanel taskId={task.id} label="" />
       </section>
     </div>
   )

@@ -45,6 +45,10 @@ export function piModelsPath(): string {
   return path.join(piAgentDir(), 'models.json')
 }
 
+export function skillsDir(): string {
+  return path.join(userDataDir(), 'skills')
+}
+
 export function defaultWikiPath(): string {
   return path.join(os.homedir(), 'Documents', 'WorkBoard-Wiki')
 }

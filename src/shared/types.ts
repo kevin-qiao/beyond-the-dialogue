@@ -56,6 +56,8 @@ export interface TaskTypeDef {
 export interface SkillEntry {
   name: string
   description: string
+  // Location of the imported skill folder under the app's skills dir.
+  path: string
 }
 
 export interface McpTransportConfig {
@@ -159,6 +161,8 @@ export interface TaskPreprocess {
   kind: TaskKind
   // Markdown summary produced by the kind's pre-process routine.
   summary: string
+  // One-sentence guess of the user's likely intention behind the request.
+  analysis: string
   // Dismissible activity suggestion chips (also mirrored into the
   // suggestions table for the existing chip UI).
   suggestions: string[]

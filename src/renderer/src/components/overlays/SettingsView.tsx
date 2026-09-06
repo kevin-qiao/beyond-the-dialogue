@@ -255,7 +255,7 @@ export function SettingsView() {
             </div>
           )}
           <div className="inert-banner muted">
-            Configured-only in this version — the built-in agent does not load skills or connect to MCP servers yet.
+            Skills are imported into the app's skill folder but not yet loaded by the agent; MCP servers are configuration-only for now.
           </div>
 
           <SkillsSection
@@ -361,9 +361,10 @@ export function SettingsView() {
   )
 }
 
-// Skills management (spec skills-mcp-settings): unique name + description,
-// add/edit/remove with confirmation. Entries persist with settings; inert in
-// v0.8 (see src/main/plugins.ts).
+// Skills management (spec skills-mcp-settings): a skill is a folder containing
+// SKILL.md. Importing copies the folder into the app's skills dir and records
+// its name/description/path. Entries persist with settings; inert in this
+// version (see src/main/plugins.ts + src/main/skills.ts).
 function SkillsSection({
   skills,
   onChange,
@@ -373,37 +374,37 @@ function SkillsSection({
   onChange: (next: SkillEntry[]) => void
   confirmRemove: (name: string) => Promise<boolean>
 }) {
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
+  const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const dup = (n: string, except?: string) => skills.some((s) => s.name === n && s.name !== except)
-
-  const add = () => {
-    const n = name.trim()
-    if (!n) return setError('Name is required')
-    if (dup(n)) return setError(`Skill "${n}" already exists — names must be unique`)
-    if (!description.trim()) return setError('Description is required')
-    onChange([...skills, { name: n, description: description.trim() }])
-    setName('')
-    setDescription('')
+  const handleImport = async () => {
+    setImporting(true)
     setError(null)
+    try {
+      const entry = await window.api.importSkill()
+      if (!entry) return
+      if (skills.some((s) => s.name === entry.name)) {
+        setError(`Skill "${entry.name}" already exists — names must be unique`)
+        return
+      }
+      onChange([...skills, entry])
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not import the skill folder')
+    } finally {
+      setImporting(false)
+    }
   }
 
   return (
     <section className="settings-section">
       <div className="section-head">
         <h4>Skills</h4>
-        <span className="muted">not yet active — configuration only</span>
+        <span className="muted">imported · not yet loaded by the agent</span>
       </div>
-      {skills.map((s, i) => (
+      {skills.map((s) => (
         <div key={s.name} className="plugin-row">
           <input value={s.name} disabled title="Name is the key" className="plugin-name" />
-          <input
-            value={s.description}
-            placeholder="Description"
-            onChange={(e) => onChange(skills.map((x, xi) => (xi === i ? { ...x, description: e.target.value } : x)))}
-          />
+          <input value={s.description} disabled placeholder="no description" />
           <button
             className="icon-btn tiny danger"
             title="Remove"
@@ -417,12 +418,15 @@ function SkillsSection({
           </button>
         </div>
       ))}
-      {skills.length === 0 && <div className="type-empty"><div className="te-msg">No skills yet</div></div>}
+      {skills.length === 0 && (
+        <div className="type-empty">
+          <div className="te-msg">No skills yet</div>
+          <div className="te-sub">Import a folder containing SKILL.md to add a skill.</div>
+        </div>
+      )}
       <div className="plugin-row">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
-        <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this skill does" />
-        <button className="mini-btn primary" onClick={add}>
-          ＋ Add
+        <button className="mini-btn primary" disabled={importing} onClick={() => void handleImport()}>
+          {importing ? 'Importing…' : '＋ Import skill folder'}
         </button>
       </div>
       {error && <div className="error-text">{error}</div>}

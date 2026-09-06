@@ -14,7 +14,7 @@ interface AppState {
 
 // Task column mode (board): what the middle column shows. Auxiliary surfaces
 // (Activity/Settings/Chat) are drawers, not views.
-export type View = 'my-day' | 'list'
+export type View = 'my-day' | 'todo'
 export type DrawerView = 'activity' | 'settings' | 'chat'
 
 interface AppContextValue extends AppState {

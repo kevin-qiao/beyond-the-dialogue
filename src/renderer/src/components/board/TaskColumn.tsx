@@ -3,7 +3,9 @@ import { useApp } from '../../store'
 import type { Task } from '../../../../shared/types'
 import { TaskRow } from './TaskRow'
 import { QuickAdd } from './QuickAdd'
-import { NewTaskForm } from './NewTaskForm'
+import { TaskForm } from './TaskForm'
+import { TaskContextMenu } from './TaskContextMenu'
+import { useDialog } from '../ui/Dialog'
 import { allTypeConfigs, typeFilterKey } from '../../lib/typeCatalog'
 
 interface Scope {
@@ -20,13 +22,26 @@ interface Scope {
 // and the inline quick-capture; both target the scope's list (default list in
 // My Day mode) and are hidden while a search is active.
 export function TaskColumn() {
-  const { snapshot, activeView, selectedListId, selectedTaskId, selectTask, jobSteps, query, searchTasks, tasksForList, myDayTasks } = useApp()
+  const { snapshot, activeView, selectedTaskId, selectTask, jobSteps, query, searchTasks, myDayTasks, deleteTask } = useApp()
   const [showNewTask, setShowNewTask] = useState(false)
   const [typeFilter, setTypeFilter] = useState<string | null>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; task: Task } | null>(null)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const { confirm, dialog } = useDialog()
+
+  const handleDelete = async (task: Task) => {
+    setCtxMenu(null)
+    const ok = await confirm({
+      title: 'Delete task',
+      message: `Delete "${task.title}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (ok) void deleteTask(task.id)
+  }
 
   const lists = snapshot?.lists ?? []
   const defaultListId = snapshot?.settings?.defaultListId ?? lists[0]?.id ?? null
-  const selectedList = lists.find((l) => l.id === selectedListId) ?? null
   const q = query.trim()
 
   let scope: Scope
@@ -44,14 +59,9 @@ export function TaskColumn() {
       captureListId: defaultListId
     }
   } else {
-    // List mode (or, with no list selected, every list).
-    const base = selectedList ? tasksForList(selectedList.id) : snapshot?.tasks ?? []
-    const tasks = searchTasks(base)
-    scope = {
-      header: selectedList?.name ?? (q ? 'All tasks' : lists.length ? 'All tasks' : 'No list'),
-      tasks,
-      captureListId: selectedList?.id ?? defaultListId
-    }
+    // To Do: the backlog — all tasks across lists (open grouped above done).
+    const tasks = searchTasks(snapshot?.tasks ?? [])
+    scope = { header: 'To Do', tasks, captureListId: defaultListId }
   }
 
   const open = scope.tasks.filter((t) => !t.completed)
@@ -104,9 +114,9 @@ export function TaskColumn() {
             <button
               className="primary-btn new-task-btn-col"
               onClick={() => setShowNewTask(true)}
-              title={`New task in ${selectedList?.name ?? 'the default list'}`}
+              title="New task"
             >
-              ＋
+              ＋ New task
             </button>
           )}
         </div>
@@ -145,19 +155,53 @@ export function TaskColumn() {
 
       {scope.tasks.length === 0 && (
         <div className="empty-hint">
-          {q ? 'No tasks match your search.' : isMyDay ? 'Nothing planned for today. Add a task to My Day to get focused.' : 'This list is empty. Add a task to get started.'}
+          {q ? 'No tasks match your search.' : isMyDay ? 'Nothing planned for today. Add a task to My Day to get focused.' : 'To Do is empty. Add a task to get started.'}
         </div>
       )}
       <div className="task-list">
         {filteredOpen.map((t) => (
-          <TaskRow key={t.id} task={t} jobStep={jobSteps[t.id] ?? null} selected={t.id === selectedTaskId} onSelect={() => selectTask(t.id)} />
+          <TaskRow
+            key={t.id}
+            task={t}
+            jobStep={jobSteps[t.id] ?? null}
+            selected={t.id === selectedTaskId}
+            onSelect={() => selectTask(t.id)}
+            onContextMenu={(e, task) => {
+              e.preventDefault()
+              setCtxMenu({ x: e.clientX, y: e.clientY, task })
+            }}
+          />
         ))}
         {filteredDone.map((t) => (
-          <TaskRow key={t.id} task={t} jobStep={jobSteps[t.id] ?? null} selected={t.id === selectedTaskId} onSelect={() => selectTask(t.id)} />
+          <TaskRow
+            key={t.id}
+            task={t}
+            jobStep={jobSteps[t.id] ?? null}
+            selected={t.id === selectedTaskId}
+            onSelect={() => selectTask(t.id)}
+            onContextMenu={(e, task) => {
+              e.preventDefault()
+              setCtxMenu({ x: e.clientX, y: e.clientY, task })
+            }}
+          />
         ))}
       </div>
 
-      {showNewTask && scope.captureListId && <NewTaskForm listId={scope.captureListId} onClose={() => setShowNewTask(false)} />}
+      {showNewTask && scope.captureListId && <TaskForm listId={scope.captureListId} onClose={() => setShowNewTask(false)} />}
+      {editingTask && <TaskForm listId={editingTask.listId} task={editingTask} onClose={() => setEditingTask(null)} />}
+      {ctxMenu && (
+        <TaskContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onEdit={() => {
+            setEditingTask(ctxMenu.task)
+            setCtxMenu(null)
+          }}
+          onDelete={() => void handleDelete(ctxMenu.task)}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
+      {dialog}
     </div>
   )
 }
