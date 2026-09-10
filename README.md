@@ -36,10 +36,10 @@ I believe AI-driven software will take this shape: results-oriented, task-centri
 
 ## Where it's headed
 
-- **Live connectors** — JIRA/Confluence reading and updating through MCP servers; skills as agent tools; grants per task type (design already specced in `openspec/changes/add-mcp-support/`).
+- **Live connectors** — JIRA/Confluence reading and updating through MCP servers; skills as agent tools; grants per task type.
 - **A plugin-centric surface** — the UI becomes something you assemble around the agent core.
 
-Feature behavior is specified in [`openspec/`](openspec/) — the spec source of truth (`openspec/specs/` after archiving, active changes under `openspec/changes/`).
+Feature behavior is specified in [`specs/`](specs/) — the spec source of truth, written with the Spec Kit workflow. The governing principles live in [`.specify/memory/constitution.md`](.specify/memory/constitution.md).
 
 ## Requirements
 
@@ -123,7 +123,8 @@ Cross-building (e.g. a Windows installer from Linux) needs wine and is unsupport
 - `src/main` — Electron main process: SQLite store + type registry (`db.ts`, `types.ts`), job machinery (`job-queue.ts` + handlers `preprocess.ts`, `suggestions.ts`, `wiki/ingest.ts`), alarms (`alarms.ts`), plugin validation (`plugins.ts`), wiki scaffolding (`wiki/wiki.ts`, `wiki/vault.ts`), and the two agent-runtime seams (`ai/agent-runtime.ts`, `ai/session-factory.ts`) — all Pi SDK usage stays behind these seams.
 - `src/renderer` — React 18 UI: three-column board (`components/board/`), per-kind working areas + chat panel (`components/focus/`), drawer overlays for Activity/Settings/chat (`components/overlays/`), shared primitives (`components/ui/`).
 - `src/shared` — domain types and the IPC contract shared by all three layers.
-- `openspec/` — the spec source of truth (behavior specs, active + archived changes).
+- `specs/` — the spec source of truth (feature specifications).
+- `.specify/` — Spec Kit configuration: templates, scripts, and the project constitution.
 - The wiki pattern guide — every wiki space the app creates is seeded with an `LLM-WiKi.md` (bundled at `src/main/wiki/LLM-WiKi.md`): finished learning notes become a knowledge base you own.
 
 ## License

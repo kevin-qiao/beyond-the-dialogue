@@ -5,8 +5,12 @@ dist/
 *.log
 .DS_Store
 
-# Local OpenSpec workflow data - not versioned
-openspec/
+# Spec Kit specs and configuration are versioned: specs/ (feature specs) and
+# .specify/ (templates, scripts, project constitution). Machine-local Spec Kit
+# state is excluded by .specify/.gitignore, so nothing here needs ignoring.
 
 # Local agent workspace - not versioned
 .workbuddy/
+
+# Machine-local Claude Code settings (permissions, local paths)
+.claude/settings.local.json

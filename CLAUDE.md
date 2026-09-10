@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Beyond the Dialogue is an Electron desktop to-do app (an "AI-native work board") whose AI features are powered by an **embedded agent runtime** (the Pi coding-agent SDK, `@earendil-works/pi-coding-agent` / `@earendil-works/pi-ai`, pinned exact versions). v0.8 is a **type engine**: every task carries a workflow type (built-in `plain | learning | jira`, plus user-defined types stored in a `task_types` registry), and the type's `kind` — not hardcoded flows — decides the task's declared inputs, AI pre-process, working area, and Finish behavior. It implements the LLM-WiKi pattern (the idea/guide is bundled at `src/main/wiki/LLM-WiKi.md` and seeded into each created wiki): finished learning notes are ingested into a user-owned markdown wiki by a confined agent. The v0.8 design rationale lives in `openspec/changes/task-type-workflows/` (design.md D1–D8 + five capability specs); feature behavior is spec'd in `openspec/`.
+Beyond the Dialogue is an Electron desktop to-do app (an "AI-native work board") whose AI features are powered by an **embedded agent runtime** (the Pi coding-agent SDK, `@earendil-works/pi-coding-agent` / `@earendil-works/pi-ai`, pinned exact versions). v0.8 is a **type engine**: every task carries a workflow type (built-in `plain | learning | jira`, plus user-defined types stored in a `task_types` registry), and the type's `kind` — not hardcoded flows — decides the task's declared inputs, AI pre-process, working area, and Finish behavior. It implements the LLM-WiKi pattern (the idea/guide is bundled at `src/main/wiki/LLM-WiKi.md` and seeded into each created wiki): finished learning notes are ingested into a user-owned markdown wiki by a confined agent. Feature behavior is specified under `specs/` using the Spec Kit workflow (`.claude/skills/speckit-*`), governed by the project constitution at `.specify/memory/constitution.md`.
 
 ## Commands
 
@@ -74,5 +74,5 @@ On Finish of a learning task: synchronous file-copy of the working note (filenam
 - Skills and MCP servers managed in Settings are **inert** in v0.8: `validatePluginEntries` (`plugins.ts`) is the only reader besides persistence. The future grant lands at the `session-factory.ts` seam and must never reach the confined ingest/suggestion paths.
 - Alarms: `tasks.alarm_at` is the single source of truth; `AlarmScheduler` (`alarms.ts`) is Electron-free (the notifier is injected), firing consumes the alarm, completion cancels it.
 - My Day rollover (`rolloverMyDay` in `tasks.ts`) runs on startup: completed My Day tasks clear, incomplete persist.
-- The `openspec/` directory is the spec source of truth (OpenSpec workflow — see `.claude/skills/openspec-*`); update specs there alongside code changes.
+- The spec source of truth is `specs/` (Spec Kit: `/speckit-specify` → `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`), and `.specify/memory/constitution.md` is the governing constitution. Update specs alongside code changes — the constitution requires it.
 - Do not add git operations to the wiki in v1 — `.history/` snapshots are the undo story.

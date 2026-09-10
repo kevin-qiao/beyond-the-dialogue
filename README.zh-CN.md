@@ -36,10 +36,10 @@
 
 ## 方向
 
-- **活的连接器** — 通过 MCP 服务器读写 JIRA/Confluence；技能成为 Agent 可用工具，按任务类型授权（设计已在 `openspec/changes/add-mcp-support/` 中定稿）。
+- **活的连接器** — 通过 MCP 服务器读写 JIRA/Confluence；技能成为 Agent 可用工具，按任务类型授权。
 - **插件化的表层** — 界面终将变成你可以围绕 Agent 核心自由拼装的东西。
 
-行为规格以 [`openspec/`](openspec/) 为准（归档后的主规格在 `openspec/specs/`，进行中的变更在 `openspec/changes/`）。
+行为规格以 [`specs/`](specs/) 为准，使用 Spec Kit 工作流编写。治理原则见 [`.specify/memory/constitution.md`](.specify/memory/constitution.md)。
 
 ## 环境要求
 
@@ -121,7 +121,8 @@ npm run dist        # electron-vite build + electron-builder → release/
 - `src/main` — Electron 主进程：SQLite 存储与类型注册表（`db.ts`、`types.ts`）、任务队列机制（`job-queue.ts`，handler 在 `preprocess.ts`、`suggestions.ts`、`wiki/ingest.ts`）、闹钟（`alarms.ts`）、插件校验（`plugins.ts`）、Wiki 脚手架（`wiki/wiki.ts`、`wiki/vault.ts`），以及两个 Agent 运行时接缝（`ai/agent-runtime.ts`、`ai/session-factory.ts`）——所有 Pi SDK 调用都被挡在这两个接缝之后。
 - `src/renderer` — React 18 界面：三栏工作板（`components/board/`）、按类型的工作区与聊天面板（`components/focus/`）、抽屉浮层（`components/overlays/`）、共享控件（`components/ui/`）。
 - `src/shared` — 三端共享的领域类型与 IPC 契约。
-- `openspec/` — 行为规格的源头（OpenSpec：规格、进行中与已归档的变更）。
+- `specs/` — 行为规格的源头（功能规格）。
+- `.specify/` — Spec Kit 配置：模板、脚本与项目章程。
 - Wiki 模式指南 — 应用创建的每个 Wiki 空间都会植入一份 `LLM-WiKi.md`（模板位于 `src/main/wiki/LLM-WiKi.md`）：完成的学习笔记沉淀为属于你自己的知识库。
 
 ## 协议
