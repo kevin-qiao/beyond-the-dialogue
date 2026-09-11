@@ -54,13 +54,15 @@ All items pass. Three notes recorded for the reviewer rather than left implicit:
    for these, to keep the document readable by a non-technical stakeholder. The
    mapping is stated in Assumptions where a reader needs it.
 
-### Open items for `/speckit-clarify`
+### Clarification outcomes (2026-09-11)
 
-None blocking. Two areas are settled by assumption rather than by the user, and
-are the most likely to be revisited during clarification:
+Both areas previously listed here as settled by assumption were resolved by the
+clarification session recorded in `spec.md` under `## Clarifications`:
 
-- The exact closed set of finish behaviours a type may choose from (FR-014
-  requires the set to exist and be selectable; its membership is assumed).
-- What "re-organize and polish" guarantees — FR-009 requires the transformation
-  to happen and the result to be saved, but does not bound how much the output
-  may differ from what the user wrote.
+- The closed set of finish behaviours is now fixed at four — complete only,
+  file as-is, polish then file, deposit then curate (FR-014).
+- "Re-organize and polish" is now bounded: polish may restructure and tighten,
+  but must not introduce content the user did not write and must present the
+  recorded action items as a distinct section (FR-009, SC-011).
+
+No open items remain from this checklist.

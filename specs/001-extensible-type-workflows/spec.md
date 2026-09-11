@@ -8,6 +8,16 @@
 
 **Input**: User description: "A daily task management application similar to MS To Do but with AI features. 'To Do' and 'My Day' lists, a 3-column UI (categories | task list | working area split into AI pre-processing on top and human working area below). A **Type** mechanism: every task carries a type, and the type defines the AI pre-processing and the human working area. Learning type (AI analyses material and suggests; human records notes saved into a configured LLM-wiki space). Meeting type (AI suggests agenda and core topics; human records minutes which are re-organized, polished, and saved to the configured meeting-minutes system). JIRA type (AI summarises status and suggests next steps; human can change status, leave comments, chat with AI). Support Skill, MCP and other AI agent tools easily so users can extend capabilities themselves. Users can customise types for their own requirements. An MVP implementation already exists, so the constitution and current implementation were analysed for proceeding."
 
+## Clarifications
+
+### Session 2026-09-11
+
+- Q: When a task type has been granted an external tool server, what content is allowed to leave the machine as part of that session's work? → A: Only the task's declared inputs and the content of the user's request. Notes, minutes, drafts, the note store, the wiki, and other tasks are never transmitted.
+- Q: Before a remote change is made to an external system, what must the user have done for that change to count as "explicitly requested"? → A: The user must confirm that specific change immediately before it executes. The assistant may prepare a remote change, but no change ever executes without a per-change confirmation, regardless of how it was requested.
+- Q: What is the closed set of finish behaviours that a type can offer the user to choose from? → A: A fixed set of four — complete only, file as-is, polish then file, and deposit then curate.
+- Q: How far may "polish" go in rewriting the minutes the user wrote? → A: Polish may restructure and tighten the prose, but must preserve every fact, decision, and action item the user recorded and must not introduce content the user did not write. It must also present the recorded action items as a distinct section of the finished document.
+- Q: When a finish would produce an artifact at a location where one already exists, how should the existing file be preserved? → A: Nothing is ever overwritten or moved. The new artifact is written under a distinct name alongside the existing one, so the destination holds every version as an ordinary file the user manages.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Meeting tasks from agenda to filed minutes (Priority: P1)
@@ -22,9 +32,10 @@ A user has a meeting to prepare for and attend. They create a task with the Meet
 
 1. **Given** a task of the Meeting type in My Day with its required details filled in, **When** pre-processing runs, **Then** the user is shown a suggested agenda and a set of core topics derived from the task's own content.
 2. **Given** a Meeting task whose pre-processing has completed, **When** the user opens the task, **Then** the working area offers an editing surface where minutes can be written and which preserves edits without an explicit save action.
-3. **Given** a Meeting task with minutes written, **When** the user Finishes the task, **Then** the system re-organizes and polishes the minutes and writes the result as a plain markdown file into the configured meeting-minutes location, and the task becomes complete.
+3. **Given** a Meeting task with minutes written that record actions the user noted, **When** the user Finishes the task, **Then** the system re-organizes and polishes the minutes, presents the recorded actions as a distinct action-items section, writes the result as a plain markdown file into the configured meeting-minutes location, and marks the task complete.
 4. **Given** a Meeting task that has been finished, **When** the user inspects the meeting-minutes location, **Then** the file is readable as plain markdown and requires no wiki workspace, schema, or indexing to be understood.
 5. **Given** no AI provider is configured, **When** the user Finishes a Meeting task, **Then** the task still completes and the minutes are saved in a retrievable form rather than being lost or blocking completion.
+6. **Given** a Meeting task whose minutes the user wrote, **When** the task is finished, **Then** the finished document contains no fact, decision, or action item that the user did not record.
 
 ---
 
@@ -65,7 +76,7 @@ A user has a recurring kind of work the built-in types do not cover. They create
 
 ### User Story 4 - Extending the assistant with skills and connectors (Priority: P4)
 
-A user has registered skills and external tool servers in Settings. They grant a specific one to their JIRA type. Now when they work a JIRA task, the assistant can actually look at the referenced issue and report its real status, and — only when the user explicitly asks — change that status or post a comment. Meanwhile the assistant's confined background jobs remain confined: nothing that merely ingests or polishes their notes gains the ability to reach outside.
+A user has registered skills and external tool servers in Settings. They grant a specific one to their JIRA type. Now when they work a JIRA task, the assistant can actually look at the referenced issue and report its real status, and — only after the user asks and then confirms that specific change — change that status or post a comment. Meanwhile the assistant's confined background jobs remain confined: nothing that merely ingests or polishes their notes gains the ability to reach outside.
 
 **Why this priority**: It converts configuration that today does nothing into real capability, and it is what makes the JIRA workflow's promised remote actions possible. It is last because it is the largest and highest-risk change: it deliberately opens agent sessions to external tools, so it must build on the per-type declaration work in P2 and P3.
 
@@ -75,7 +86,7 @@ A user has registered skills and external tool servers in Settings. They grant a
 
 1. **Given** skills and tool servers registered in Settings, **When** the user views a task type, **Then** they can grant specific registered entries to that type.
 2. **Given** a JIRA task whose type has a tool server granted, **When** the user requests current information about the referenced issue, **Then** the assistant reports the actual status read from the source rather than only the content pasted into the task.
-3. **Given** a JIRA task with remote actions available, **When** the user asks to change the issue status or post a comment, **Then** the operation is performed and its outcome is reported back.
+3. **Given** a JIRA task with remote actions available, **When** the user asks to change the issue status or post a comment, **Then** the change is prepared and performed only after the user confirms that specific change, and its outcome is reported back.
 4. **Given** any task, **When** the user performs no explicit action requesting a remote operation, **Then** no remote change is made.
 5. **Given** a type that has been granted external tools, **When** a confined background job runs for a task of that type, **Then** the confined job does not receive the granted tools.
 
@@ -85,7 +96,7 @@ A user has registered skills and external tool servers in Settings. They grant a
 
 - What happens when the configured destination folder does not exist, or the user no longer has permission to write to it?
 - What happens when a destination path is set to a location outside the intended destination root, or contains traversal segments that would escape it?
-- What happens when two finished tasks would produce the same artifact filename in the same destination?
+- What happens when two finished tasks would produce the same artifact filename in the same destination? (Resolved by FR-026: the second is written under a distinct name alongside the first; nothing is overwritten or moved.)
 - What happens when polishing fails partway through, produces empty output, or produces clearly unusable output?
 - What happens when the assistant is unavailable, misconfigured, or the model call fails during Finish — is the user's written work still preserved?
 - What happens when a user changes a type's destination while a task of that type has already been started but not finished?
@@ -104,7 +115,7 @@ A user has registered skills and external tool servers in Settings. They grant a
 
 - **FR-001**: The system MUST provide a built-in Meeting task type alongside the existing types.
 - **FR-002**: Each task type MUST declare the destination its finished artifact is written to, instead of one destination being fixed for all types.
-- **FR-003**: The system MUST preserve the existing Learning behaviour exactly: on Finish, source material is deposited first and the curated note is written at the learning-note path.
+- **FR-003**: The system MUST preserve the existing Learning behaviour exactly: on Finish, source material is deposited first and the curated note is written at the learning-note path (the "deposit then curate" behaviour of FR-014).
 - **FR-004**: Users MUST be able to view and change the destination for a task type.
 - **FR-005**: A destination change MUST apply to subsequent finishes only; artifacts already saved MUST NOT be moved, rewritten, or deleted.
 - **FR-006**: The system MUST refuse a destination that resolves outside the permitted destination root rather than writing to an unintended location.
@@ -113,7 +124,7 @@ A user has registered skills and external tool servers in Settings. They grant a
 
 - **FR-007**: Pre-processing a Meeting task MUST propose a suggested agenda and core topics derived from the task's own declared inputs and content.
 - **FR-008**: The Meeting working area MUST provide a formatted editing surface for minutes that preserves the user's writing without requiring an explicit save action.
-- **FR-009**: On Finish of a Meeting task, the system MUST re-organize and polish the minutes before saving them.
+- **FR-009**: On Finish of a Meeting task, the system MUST re-organize and polish the minutes before saving them (the "polish then file" behaviour of FR-014). Polishing MUST preserve every fact, decision, and action item the user recorded, MUST NOT introduce any content the user did not write, and MUST present the action items the user recorded as a distinct section of the finished document.
 - **FR-010**: The finished minutes MUST be saved as a plain markdown file that is readable without any wiki workspace, schema, indexing, or cataloguing.
 - **FR-011**: The user's written minutes MUST be preserved in a retrievable form even when polishing is unavailable or fails.
 
@@ -121,7 +132,7 @@ A user has registered skills and external tool servers in Settings. They grant a
 
 - **FR-012**: Users MUST be able to create a task type that declares its own AI instruction used during pre-processing.
 - **FR-013**: Users MUST be able to create a task type that declares its own output destination for finished artifacts.
-- **FR-014**: Users MUST be able to create a task type that declares its own finish behaviour, selected from the behaviours the system supports.
+- **FR-014**: Users MUST be able to create a task type that declares its own finish behaviour, selected from a fixed set of four: **complete only** (writes nothing), **file as-is** (saves the working content unchanged to the destination), **polish then file** (the assistant rewrites the content, then it is saved), and **deposit then curate** (the raw material is preserved first, then the assistant authors the artifact).
 - **FR-015**: Users MUST be able to edit and delete the types they created.
 - **FR-016**: Deleting a type MUST NOT destroy tasks or artifacts already saved; affected tasks MUST be reassigned rather than lost.
 - **FR-017**: The system MUST refuse a change to a built-in type's behaviour category while still allowing its presentation details to be edited.
@@ -132,23 +143,24 @@ A user has registered skills and external tool servers in Settings. They grant a
 - **FR-019**: Tool availability MUST be granted per task type, so a type receives only the entries granted to it.
 - **FR-020**: Confined background operations — material ingestion, minute polishing, and suggestion generation — MUST NOT receive externally granted tools under any configuration.
 - **FR-021**: For a type granted a tool server, the assistant MUST be able to read current information about the referenced external item rather than relying solely on content pasted into the task.
-- **FR-022**: The assistant MUST be able to perform a remote change (such as a status change or a comment) when the user explicitly requests it, and MUST report the outcome.
-- **FR-023**: No remote change MUST ever occur without an explicit user action requesting it.
+- **FR-022**: The assistant MUST be able to prepare a remote change (such as a status change or a comment) when the user requests one, and MUST report the outcome once it is performed.
+- **FR-023**: Every individual remote change MUST be confirmed by the user immediately before it executes, regardless of how it was requested. A request made in conversation MUST NOT by itself cause a remote change.
 - **FR-024**: When a granted tool server is unavailable or a remote operation fails, the failure MUST be reported to the user and MUST NOT be silently presented as success.
 
 **Safety and reliability**
 
 - **FR-025**: Finishing a task MUST complete successfully even when no AI provider is configured; only the AI-dependent portions may be skipped.
-- **FR-026**: The system MUST NOT overwrite an existing artifact at a destination without first preserving the prior version so it remains retrievable.
+- **FR-026**: The system MUST NOT overwrite or relocate an existing artifact. When a finish would produce an artifact where one already exists, the new artifact MUST be written under a distinct name alongside it, so the destination holds every version as an ordinary file.
 - **FR-027**: A finish that fails MUST leave the user's work intact and MUST be retriable without retyping it.
 - **FR-028**: Failures and their outcomes MUST be visible to the user in the activity record, consistent with how background work is already reported.
+- **FR-029**: When a granted tool server is used, only the task's declared inputs and the content of the user's request MAY be transmitted externally. The user's working content — notes, minutes, drafts — as well as the note store, the wiki, and other tasks MUST NOT be transmitted.
 
 ### Key Entities
 
-- **Task Type**: A workflow template. Carries a display identity (label, icon, description), a behaviour category that determines its pre-processing, working area, and default finish semantics, a declared set of input fields, an AI instruction, an output destination, and whether it is built-in or user-created.
+- **Task Type**: A workflow template. Carries a display identity (label, icon, description), a behaviour category that determines its pre-processing and working area, a declared finish behaviour (one of the four in FR-014), a declared set of input fields, an AI instruction, an output destination, and whether it is built-in or user-created.
 - **Task**: A unit of work. Carries its assigned type, values for that type's declared inputs, its My Day membership, its completion state, and any scheduled reminder. Its behaviour is determined by its type, never by hardcoded branching on a specific type name.
 - **Output Destination**: The configured location a type's finished artifacts are written to. Owned by the type, editable by the user, and constrained to a permitted root.
-- **Finished Artifact**: The document produced when a task is finished — a curated learning note or polished meeting minutes. Has a location, a pre-finish form, and potentially prior versions.
+- **Finished Artifact**: The document produced when a task is finished — a curated learning note or polished meeting minutes. Has a location, a pre-finish form, and any earlier versions, which coexist alongside it as separate files rather than replacing one another.
 - **Plugin Grant**: The association between a task type and the specific skills or tool servers its assistant sessions may use. Absent for confined background operations by construction.
 - **Skill**: A user-imported capability entry that the assistant can be granted.
 - **Tool Server**: A registered external system whose capabilities the assistant can be granted access to, so it can read current information from and act upon that system on the user's behalf.
@@ -161,11 +173,13 @@ A user has registered skills and external tool servers in Settings. They grant a
 - **SC-002**: The set of built-in task types grows from three to four, and no existing task changes its behaviour as a result.
 - **SC-003**: Every previously supported Learning flow continues to behave identically — verified by the existing learning workflow tests continuing to pass unmodified.
 - **SC-004**: A user can define a brand-new type with its own instruction, destination, and finish behaviour entirely from the settings surface, with zero code changes required.
-- **SC-005**: Zero remote changes occur without an explicit user action, verifiable by inspecting that no remote operation is reachable from a path the user did not initiate.
+- **SC-005**: Zero remote changes occur without a per-change user confirmation, verifiable by inspecting that no remote operation is reachable without that confirmation having been given.
 - **SC-006**: Zero confined background operations receive externally granted tools, under every configuration a user can produce.
 - **SC-007**: Finishing a task never fails solely because AI is unconfigured or unavailable — 100% of finishes complete and leave a retrievable artifact.
-- **SC-008**: No user-authored content is lost: every finish that reports success leaves a retrievable artifact, and every superseded version remains retrievable.
+- **SC-008**: No user-authored content is lost or displaced: every finish that reports success leaves a retrievable artifact, and no existing artifact is ever overwritten or moved.
 - **SC-009**: A user can add a new task type and use it in a real task within five minutes of opening the type settings, without documentation.
+- **SC-010**: No content beyond a task's declared inputs and the user's explicit request is ever transmitted to an external tool server, under every configuration a user can produce.
+- **SC-011**: No finished minutes contain a fact, decision, or action item the user did not record, verifiable by comparing the finished document against the user's written minutes.
 
 ## Assumptions
 
@@ -185,7 +199,7 @@ This specification describes the delta from an existing MVP. The following are a
 
 - The default meeting-minutes destination is a folder under the user's documents, mirroring how the wiki location already defaults, and is user-configurable.
 - Polishing uses the user's configured AI provider. With no provider configured, minutes are saved in their written form, unpolished.
-- The set of finish behaviours a type can choose from is a fixed, closed set the system supports; users select among them rather than defining new ones.
+- The set of finish behaviours is fixed at the four named in FR-014; users select among them rather than defining new ones. Composing custom step sequences, and finish behaviours that act on an external system, are out of scope for this version.
 - Reading current external information and performing remote changes both require a tool server granted to the type; absent a grant, the assistant continues to work only from content the user pasted in, exactly as today.
 - Existing skills and tool server configuration remains valid and is not migrated or invalidated by this feature.
 - The existing confinement guarantee — that background jobs never reach external tools — is a property to be strengthened and preserved, not relaxed.
