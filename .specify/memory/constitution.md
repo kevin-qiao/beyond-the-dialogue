@@ -1,26 +1,26 @@
 <!--
 Sync Impact Report
 ==================
-Version change: (unratified template) → 1.0.0
-Rationale: Initial ratification. The constitution file previously held the
-  unresolved scaffold (all placeholder tokens intact, no governance content),
-  so this amendment is an adoption rather than a revision of prior rules.
+Version change: 1.0.0 → 1.1.0
+Rationale: MINOR — a principle is added (VI. Avoid Hardcoding) and the
+  Development Workflow & Quality Gates section gains a corresponding gate.
+  No principle is removed or redefined, and no previously compliant work
+  becomes non-compliant.
 
 Modified principles:
-  - [PRINCIPLE_1_NAME] → I. Cross-Platform Desktop First
-  - [PRINCIPLE_2_NAME] → II. Clean, Simple UI — Function Before Polish
-  - [PRINCIPLE_3_NAME] → III. Layered Architecture
-  - [PRINCIPLE_4_NAME] → IV. Complete Unit Test Coverage (NON-NEGOTIABLE)
-  - [PRINCIPLE_5_NAME] → V. Git-Managed Development
+  - None renamed or redefined. Principle III (Layered Architecture) already
+    forbade hardcoded dispatch on a concrete key; Principle VI generalizes
+    that rule beyond dispatch and adds the comment obligation for the
+    unavoidable cases. The overlap is deliberate and cross-referenced, not
+    duplicated.
 
 Added sections:
-  - Platform & Technology Constraints (was [SECTION_2_NAME])
-  - Development Workflow & Quality Gates (was [SECTION_3_NAME])
+  - Core Principles → VI. Avoid Hardcoding
+  - Development Workflow & Quality Gates → gate 7
 
 Removed sections: none
 
-Follow-up TODOs: none — ratification date is the adoption date of this
-  amendment (2026-09-10); no field was left unresolved.
+Follow-up TODOs: none.
 -->
 
 # Beyond the Dialogue Constitution
@@ -132,6 +132,42 @@ changed and why.
 
 Rationale: traceability depends on the history being truthful and complete.
 
+### VI. Avoid Hardcoding
+
+Values and behavior that describe intent MUST be declared where that intent is
+owned, and consumed from there — never embedded in the logic that happens to
+use them. A literal that carries meaning is configuration, not a constant.
+
+- Values a user, operator, or future change could reasonably need to alter —
+  paths, limits, thresholds, labels, allowed values, lists, defaults — MUST be
+  declared in the place that owns them and read from there.
+- A meaningful literal appearing in more than one place MUST be extracted to a
+  single named declaration. Two occurrences are already one too many.
+- Behavior dispatch MUST NOT branch on a concrete key. That is the dispatch
+  case of Principle III and remains governed there.
+- Defaults MUST be declared exactly once. A default duplicated at a call site
+  and in its declaration is a defect, because the two will drift apart.
+- Hardcoded values MUST NOT be introduced to satisfy a test by matching a
+  fixture. Tests adapt to the declared source, never the reverse.
+
+**When hardcoding is genuinely unavoidable**, and only then, it MUST be made
+explicit rather than incidental:
+
+- A comment MUST state why the value is hardcoded, and what would have to
+  change for it to become configurable. "This is fixed" is not a reason. A
+  named external constraint, a protocol requirement, a platform behavior, or a
+  measured performance need is.
+- The value MUST be isolated to a single named location, never scattered as
+  bare literals across several files.
+- The comment MUST sit with the value itself, not in a commit message or a
+  document the next reader will not open.
+
+Rationale: hardcoding is how a codebase quietly stops being extensible. Each
+literal is cheap on its own and expensive in aggregate, and the cost only
+appears when someone finally needs to change one. The comment obligation exists
+because the unavoidable cases are legitimate; what is not legitimate is leaving
+the next reader unable to tell a deliberate constraint from an oversight.
+
 ## Platform & Technology Constraints
 
 - **Runtime baseline**: Node.js ≥ 22 is required. The application depends on
@@ -170,6 +206,9 @@ A change is complete only when all of the following hold:
    Linux, or its platform limitation is documented.
 6. **Specs are current.** The specification source of truth reflects the
    behavior that shipped, updated within the same change.
+7. **No unexplained hardcoding.** No new meaningful literal is embedded in
+   logic, or any that is carries a comment stating why it is unavoidable and
+   what would make it configurable (Principle VI).
 
 Review of any change MUST verify these gates explicitly. A gate that cannot be
 verified is treated as not met.
@@ -208,4 +247,4 @@ unrecorded non-compliance is a defect. When a principle is genuinely
 impractical for a specific case, the correct action is an amendment, not a
 silent exception.
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-10 | **Last Amended**: 2026-09-10
+**Version**: 1.1.0 | **Ratified**: 2026-09-10 | **Last Amended**: 2026-09-11
