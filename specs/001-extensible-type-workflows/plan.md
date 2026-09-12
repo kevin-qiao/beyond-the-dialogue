@@ -230,6 +230,15 @@ One constitution deviation requires justification.
 | — The terminal-UI peer must be satisfiable without shipping a terminal renderer into a GUI app. | | |
 | — If any gate fails, the tool-server half is deferred and **FR-018 must be amended** rather than left claiming unbuilt behaviour. The grant seam, confinement guarantee, and all of P1–P3 ship regardless. | | |
 
+**Outcome (2026-09-12).** The gates were run. **The tool-server half was deferred**: T061
+failed on its stated criterion — the pinned adapter resolves `@modelcontextprotocol/client`
+and `@modelcontextprotocol/core` to `pkg.pr.new` preview commit URLs rather than published
+npm versions — and the native-module, terminal-UI and credential-containment gates could
+not be completed (Linux only; the Windows half unexercised). The fallback recorded above
+was therefore invoked: the grant seam, confinement, egress boundary and propose/confirm
+model ship and are tested, and FR-018 was amended rather than left claiming unbuilt
+behaviour. Evidence: `research.md` R7a.
+
 **No other complexity is introduced.** Notably, the plan rejects a workspace-package split
 (the reserved directory achieves the same boundary at zero tooling cost), rejects a
 per-artifact history directory (FR-026 uses distinct names in the user's own folder), and

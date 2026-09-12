@@ -24,19 +24,23 @@ I believe AI-driven software will take this shape: results-oriented, task-centri
 
 - **My Day** — pick tasks for today; completed ones roll off each morning, unfinished ones carry over.
 - **Lists, quick capture, search** — capture a task in one keystroke (Ctrl+N), search across everything (Ctrl+K).
-- **Workflow types** — built-in *plain*, *learning*, and *JIRA/Confluence* types, plus user-defined types from Settings: pick a behavior kind, label, emoji, input fields, and AI guidance. New types need no code.
+- **Workflow types** — built-in *plain*, *learning*, *JIRA/Confluence* and *meeting* types, plus user-defined types from Settings: pick a behaviour category, label, emoji, input fields, AI instruction, output destination, and finish behaviour. New types need no code.
 - **AI pre-process** — add a typed task to My Day and a background agent generates its working prompt, a summary, and 2–3 activity suggestions; outputs refresh when relevant inputs change. Progress streams live; transient failures auto-retry with backoff.
-- **Per-type working areas** — a learning task opens a live markdown editor with a task-grounded chat panel; a JIRA/Confluence task opens a source panel, chat, and local comment drafts (no connector yet — nothing is ever posted remotely).
+- **Meeting minutes** — a meeting task pre-processes to a suggested agenda and the core topics worth covering; you write the minutes in the same live markdown editor, and **Finish** has the assistant re-organize and polish them into a plain markdown file in a folder you choose. Anything the assistant might have invented is caught before it is filed: every action item and fact it reports has to be traceable to what you actually wrote, and the recorded action items are appended as a distinct section rather than left to the model.
+- **Output destinations, per type** — each type declares where its finished work goes: a folder you own (with an optional subfolder) or the wiki. Change it in Settings and subsequent finishes follow it; artifacts already saved stay exactly where they are. A destination that resolves outside its root is refused, never silently mis-saved.
+- **Four finish behaviours** — every type declares one: *complete only*, *file as-is*, *polish then file*, or *deposit then curate* (the learning flow: raw material preserved first, then a confined agent authors the note). Dispatch is on what the type declares, not on a hardcoded type name.
+- **Per-type working areas** — a learning or meeting task opens a live markdown editor with a task-grounded chat panel; a JIRA/Confluence task opens a source panel, chat, and local comment drafts.
 - **Finish + wiki ingestion** — **Finish** on a learning task first copies raw material into your wiki's `raw/` (safe even if everything after fails), then a confined agent writes the curated note at the learning-note path following the wiki's own schema; `.history/` snapshots make every ingest reversible.
 - **Task alarms** — set a date-time on any task; an OS notification fires at that moment and opens the task.
-- **Skills & MCP management (config-only)** — Settings lets you record skills and MCP servers now; the agent will use them when the connector wiring lands (next change: `add-mcp-support`).
+- **Skills and tool servers, granted per type** — Settings lets you record skills and MCP servers, and grant specific ones to a type. Confined background work — ingestion, polishing, suggestions — never receives a grant under any configuration. Granting external reach makes a session *less* rich, deliberately: it then sees only the task's declared inputs and your request, never your notes, minutes, drafts or wiki. A remote change is never made from a conversation: the assistant can only *propose* one, and you see exactly what would be sent before confirming it.
+  **Not yet connected:** the transport that would let a granted tool server actually reach its external system is deferred — see [Where it's headed](#where-its-headed) and the FR-018 amendment in `specs/001-extensible-type-workflows/spec.md`.
 - **Activity view** — a ledger of what jobs the agent ran and which files it actually touched; failed ingests can be retried.
 - **AI is optional** — no provider configured? Tasks, notes, lists, search, and alarms still work fully.
 - **Chat is where work needs it** — chat is embedded in typed working areas for grounding, not a central surface; a small debug chat remains to inspect the configured model. Because work is not a conversation.
 
 ## Where it's headed
 
-- **Live connectors** — JIRA/Confluence reading and updating through MCP servers; skills as agent tools; grants per task type.
+- **Live connectors** — the tool-server transport, so a granted server can actually be read from and acted on. The grant seam, the confinement guarantee, the egress boundary and the propose-then-confirm model all ship today and are tested against a scripted tool double; only the connection is missing. The community adapter that was to provide it failed its reproducibility gate — its dependencies pinned preview-registry commit URLs rather than published npm versions — so the adoption was deferred rather than forced in. The evidence is in `specs/001-extensible-type-workflows/research.md` R7a, and FR-018 is amended rather than left claiming unbuilt behaviour.
 - **A plugin-centric surface** — the UI becomes something you assemble around the agent core.
 
 Feature behavior is specified in [`specs/`](specs/) — the spec source of truth, written with the Spec Kit workflow. The governing principles live in [`.specify/memory/constitution.md`](.specify/memory/constitution.md).
@@ -102,6 +106,8 @@ npx tsx --test --test-name-pattern="ingest" test/*.test.ts
 
 The suite runs headless and offline — agent sessions are injectable scripted stand-ins, so no API key is ever needed.
 
+`npm run typecheck` checks **both** TypeScript projects. The root `tsconfig.json` is a solution file (`"files": []` plus project references), and `tsc --noEmit` against a solution file compiles nothing — so the script names each project explicitly. Until it did, the gate silently passed on a codebase with real type errors in it.
+
 ## Packaging
 
 ```bash
@@ -120,9 +126,10 @@ Cross-building (e.g. a Windows installer from Linux) needs wine and is unsupport
 
 ## Repository map
 
-- `src/main` — Electron main process: SQLite store + type registry (`db.ts`, `types.ts`), job machinery (`job-queue.ts` + handlers `preprocess.ts`, `suggestions.ts`, `wiki/ingest.ts`), alarms (`alarms.ts`), plugin validation (`plugins.ts`), wiki scaffolding (`wiki/wiki.ts`, `wiki/vault.ts`), and the two agent-runtime seams (`ai/agent-runtime.ts`, `ai/session-factory.ts`) — all Pi SDK usage stays behind these seams.
-- `src/renderer` — React 18 UI: three-column board (`components/board/`), per-kind working areas + chat panel (`components/focus/`), drawer overlays for Activity/Settings/chat (`components/overlays/`), shared primitives (`components/ui/`).
-- `src/shared` — domain types and the IPC contract shared by all three layers.
+- `src/core` — **domain and application, with no I/O.** Pure rules (categories, destinations, the four finish behaviours, validation, grants) and the use cases that orchestrate them, plus the ports those use cases depend on. It imports no `electron`, no `node:*` and no DOM global, because it is compiled into both the main and the renderer targets; `test/layering.test.ts` enforces that mechanically. See `src/core/README.md`.
+- `src/main` — Electron host and adapters: the composition root (`index.ts`), SQLite store + type registry (`db.ts`, `types.ts`), job machinery (`job-queue.ts` + handlers `preprocess.ts`, `suggestions.ts`, `wiki/ingest.ts`), alarms (`alarms.ts`), plugin validation (`plugins.ts`), wiki scaffolding (`wiki/wiki.ts`, `wiki/vault.ts`), and the adapters that implement `src/core`'s ports — `adapters/sqlite/`, `adapters/artifacts/` (the wiki and plain-folder artifact stores), `adapters/agent/` (the session adapter and the Pi runtime seam), `adapters/notifier.ts`, `adapters/paths.ts`.
+- `src/renderer` — React 18 UI: three-column board (`components/board/`), per-kind working areas + chat panel + remote-change confirmations (`components/focus/`), drawer overlays for Activity/Settings/chat (`components/overlays/`), shared primitives (`components/ui/`).
+- `src/shared` — domain types and the typed IPC contract (commands, events, and every payload keyed by channel) shared by all three layers.
 - `specs/` — the spec source of truth (feature specifications).
 - `.specify/` — Spec Kit configuration: templates, scripts, and the project constitution.
 - The wiki pattern guide — every wiki space the app creates is seeded with an `LLM-WiKi.md` (bundled at `src/main/wiki/LLM-WiKi.md`): finished learning notes become a knowledge base you own.

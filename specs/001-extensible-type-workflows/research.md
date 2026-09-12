@@ -262,6 +262,54 @@ tool double. Only the live external read/write (FR-021, FR-022) needs the adapte
 be amended rather than silently left claiming it. This is recorded now so the gap is a
 decision rather than a discovery.
 
+### R7a — outcome (2026-09-12): the fallback IS invoked
+
+**Decision: the tool-server half of FR-018 is deferred. The grant seam ships alone.**
+
+The gates were evaluated against the published metadata of `pi-mcp-adapter@2.33.0` and
+**T061 fails on its own stated criterion**.
+
+| Gate | Result | Evidence |
+|---|---|---|
+| T061 — dependency reproducibility | **FAIL** | The package's own dependencies pin `@modelcontextprotocol/client` and `@modelcontextprotocol/core` to `https://pkg.pr.new/@modelcontextprotocol/…@3b205e7dd2f997b6a87e479e36421f7eaa2058e0` — **preview commit builds**, not published npm versions. R7 named this exact shape as disqualifying ("If this cannot be made reproducible, do not proceed"). |
+| T062 — native modules on both platforms | **CANNOT VERIFY** | `@napi-rs/keyring` and `fs-native-extensions` are both native and present. Only Linux (WSL2) was available; the Windows half of the gate is unexercised. Per quickstart S9 an unrun platform is a recorded limitation, not an assumption — and a gate that cannot be run has not passed. |
+| T063 — terminal-UI peer | **UNVERIFIED** | `@earendil-works/pi-tui@0.85.1` is published and would be auto-installed as a peer dependency. Whether it can be satisfied without shipping a terminal renderer into the GUI app was not established. |
+| T064 — credential containment | **UNVERIFIED** | The adapter's OAuth path uses the OS credential store via `@napi-rs/keyring`. Containment could not be proven without installing the package; the presence of a keyring dependency means credential material would exist in-process and would need explicit demonstration. |
+
+**Why the reachability result does not rescue T061.** The preview URLs *are* currently
+reachable (HTTP 200, verified). That is not the question the gate asks. `pkg.pr.new`
+artifacts are per-commit preview builds tied to a pull request: they are garbage-collected,
+they are outside npm's provenance and integrity pipeline, and they are not what a lockfile
+is supposed to pin. The same packages have ordinary published releases (`2.0.0`), which
+makes the preview pin a choice rather than a necessity — and a choice that would put an
+ephemeral third-party artifact into this project's dependency graph, whose `.npmrc` is
+deliberately pointed at a mirror.
+
+**What ships instead.** Everything in P4 except the transport, all of it independently
+testable against a scripted tool double:
+
+- Per-type grants declared on the type and resolved at the session-build seam (`resolveGrant`).
+- Confined sessions receive `NO_GRANT` by construction (FR-020, SC-006) — proven in
+  `test/grants.test.ts` across every confined purpose, including a deliberately
+  misconfigured type.
+- The egress boundary (FR-029, SC-010) enforced at context construction, proven in the
+  same file and wired into the chat path.
+- The propose/confirm split (FR-022, FR-023, SC-005): the mutator is structurally absent
+  from the model's tool surface, and a failure is never reported as success (FR-024).
+- Native skill loading through the SDK's `loadSkillsFromDir`, gated by the resolved grant.
+- The full grants UI, distinguishing a skill from a tool server and stating the consequence.
+
+**What is deferred.** Live external reads (FR-021) and live remote writes (FR-022's
+transport) — the parts that need a real connection. They are deferred with the gate
+evidence above, not abandoned: the seam, the confinement guarantee, and the confirmation
+model are exactly the pieces the transport will plug into.
+
+**Consequence, executed**: FR-018 is amended in `spec.md` to state plainly that the
+tool-server half is not built in this version, and the spec's status notes it. The plan's
+Complexity Tracking carries the same outcome. `test/mcpAdapter.test.ts` is added as a
+regression guard for the isolation property that must hold *when* the adapter lands: no
+global MCP config path is read or written, and nothing reaches `~/.pi`.
+
 ---
 
 ## R8. Remote changes are structurally un-makeable without confirmation

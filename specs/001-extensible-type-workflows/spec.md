@@ -4,7 +4,19 @@
 
 **Created**: 2026-09-11
 
-**Status**: Draft
+**Status**: Partially implemented — see the implementation note below.
+
+> **Implementation note (2026-09-12).** Delivered: the Meeting type end to end
+> (pre-process to agenda and core topics, markdown minutes, polish-then-file into a
+> configured folder); per-type output destinations, user-editable and confined; the four
+> declared finish behaviours replacing the category branch, with the Learning flow
+> re-expressed as `deposit-then-curate` and behaving identically; user-defined types
+> declaring their own prompt, destination and behaviour; and the grant machinery —
+> per-type grants, confinement by construction, the egress boundary, and
+> propose-then-confirm. **Deferred**: the tool-server *transport* (FR-018, amended
+> above) — the grant seam and every rule around it ship and are tested against a
+> scripted tool double, but a granted tool server does not yet reach its external
+> system. `research.md` R7a records the gate evidence for that decision.
 
 **Input**: User description: "A daily task management application similar to MS To Do but with AI features. 'To Do' and 'My Day' lists, a 3-column UI (categories | task list | working area split into AI pre-processing on top and human working area below). A **Type** mechanism: every task carries a type, and the type defines the AI pre-processing and the human working area. Learning type (AI analyses material and suggests; human records notes saved into a configured LLM-wiki space). Meeting type (AI suggests agenda and core topics; human records minutes which are re-organized, polished, and saved to the configured meeting-minutes system). JIRA type (AI summarises status and suggests next steps; human can change status, leave comments, chat with AI). Support Skill, MCP and other AI agent tools easily so users can extend capabilities themselves. Users can customise types for their own requirements. An MVP implementation already exists, so the constitution and current implementation were analysed for proceeding."
 
@@ -139,7 +151,20 @@ A user has registered skills and external tool servers in Settings. They grant a
 
 **Skills, connectors, and agent tooling**
 
-- **FR-018**: Skills and external tool servers registered in Settings MUST become usable as tools by assistant sessions, rather than only being stored and displayed.
+- **FR-018** *(amended — see the note below)*: Skills registered in Settings MUST become usable as tools by assistant sessions, rather than only being stored and displayed. External **tool servers** MUST be grantable, and every confinement, egress and confirmation rule that governs their use (FR-019 to FR-024, FR-029) MUST hold; the **transport** that connects a granted tool server to an assistant session is deferred to a follow-up specification, so a granted tool server does not yet reach its external system.
+
+  > **Amendment, 2026-09-12.** The transport was to be adopted from the community package
+  > `pi-mcp-adapter`, pinned to an exact version, subject to verification gates
+  > (`research.md` R7). Gate T061 failed on its own stated criterion: the package's
+  > dependencies pin `@modelcontextprotocol/client` and `@modelcontextprotocol/core` to
+  > `pkg.pr.new` **preview commit URLs** rather than published npm versions — ephemeral,
+  > outside npm's provenance pipeline, and for packages that do have ordinary releases.
+  > The gates for both-platform native builds (T062), the terminal-UI peer (T063) and
+  > credential containment (T064) could not be completed either. `research.md` R7a records
+  > the full evidence and the decision. The grant seam, the confinement guarantee (SC-006),
+  > the egress boundary (SC-010) and the propose-then-confirm model (SC-005) all ship and
+  > are tested against a scripted tool double; only the live external connection is deferred.
+  > This requirement is amended rather than left claiming behaviour that is not built.
 - **FR-019**: Tool availability MUST be granted per task type, so a type receives only the entries granted to it.
 - **FR-020**: Confined background operations — material ingestion, minute polishing, and suggestion generation — MUST NOT receive externally granted tools under any configuration.
 - **FR-021**: For a type granted a tool server, the assistant MUST be able to read current information about the referenced external item rather than relying solely on content pasted into the task.

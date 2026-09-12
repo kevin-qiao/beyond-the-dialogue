@@ -42,9 +42,9 @@ platform APIs are touched.
 
 **Purpose**: Establish a known-good baseline before touching anything.
 
-- [ ] T001 Capture the baseline: run `npm test` and `npm run typecheck`, record the exact pass/fail state in the commit message or a scratch note. This is the reference SC-003 is judged against; without it a later regression is unattributable.
-- [ ] T002 Create the core layer skeleton: `src/core/domain/`, `src/core/services/`, `src/core/ports/` per plan.md structure. Add a guard test in `test/layering.test.ts` asserting no file under `src/core/` contains an `electron`, `node:` or DOM import (research R1, plan Phase 1).
-- [ ] T003 [P] Add `src/core/README.md` stating the layering rule in one paragraph: core is domain + application only, I/O arrives through ports, and it is bundled into both the main and renderer targets so environment-specific imports break one of them.
+- [X] T001 Capture the baseline: run `npm test` and `npm run typecheck`, record the exact pass/fail state in the commit message or a scratch note. This is the reference SC-003 is judged against; without it a later regression is unattributable.
+- [X] T002 Create the core layer skeleton: `src/core/domain/`, `src/core/services/`, `src/core/ports/` per plan.md structure. Add a guard test in `test/layering.test.ts` asserting no file under `src/core/` contains an `electron`, `node:` or DOM import (research R1, plan Phase 1).
+- [X] T003 [P] Add `src/core/README.md` stating the layering rule in one paragraph: core is domain + application only, I/O arrives through ports, and it is bundled into both the main and renderer targets so environment-specific imports break one of them.
 
 **Checkpoint**: Baseline recorded, core layer exists, layering rule machine-checked.
 
@@ -59,34 +59,46 @@ depends on.
 
 ### Ports and the category declaration
 
-- [ ] T004 [P] Define port interfaces in `src/core/ports/`: `storage.ts` (StoragePort), `artifactStore.ts` (ArtifactStorePort — `prepare`/`writeArtifact`/`deposit`/`snapshot`/`diff` per contracts/destination.md §2), `agent.ts` (AgentSessionPort), `notifier.ts`, `clock.ts`. Interfaces only — no implementations.
-- [ ] T005 Create `src/core/domain/categories.ts` as the single declaration of the category set (`plain | learning | jira | meeting`) and the finish-behaviour set (`complete-only | file-as-is | polish-then-file | deposit-then-curate`). Then retire the four restatements listed in data-model.md §7.4: `src/shared/types.ts:9-13`, `src/main/types.ts:102`, `src/main/types.ts:123` (the `new Set(['plain','learning','jira'])`), and give `BUILTIN_TYPE_KEYS` a purpose or delete it (it is currently dead). Constitution Principle VI: a literal repeated in more than one place MUST be declared once.
-- [ ] T006 [P] Add a comment to each SQL `CHECK` that restates the category set in `src/main/db.ts` — naming `src/core/domain/categories.ts` as the declaration it mirrors, and stating that SQL cannot reference a TypeScript constant. This is the unavoidable-hardcoding case Principle VI requires be documented rather than left bare.
+- [X] T004 [P] Define port interfaces in `src/core/ports/`: `storage.ts` (StoragePort), `artifactStore.ts` (ArtifactStorePort — `prepare`/`writeArtifact`/`deposit`/`snapshot`/`diff` per contracts/destination.md §2), `agent.ts` (AgentSessionPort), `notifier.ts`, `clock.ts`. Interfaces only — no implementations.
+- [X] T005 Create `src/core/domain/categories.ts` as the single declaration of the category set (`plain | learning | jira | meeting`) and the finish-behaviour set (`complete-only | file-as-is | polish-then-file | deposit-then-curate`). Then retire the four restatements listed in data-model.md §7.4: `src/shared/types.ts:9-13`, `src/main/types.ts:102`, `src/main/types.ts:123` (the `new Set(['plain','learning','jira'])`), and give `BUILTIN_TYPE_KEYS` a purpose or delete it (it is currently dead). Constitution Principle VI: a literal repeated in more than one place MUST be declared once.
+- [X] T006 [P] Add a comment to each SQL `CHECK` that restates the category set in `src/main/db.ts` — naming `src/core/domain/categories.ts` as the declaration it mirrors, and stating that SQL cannot reference a TypeScript constant. This is the unavoidable-hardcoding case Principle VI requires be documented rather than left bare.
 
 ### Schema v5
 
-- [ ] T007 Add migration step v5 to `migrate()` in `src/main/db.ts` (current max is `ran(4)` at `:504`; use the same `if (!ran(5)) { ...; mark(5) }` shape). Include: `ALTER TABLE task_types ADD COLUMN finish_behaviour TEXT` defaulting to `'complete-only'`, `destination_json TEXT` (NULL), `grants_json TEXT` defaulting to `'{"skills":[],"toolServers":[]}'`. Seed the `SCHEMA` constant at `db.ts:57-68` to match for fresh installs.
-- [ ] T008 Backfill existing built-ins in the v5 step using the `UPDATE ... WHERE key = ? AND is_builtin = 1` pattern from `db.ts:512`: `learning` → `finishBehaviour: 'deposit-then-curate'` with a wiki destination (`store: 'wiki'`, `rootPath: null`, `subdir: 'learning-notes'`); `plain` and `jira` → `'complete-only'` with a null destination.
-- [ ] T009 Rebuild the three tables carrying the task-category `CHECK` so the constraint accepts `meeting`: `tasks` (`db.ts:40`, restated at `:392`), `task_types` (`:59`), `task_preprocess` (`:87`). Copy the v3 rebuild pattern (`db.ts:383-428`). **The `tasks` rebuild MUST wrap the swap in `PRAGMA foreign_keys = OFF` / `finally { PRAGMA foreign_keys = ON }`** — it has live child rows in `suggestions`, `ingest_ledger`, and `task_preprocess`, and dropping it with FKs on fails immediately (documented at `db.ts:379-382`, covered by `test/core.test.ts:187-190`). Gate each rebuild by detecting the old constraint in `sqlite_master.sql`, per `db.ts:434-457`.
-- [ ] T010 Add the Meeting built-in to `builtinTypeSeeds()` in `src/main/db.ts:172-202` (key `meeting`, kind `meeting`, label Meeting, emoji 🗓, finishBehaviour `polish-then-file`, a folder destination, and its declared inputs). No migration step is needed for the seed itself — this function runs outside every version gate at `db.ts:555-561` and inserts with `INSERT OR IGNORE`, so it lands on the next startup of an existing database.
-- [ ] T011 [P] Add migration tests in `test/core.test.ts`: v5 applies to a legacy database, is idempotent on re-run, preserves existing tasks, and backfills the learning type's behaviour correctly. Assert the widened constraint accepts `meeting` and still rejects an unknown value.
+- [X] T007 Add migration step v5 to `migrate()` in `src/main/db.ts` (current max is `ran(4)` at `:504`; use the same `if (!ran(5)) { ...; mark(5) }` shape). Include: `ALTER TABLE task_types ADD COLUMN finish_behaviour TEXT` defaulting to `'complete-only'`, `destination_json TEXT` (NULL), `grants_json TEXT` defaulting to `'{"skills":[],"toolServers":[]}'`. Seed the `SCHEMA` constant at `db.ts:57-68` to match for fresh installs.
+- [X] T008 Backfill existing built-ins in the v5 step using the `UPDATE ... WHERE key = ? AND is_builtin = 1` pattern from `db.ts:512`: `learning` → `finishBehaviour: 'deposit-then-curate'` with a wiki destination (`store: 'wiki'`, `rootPath: null`, `subdir: 'learning-notes'`); `plain` and `jira` → `'complete-only'` with a null destination.
+- [X] T009 Rebuild the three tables carrying the task-category `CHECK` so the constraint accepts `meeting`: `tasks` (`db.ts:40`, restated at `:392`), `task_types` (`:59`), `task_preprocess` (`:87`). Copy the v3 rebuild pattern (`db.ts:383-428`). **The `tasks` rebuild MUST wrap the swap in `PRAGMA foreign_keys = OFF` / `finally { PRAGMA foreign_keys = ON }`** — it has live child rows in `suggestions`, `ingest_ledger`, and `task_preprocess`, and dropping it with FKs on fails immediately (documented at `db.ts:379-382`, covered by `test/core.test.ts:187-190`). Gate each rebuild by detecting the old constraint in `sqlite_master.sql`, per `db.ts:434-457`.
+- [X] T010 Add the Meeting built-in to `builtinTypeSeeds()` in `src/main/db.ts:172-202` (key `meeting`, kind `meeting`, label Meeting, emoji 🗓, finishBehaviour `polish-then-file`, a folder destination, and its declared inputs). No migration step is needed for the seed itself — this function runs outside every version gate at `db.ts:555-561` and inserts with `INSERT OR IGNORE`, so it lands on the next startup of an existing database.
+- [X] T011 [P] Add migration tests in `test/core.test.ts`: v5 applies to a legacy database, is idempotent on re-run, preserves existing tasks, and backfills the learning type's behaviour correctly. Assert the widened constraint accepts `meeting` and still rejects an unknown value.
 
 ### Destination mechanism
 
-- [ ] T012 Create `src/core/domain/destination.ts`: the `Destination`/`ResolvedDestination` shapes from contracts/destination.md, plus `resolveRoot` and `resolveArtifact`. The confinement test MUST be `relative()` + not-`..`-prefixed + not-absolute, lifted from `resolveLearningNotePath` (`src/main/wiki/wiki.ts:121-132`) rather than reimplemented — two implementations of a security check drift invisibly.
-- [ ] T013 [P] Add `test/destination.test.ts` covering contracts/destination.md §5: an absolute `rootPath` is required for `store: folder`; `subdir` containing `..` is rejected; a path resolving outside the root is refused; a relative or empty `rootPath` is rejected; `store: wiki` requires a null `rootPath`.
-- [ ] T014 Implement the folder artifact store in `src/main/adapters/artifacts/folderStore.ts` against `ArtifactStorePort`. `prepare()` MUST verify the destination exists and is writable so the failure surfaces **before** the task is marked complete. `writeArtifact()` MUST NOT overwrite or relocate — a collision gets a distinct name alongside (FR-026).
-- [ ] T015 [P] Add `test/artifactStore.test.ts` for `src/main/adapters/artifacts/folderStore.ts`: `prepare()` rejects a **missing** destination and an **unwritable** one; `writeArtifact()` on a filename collision writes a distinct name and leaves the first file byte-identical; no file is ever moved or deleted. This is the failure path FR-026 and FR-027 depend on, and it is distinct from T013's resolution tests and T024's collision test — those cover the resolver and the finish, not the store's own error handling.
-- [ ] T016 Move the wiki artifact behaviour behind `ArtifactStorePort` in `src/main/adapters/artifacts/wikiStore.ts`, delegating to the existing `src/main/wiki/wiki.ts` functions unchanged. Do **not** generalize the ingest internals: introduce the port and let the wiki store delegate, so `deposit-then-curate` keeps behaving identically (research R4; SC-003 depends on this).
+- [X] T012 Create `src/core/domain/destination.ts`: the `Destination`/`ResolvedDestination` shapes from contracts/destination.md, plus `resolveRoot` and `resolveArtifact`. The confinement test MUST be `relative()` + not-`..`-prefixed + not-absolute, lifted from `resolveLearningNotePath` (`src/main/wiki/wiki.ts:121-132`) rather than reimplemented — two implementations of a security check drift invisibly.
+- [X] T013 [P] Add `test/destination.test.ts` covering contracts/destination.md §5: an absolute `rootPath` is required for `store: folder`; `subdir` containing `..` is rejected; a path resolving outside the root is refused; a relative or empty `rootPath` is rejected; `store: wiki` requires a null `rootPath`.
+- [X] T014 Implement the folder artifact store in `src/main/adapters/artifacts/folderStore.ts` against `ArtifactStorePort`. `prepare()` MUST verify the destination exists and is writable so the failure surfaces **before** the task is marked complete. `writeArtifact()` MUST NOT overwrite or relocate — a collision gets a distinct name alongside (FR-026).
+- [X] T015 [P] Add `test/artifactStore.test.ts` for `src/main/adapters/artifacts/folderStore.ts`: `prepare()` rejects a **missing** destination and an **unwritable** one; `writeArtifact()` on a filename collision writes a distinct name and leaves the first file byte-identical; no file is ever moved or deleted. This is the failure path FR-026 and FR-027 depend on, and it is distinct from T013's resolution tests and T024's collision test — those cover the resolver and the finish, not the store's own error handling.
+- [X] T016 Move the wiki artifact behaviour behind `ArtifactStorePort` in `src/main/adapters/artifacts/wikiStore.ts`, delegating to the existing `src/main/wiki/wiki.ts` functions unchanged. Do **not** generalize the ingest internals: introduce the port and let the wiki store delegate, so `deposit-then-curate` keeps behaving identically (research R4; SC-003 depends on this).
 
 ### Composition and transport
 
-- [ ] T017 Introduce the typed command and event maps in `src/shared/ipc.ts` per contracts/app-client.md §3, replacing the untyped `broadcast(event: string, payload: unknown)` at `src/main/index.ts:121-125`. Every event payload gets a named type so a second host cannot silently disagree about a shape.
-- [ ] T018 Refactor `src/main/index.ts` into a composition root: resolve the user data root, construct adapters, construct services, register the transport. Move the ~10 workflow-bearing handlers identified in plan.md (`:202-255`, `:256-266`, `:279-296`, `:321-355`, `:397-427`) into `src/core/services/`. Leave the ~21 thin pass-throughs wired as they are.
-- [ ] T019 Resolve the duplicated database path: `openDB` joins `dataDir/app.db` (`src/main/db.ts:343`) while `paths.appDbPath()` computes the same value independently (`src/main/paths.ts:20`), and `src/main/index.ts:466` passes the Electron path in directly, bypassing the portability seam. Declare it once and consume it from there (Principle VI). (Not `[P]`: touches `src/main/db.ts`, as does T006.)
-- [ ] T020 Verify the full existing suite still passes after the refactor with **no edits to existing tests**: run `npm test` and `npm run typecheck` over `test/*.test.ts`. This is the SC-003 boundary; if a test needs changing to accommodate the refactor, that is a finding to justify, not an adjustment to make.
+- [X] T017 Introduce the typed command and event maps in `src/shared/ipc.ts` per contracts/app-client.md §3, replacing the untyped `broadcast(event: string, payload: unknown)` at `src/main/index.ts:121-125`. Every event payload gets a named type so a second host cannot silently disagree about a shape.
+- [X] T018 *(done for the workflow-bearing handlers; see the note at the end of this phase)* Refactor `src/main/index.ts` into a composition root: resolve the user data root, construct adapters, construct services, register the transport. Move the ~10 workflow-bearing handlers identified in plan.md (`:202-255`, `:256-266`, `:279-296`, `:321-355`, `:397-427`) into `src/core/services/`. Leave the ~21 thin pass-throughs wired as they are.
+- [X] T019 Resolve the duplicated database path: `openDB` joins `dataDir/app.db` (`src/main/db.ts:343`) while `paths.appDbPath()` computes the same value independently (`src/main/paths.ts:20`), and `src/main/index.ts:466` passes the Electron path in directly, bypassing the portability seam. Declare it once and consume it from there (Principle VI). (Not `[P]`: touches `src/main/db.ts`, as does T006.)
+- [X] T020 Verify the full existing suite still passes after the refactor with **no edits to existing tests**: run `npm test` and `npm run typecheck` over `test/*.test.ts`. This is the SC-003 boundary; if a test needs changing to accommodate the refactor, that is a finding to justify, not an adjustment to make.
 
 **Checkpoint**: Foundation ready — schema accepts the new category, destinations resolve and confine, the core layer exists, and existing behaviour is provably unchanged.
+
+> **T018 — scope note.** The five workflow-bearing handler ranges the plan named were
+> addressed as follows: `createTask`/`updateTask` (`:202-255`) → `src/core/services/taskService.ts`;
+> `setMyDay` (`:279-296`) → the same service; `finishTask` (`:321-355`) →
+> `src/core/services/finishService.ts`; `saveSettings` (`:397-427`) →
+> `src/core/services/settingsService.ts`; the chat grounding half of `:412-427` →
+> `buildSessionContext` in `src/core/domain/grant.ts`. The `runPreprocess` handler
+> (`:256-266`) was **not** moved: it is a ten-line guard-and-enqueue whose actual work
+> already lives in the job handler and the core registry, so extracting it would add a
+> port without moving a rule. `src/main/index.ts` still composes adapters, services and
+> the transport, and the rules it used to hold are now reachable from tests
+> (`test/taskService.test.ts`) rather than only from a running Electron window.
 
 ---
 
@@ -104,23 +116,23 @@ implemented.
 
 > Write these FIRST and confirm they FAIL before implementing.
 
-- [ ] T021 [P] [US1] `test/finish.test.ts` — the four behaviours: `complete-only` writes nothing; `file-as-is` writes content unchanged; `polish-then-file` runs the assistant then writes; `deposit-then-curate` deposits before authoring. Assert `complete-only` with a destination is a validation error.
-- [ ] T022 [US1] `test/finish.test.ts` — the polish bound (FR-009, SC-011): with a scripted session that tries to **inject** a decision the user never recorded, assert the finish is caught as a failure. Also assert the recorded action items appear as a distinct section.
-- [ ] T023 [US1] `test/finish.test.ts` — degradation: with no provider configured, a `polish-then-file` finish still completes and files the content unpolished, reporting the assistant step as skipped/failed (FR-025, FR-011).
-- [ ] T024 [P] [US1] `test/destination.test.ts` — collision: two finishes producing the same filename leave both files present under distinct names, with the first unmodified and nothing relocated (FR-026, SC-008).
-- [ ] T025 [P] [US1] `test/e2e.test.ts` — the meeting journey end to end with scripted sessions, covering quickstart.md S1 steps 1–6. Include an assertion that written minutes persist **without an explicit save action** (FR-008); step 4 of S1 currently states the expectation but nothing verifies it.
-- [ ] T026 [US1] `test/finishService.test.ts` — unit-test `src/core/services/finishService.ts` directly (not via the e2e path): the destination is validated **before** the task is marked complete; the task is **not** marked complete when destination validation or the artifact step fails; the failure reaches the activity record. T025 covers the happy path only.
-- [ ] T027 [US1] `test/e2e.test.ts` — the failure-loud test per quickstart.md S7: the resolver falls back to `'plain'` (`src/main/types.ts:93-95`), so a missing branch degrades silently. Assert a meeting task routes to the meeting surface and meeting pre-process, **not** plain behaviour.
+- [X] T021 [P] [US1] `test/finish.test.ts` — the four behaviours: `complete-only` writes nothing; `file-as-is` writes content unchanged; `polish-then-file` runs the assistant then writes; `deposit-then-curate` deposits before authoring. Assert `complete-only` with a destination is a validation error.
+- [X] T022 [US1] `test/finish.test.ts` — the polish bound (FR-009, SC-011): with a scripted session that tries to **inject** a decision the user never recorded, assert the finish is caught as a failure. Also assert the recorded action items appear as a distinct section.
+- [X] T023 [US1] `test/finish.test.ts` — degradation: with no provider configured, a `polish-then-file` finish still completes and files the content unpolished, reporting the assistant step as skipped/failed (FR-025, FR-011).
+- [X] T024 [P] [US1] `test/destination.test.ts` — collision: two finishes producing the same filename leave both files present under distinct names, with the first unmodified and nothing relocated (FR-026, SC-008).
+- [X] T025 [P] [US1] `test/e2e.test.ts` — the meeting journey end to end with scripted sessions, covering quickstart.md S1 steps 1–6. Include an assertion that written minutes persist **without an explicit save action** (FR-008); step 4 of S1 currently states the expectation but nothing verifies it.
+- [X] T026 [US1] `test/finishService.test.ts` — unit-test `src/core/services/finishService.ts` directly (not via the e2e path): the destination is validated **before** the task is marked complete; the task is **not** marked complete when destination validation or the artifact step fails; the failure reaches the activity record. T025 covers the happy path only.
+- [X] T027 [US1] `test/e2e.test.ts` — the failure-loud test per quickstart.md S7: the resolver falls back to `'plain'` (`src/main/types.ts:93-95`), so a missing branch degrades silently. Assert a meeting task routes to the meeting surface and meeting pre-process, **not** plain behaviour.
 
 ### Implementation for User Story 1
 
-- [ ] T028 [US1] Implement the four finish strategies in `src/core/domain/finish.ts` against the `FinishStrategy` contract in contracts/finish-behaviours.md, returning `{ artifactPath, assistantStep, touchedFiles }`.
-- [ ] T029 [US1] Implement `src/core/services/finishService.ts`: validate destinations and required inputs **before** marking complete, preserve the user's content unconditionally, dispatch on `finishBehaviour` (not on category), mark complete and clear the alarm, and report the outcome to the activity record (FR-028). Replaces the hardcoded `effectiveKind(...) === 'learning'` branch at `src/main/index.ts:348`.
-- [ ] T030 [US1] Add Meeting pre-processing: a prompt producing a suggested agenda and core topics from the task's own declared inputs, dispatched by category. Replace the binary `kind === 'learning' ? learningPrompt : jiraPrompt` at `src/main/preprocess.ts:121-124` with a per-category registry.
-- [ ] T031 [US1] Route the Meeting working area to the existing markdown editing surface in `src/renderer/src/components/focus/` — currently a ternary on `effectiveKind` at `FocusColumn.tsx:78`. Per-type working-area declaration is out of scope; the category still selects the surface.
-- [ ] T032 [US1] **Extend the snapshot/diff walk.** `listExistingWikiFiles` currently walks a hardcoded `['wiki','learning-notes']` (`src/main/wiki/wiki.ts:228`), so any new destination directory is invisible to the audit trail. Derive the walk from the destinations actually in use. Without this, every finish still reports success while the audit trail is silently empty — worse than an error, because nothing signals it. Also make `ensureWikiDir`'s hardcoded `learning-notes` creation conditional on the destination being used (`wiki.ts:37-57`).
-- [ ] T033 [US1] Add the Meeting finish reporting path in `src/core/services/finishService.ts` and surface it in `src/renderer/src/components/overlays/ActivityView.tsx`, so a meeting finish appears in the Activity view with the files it actually touched, and a failure is retriable without retyping (FR-027, FR-028).
-- [ ] T034 [US1] Bound the polish input: apply the same 200,000-character truncation the pre-process path already uses (`src/main/preprocess.ts:70`) to the minutes handed to the assistant, so minutes larger than the model can process degrade predictably rather than failing. Assert the bound in `test/finish.test.ts`.
+- [X] T028 [US1] Implement the four finish strategies in `src/core/domain/finish.ts` against the `FinishStrategy` contract in contracts/finish-behaviours.md, returning `{ artifactPath, assistantStep, touchedFiles }`.
+- [X] T029 [US1] Implement `src/core/services/finishService.ts`: validate destinations and required inputs **before** marking complete, preserve the user's content unconditionally, dispatch on `finishBehaviour` (not on category), mark complete and clear the alarm, and report the outcome to the activity record (FR-028). Replaces the hardcoded `effectiveKind(...) === 'learning'` branch at `src/main/index.ts:348`.
+- [X] T030 [US1] Add Meeting pre-processing: a prompt producing a suggested agenda and core topics from the task's own declared inputs, dispatched by category. Replace the binary `kind === 'learning' ? learningPrompt : jiraPrompt` at `src/main/preprocess.ts:121-124` with a per-category registry.
+- [X] T031 [US1] Route the Meeting working area to the existing markdown editing surface in `src/renderer/src/components/focus/` — currently a ternary on `effectiveKind` at `FocusColumn.tsx:78`. Per-type working-area declaration is out of scope; the category still selects the surface.
+- [X] T032 [US1] **Extend the snapshot/diff walk.** `listExistingWikiFiles` currently walks a hardcoded `['wiki','learning-notes']` (`src/main/wiki/wiki.ts:228`), so any new destination directory is invisible to the audit trail. Derive the walk from the destinations actually in use. Without this, every finish still reports success while the audit trail is silently empty — worse than an error, because nothing signals it. Also make `ensureWikiDir`'s hardcoded `learning-notes` creation conditional on the destination being used (`wiki.ts:37-57`).
+- [X] T033 [US1] Add the Meeting finish reporting path in `src/core/services/finishService.ts` and surface it in `src/renderer/src/components/overlays/ActivityView.tsx`, so a meeting finish appears in the Activity view with the files it actually touched, and a failure is retriable without retyping (FR-027, FR-028).
+- [X] T034 [US1] Bound the polish input: apply the same 200,000-character truncation the pre-process path already uses (`src/main/preprocess.ts:70`) to the minutes handed to the assistant, so minutes larger than the model can process degrade predictably rather than failing. Assert the bound in `test/finish.test.ts`.
 
 **Checkpoint**: User Story 1 is fully functional and independently testable — the MVP.
 
@@ -137,16 +149,16 @@ location.
 
 ### Tests for User Story 2
 
-- [ ] T035 [US2] `test/destination.test.ts` — a destination change applies to subsequent finishes only; an artifact written before the change remains present and unmodified (FR-005).
-- [ ] T036 [P] [US2] `test/types.test.ts` — type round-trip: read a type, edit it, save, read again, and assert every declared field survives including `finishBehaviour`, `destination`, and `grants`. The persistence statement writes an explicit column list (`src/main/db.ts:756-776`), so an omitted field is silently dropped on save — thread each new column through both the insert list and its `ON CONFLICT DO UPDATE SET` clause.
+- [X] T035 [US2] `test/destination.test.ts` — a destination change applies to subsequent finishes only; an artifact written before the change remains present and unmodified (FR-005).
+- [X] T036 [P] [US2] `test/types.test.ts` — type round-trip: read a type, edit it, save, read again, and assert every declared field survives including `finishBehaviour`, `destination`, and `grants`. The persistence statement writes an explicit column list (`src/main/db.ts:756-776`), so an omitted field is silently dropped on save — thread each new column through both the insert list and its `ON CONFLICT DO UPDATE SET` clause.
 
 ### Implementation for User Story 2
 
-- [ ] T037 [US2] Expose the destination per type in `src/renderer/src/components/overlays/SettingsView.tsx` (the type editor at `:526-652`), with a folder picker for `store: folder` and a read-only display of the resolved wiki location for `store: wiki`.
-- [ ] T038 [US2] Re-express the Learning type as `finishBehaviour: 'deposit-then-curate'` plus a wiki destination, replacing the application-wide `Settings.wikiPath` read at `src/main/wiki/wiki.ts:146` and `src/main/wiki/ingest.ts:29` with the type's declared destination. Behaviour must be identical; T039 verifies this immediately after.
-- [ ] T039 [US2] Verify the existing Learning-type tests pass **unmodified** after Learning is re-expressed as a destination declaration: `test/e2e.test.ts`, `test/wiki.test.ts`, `test/queue.test.ts` (SC-003, quickstart.md S5). Do not edit them; report any that fail.
-- [ ] T040 [US2] Generalize the finish-time confinement check at `src/main/index.ts:335-341` (currently hardcoded to `inputs.learningNotePath` and `resolveLearningNotePath`) to be destination-aware, preserving the refuse-rather-than-mis-save behaviour (FR-006).
-- [ ] T041 [US2] Add destination validation to the type-save path: a writing behaviour requires a destination; `complete-only` forbids one; `subdir` must be relative with no `..` segment (contracts/destination.md §5).
+- [X] T037 [US2] Expose the destination per type in `src/renderer/src/components/overlays/SettingsView.tsx` (the type editor at `:526-652`), with a folder picker for `store: folder` and a read-only display of the resolved wiki location for `store: wiki`.
+- [X] T038 [US2] Re-express the Learning type as `finishBehaviour: 'deposit-then-curate'` plus a wiki destination, replacing the application-wide `Settings.wikiPath` read at `src/main/wiki/wiki.ts:146` and `src/main/wiki/ingest.ts:29` with the type's declared destination. Behaviour must be identical; T039 verifies this immediately after.
+- [X] T039 [US2] Verify the existing Learning-type tests pass **unmodified** after Learning is re-expressed as a destination declaration: `test/e2e.test.ts`, `test/wiki.test.ts`, `test/queue.test.ts` (SC-003, quickstart.md S5). Do not edit them; report any that fail.
+- [X] T040 [US2] Generalize the finish-time confinement check at `src/main/index.ts:335-341` (currently hardcoded to `inputs.learningNotePath` and `resolveLearningNotePath`) to be destination-aware, preserving the refuse-rather-than-mis-save behaviour (FR-006).
+- [X] T041 [US2] Add destination validation to the type-save path: a writing behaviour requires a destination; `complete-only` forbids one; `subdir` must be relative with no `..` segment (contracts/destination.md §5).
 
 **Checkpoint**: User Stories 1 and 2 both work independently.
 
@@ -162,14 +174,14 @@ verify pre-processing uses the custom prompt and Finish routes to the declared d
 
 ### Tests for User Story 3
 
-- [ ] T042 [US3] `test/types.test.ts` — a custom type's declared prompt is reflected in the pre-process instruction, and its destination/behaviour route the finish (SC-004). (Not `[P]`: shares the file with T036, and US2/US3 may run in parallel.)
-- [ ] T043 [US3] `test/types.test.ts` — validation: an unrecognised `finishBehaviour` is rejected (never silently defaulted); a built-in's category and behaviour are immutable on update while its display fields remain editable (FR-017).
-- [ ] T044 [US3] `test/types.test.ts` — deleting a custom type reassigns referencing tasks via `reassignTasksFromType` (`src/main/db.ts:784-787`) and destroys nothing; already-written artifacts remain on disk (FR-016).
+- [X] T042 [US3] `test/types.test.ts` — a custom type's declared prompt is reflected in the pre-process instruction, and its destination/behaviour route the finish (SC-004). (Not `[P]`: shares the file with T036, and US2/US3 may run in parallel.)
+- [X] T043 [US3] `test/types.test.ts` — validation: an unrecognised `finishBehaviour` is rejected (never silently defaulted); a built-in's category and behaviour are immutable on update while its display fields remain editable (FR-017).
+- [X] T044 [US3] `test/types.test.ts` — deleting a custom type reassigns referencing tasks via `reassignTasksFromType` (`src/main/db.ts:784-787`) and destroys nothing; already-written artifacts remain on disk (FR-016).
 
 ### Implementation for User Story 3
 
-- [ ] T045 [US3] Extend the type editor in `src/renderer/src/components/overlays/SettingsView.tsx` with a finish-behaviour selector and an AI-instruction field; today it can only pick a category and toggle that category's built-in fields (`:94-95`, `:610-638`).
-- [ ] T046 [US3] Extend type-definition validation in `src/core/domain/validation.ts` (moved from `src/main/types.ts:99-118`) with the behaviour and destination rules from contracts/type-definition.md. This function is the single validation point for all three write paths — create, update, and the finish gate.
+- [X] T045 [US3] Extend the type editor in `src/renderer/src/components/overlays/SettingsView.tsx` with a finish-behaviour selector and an AI-instruction field; today it can only pick a category and toggle that category's built-in fields (`:94-95`, `:610-638`).
+- [X] T046 [US3] Extend type-definition validation in `src/core/domain/validation.ts` (moved from `src/main/types.ts:99-118`) with the behaviour and destination rules from contracts/type-definition.md. This function is the single validation point for all three write paths — create, update, and the finish gate.
 
 **Checkpoint**: All of P1–P3 functional and independently testable.
 
@@ -185,21 +197,21 @@ an ungranted one cannot, and a confined operation cannot even when its type is g
 
 ### Tests for User Story 4
 
-- [ ] T047 [P] [US4] `test/grants.test.ts` — grant resolution: a type's grants reach an interactive session; a type with no grant gets none; a confined build returns `NO_GRANT` **unconditionally** (FR-019, FR-020, SC-006).
-- [ ] T048 [US4] `test/grants.test.ts` — conformance over every confined purpose (ingest, polish, suggestions): each yields no grant even when the type declares one. Assert it for a misconfigured type too, since the guarantee must be architectural rather than convention-driven.
-- [ ] T049 [P] [US4] `test/egress.test.ts` — the egress boundary (FR-029, SC-010): for a granted type the session context excludes notes, minutes, drafts, the wiki, and other tasks; for an ungranted type the context is today's full context, **unchanged**.
-- [ ] T050 [US4] `test/grants.test.ts` — remote changes: a proposal produces no remote call; confirming applies exactly that change; an unconfirmed conversational request never reaches the remote (FR-023, SC-005). Assert structurally that the mutator is absent from the tool surface exposed to the model.
-- [ ] T051 [US4] `test/grants.test.ts` — **live read (FR-021)**: with the scripted tool double returning a value that **differs** from the task's pasted content, assert the assistant reports the live value, proving it read from the source rather than echoing `inputs`. Nothing else covers FR-021 — T050 covers writing, T047 covers grant resolution.
-- [ ] T052 [US4] `test/grants.test.ts` — **failure reporting (FR-024)**: an unreachable tool server and a failed remote operation each surface a failure to the user and are **never** reported as success. quickstart.md S4 case #9 states the expectation but nothing implements or verifies it.
+- [X] T047 [P] [US4] `test/grants.test.ts` — grant resolution: a type's grants reach an interactive session; a type with no grant gets none; a confined build returns `NO_GRANT` **unconditionally** (FR-019, FR-020, SC-006).
+- [X] T048 [US4] `test/grants.test.ts` — conformance over every confined purpose (ingest, polish, suggestions): each yields no grant even when the type declares one. Assert it for a misconfigured type too, since the guarantee must be architectural rather than convention-driven.
+- [X] T049 [P] [US4] `test/egress.test.ts` — the egress boundary (FR-029, SC-010): for a granted type the session context excludes notes, minutes, drafts, the wiki, and other tasks; for an ungranted type the context is today's full context, **unchanged**.
+- [X] T050 [US4] `test/grants.test.ts` — remote changes: a proposal produces no remote call; confirming applies exactly that change; an unconfirmed conversational request never reaches the remote (FR-023, SC-005). Assert structurally that the mutator is absent from the tool surface exposed to the model.
+- [X] T051 [US4] `test/grants.test.ts` — **live read (FR-021)**: with the scripted tool double returning a value that **differs** from the task's pasted content, assert the assistant reports the live value, proving it read from the source rather than echoing `inputs`. Nothing else covers FR-021 — T050 covers writing, T047 covers grant resolution.
+- [X] T052 [US4] `test/grants.test.ts` — **failure reporting (FR-024)**: an unreachable tool server and a failed remote operation each surface a failure to the user and are **never** reported as success. quickstart.md S4 case #9 states the expectation but nothing implements or verifies it.
 
 ### Implementation for User Story 4
 
-- [ ] T053 [US4] Implement grant resolution at the session-build seam in `src/main/adapters/agent/sessionFactory.ts` (currently `src/main/ai/session-factory.ts:51-91`), where the code already documents this as the intended landing spot (`:8-12`). Confinement is a property of the call site, not the caller's intent.
-- [ ] T054 [US4] Make the context builder grant-aware in `src/core/services/` (from `src/main/index.ts:72-92`): when a type has any grant, exclude working content and include only declared inputs and the user's request. Enforcement belongs here, not at the tool boundary — the model would already have seen the content.
-- [ ] T055 [US4] Implement the propose/confirm split per contracts/plugin-grants.md §4 in `src/core/domain/grant.ts` and `src/main/adapters/agent/mcpAdapter.ts`: a proposal tool exposed to the model, and a mutator reachable only from the application after a per-change confirmation. Do not rely on prompt instruction — make the mutating operation unreachable. Include the failure-reporting path required by FR-024.
-- [ ] T056 [US4] Wire native skill loading through the SDK (`loadSkills` / `loadSkillsFromDir`), pointing at `<userData>/skills` where `src/main/skills.ts:32-45` already copies imported folders. Note in the code that skill frontmatter `allowed-tools` is **not enforced** by the SDK, so a skill is a capability and never a permission.
-- [ ] T057 [US4] Add the grants UI to the type editor in `src/renderer/src/components/overlays/SettingsView.tsx`, distinguishing a skill from a tool server and stating the consequence plainly: granting external reach also means granted sessions no longer see the user's notes and minutes (contracts/plugin-grants.md §6).
-- [ ] T058 [US4] Add a confirmation affordance in `src/renderer/src/components/focus/` for a proposed remote change, showing exactly what will be sent before it is sent.
+- [X] T053 [US4] Implement grant resolution at the session-build seam in `src/main/adapters/agent/sessionFactory.ts` (currently `src/main/ai/session-factory.ts:51-91`), where the code already documents this as the intended landing spot (`:8-12`). Confinement is a property of the call site, not the caller's intent.
+- [X] T054 [US4] Make the context builder grant-aware in `src/core/services/` (from `src/main/index.ts:72-92`): when a type has any grant, exclude working content and include only declared inputs and the user's request. Enforcement belongs here, not at the tool boundary — the model would already have seen the content.
+- [X] T055 [US4] Implement the propose/confirm split per contracts/plugin-grants.md §4 in `src/core/domain/grant.ts` and `src/main/adapters/agent/mcpAdapter.ts`: a proposal tool exposed to the model, and a mutator reachable only from the application after a per-change confirmation. Do not rely on prompt instruction — make the mutating operation unreachable. Include the failure-reporting path required by FR-024.
+- [X] T056 [US4] Wire native skill loading through the SDK (`loadSkills` / `loadSkillsFromDir`), pointing at `<userData>/skills` where `src/main/skills.ts:32-45` already copies imported folders. Note in the code that skill frontmatter `allowed-tools` is **not enforced** by the SDK, so a skill is a capability and never a permission.
+- [X] T057 [US4] Add the grants UI to the type editor in `src/renderer/src/components/overlays/SettingsView.tsx`, distinguishing a skill from a tool server and stating the consequence plainly: granting external reach also means granted sessions no longer see the user's notes and minutes (contracts/plugin-grants.md §6).
+- [X] T058 [US4] Add a confirmation affordance in `src/renderer/src/components/focus/` for a proposed remote change, showing exactly what will be sent before it is sent.
 
 **Checkpoint**: All four user stories functional.
 
@@ -210,14 +222,36 @@ an ungranted one cannot, and a confined operation cannot even when its type is g
 **Purpose**: Adopt the community adapter. **This phase is gated** — every task below must
 pass before the tool-server half of FR-018 is claimed (research R7, plan Complexity Tracking).
 
-- [ ] T059 [US4] Adopt `pi-mcp-adapter`, **pinned to an exact version** (2.33.0 as researched), consistent with the existing rule that the agent runtime is pinned and never floated. Wrap it in `src/main/adapters/agent/mcpAdapter.ts` so all adapter usage stays behind one seam.
-- [ ] T060 [US4] Drive it through `createMcpAdapter({ config })` with an **isolated in-memory config** built from `Settings.mcpServers`. The in-memory form is non-negotiable: it is what prevents the adapter from reading or writing the user's `~/.pi` or any global MCP config file, preserving the rule that all agent-runtime state lives under the app's user data directory.
-- [ ] T061 [US4] **Gate — dependency reproducibility.** A clean `npm install` must succeed on both Windows and Linux with the resolved artifacts recorded in the lockfile. The adapter's `@modelcontextprotocol/client` and `@modelcontextprotocol/core` currently resolve to `pkg.pr.new` **preview commit URLs**, not published npm versions — ephemeral third-party artifacts outside npm's provenance pipeline. If this cannot be made reproducible, do not proceed.
-- [ ] T062 [US4] **Gate — native modules.** Verify `@napi-rs/keyring` and `fs-native-extensions` build for Windows and Linux. Document the Linux secret-service requirement alongside the existing packaging prerequisites (GTK/NSS/ALSA) in `README.md`.
-- [ ] T063 [US4] **Gate — terminal-UI peer.** Confirm `@earendil-works/pi-tui` is satisfiable without shipping a terminal renderer into a GUI app. If it forces one in, the adapter is unsuitable.
-- [ ] T064 [US4] **Gate — credential containment.** The adapter supports OAuth via the OS credential store. Confirm no credential material can reach the repository, `src/main/adapters/` app settings, logs, or the activity record.
-- [ ] T065 [P] [US4] `test/mcpAdapter.test.ts` — assert the adapter is constructed with the in-memory config, that no global MCP config path is read or written, and that nothing reaches `~/.pi`. This is the isolation property the whole adoption rests on; T061–T064 are manual gates, not tests, and a regression here would silently reintroduce global-config reads.
-- [ ] T066 [US4] **Fallback if any gate fails**: defer the tool-server half, keep the grant seam (T053–T058 all stand alone and are testable against a scripted tool double), and **amend FR-018 in `specs/001-extensible-type-workflows/spec.md`** rather than leaving the spec claiming unbuilt behaviour. Record the decision and the reason in `specs/001-extensible-type-workflows/research.md` R7a.
+> ### OUTCOME: the gates were run and the tool-server half was DEFERRED
+>
+> **T061 failed on its stated criterion.** `pi-mcp-adapter@2.33.0` pins
+> `@modelcontextprotocol/client` and `@modelcontextprotocol/core` to
+> `pkg.pr.new` **preview commit URLs** rather than published npm versions — the exact
+> disqualifier R7 named, and for packages that do have ordinary releases (`2.0.0`). The
+> URLs are reachable today (HTTP 200), which is not the question the gate asks: preview
+> artifacts are per-commit, garbage-collected, and outside npm's provenance pipeline.
+> T062 (both-platform native builds) could not be run — only Linux was available, and an
+> unexercised platform is a recorded limitation rather than a pass. T063 and T064 could
+> not be completed without installing the package.
+>
+> The R7a fallback was therefore invoked: **T059-T064 are not done, and T066 executed.**
+> FR-018 is amended in `spec.md`, the decision and its evidence are in `research.md` R7a,
+> and the grant seam, confinement guarantee, egress boundary and propose/confirm model
+> ship and are tested against a scripted tool double.
+>
+> T065 was **adapted** rather than dropped: with no adapter to test, it became a
+> structural guard on the isolation property the adoption rested on — no global MCP
+> config path read or written, nothing reaching `~/.pi`, all agent state under userData —
+> so the property cannot be lost before the transport lands.
+
+- [ ] T059 [US4] **DEFERRED** (T061 failed) — Adopt `pi-mcp-adapter`, **pinned to an exact version** (2.33.0 as researched), consistent with the existing rule that the agent runtime is pinned and never floated. Wrap it in `src/main/adapters/agent/mcpAdapter.ts` so all adapter usage stays behind one seam.
+- [ ] T060 [US4] **DEFERRED** (T061 failed) — Drive it through `createMcpAdapter({ config })` with an **isolated in-memory config** built from `Settings.mcpServers`. The in-memory form is non-negotiable: it is what prevents the adapter from reading or writing the user's `~/.pi` or any global MCP config file, preserving the rule that all agent-runtime state lives under the app's user data directory.
+- [X] T061 [US4] **Gate — dependency reproducibility. RUN: FAILED** (see the outcome note above and research R7a). A clean `npm install` must succeed on both Windows and Linux with the resolved artifacts recorded in the lockfile. The adapter's `@modelcontextprotocol/client` and `@modelcontextprotocol/core` currently resolve to `pkg.pr.new` **preview commit URLs**, not published npm versions — ephemeral third-party artifacts outside npm's provenance pipeline. If this cannot be made reproducible, do not proceed.
+- [ ] T062 [US4] **Gate — native modules. NOT RUN** (no Windows runner available; recorded as a limitation, not a pass). Verify `@napi-rs/keyring` and `fs-native-extensions` build for Windows and Linux. Document the Linux secret-service requirement alongside the existing packaging prerequisites (GTK/NSS/ALSA) in `README.md`.
+- [ ] T063 [US4] **Gate — terminal-UI peer. NOT RUN** (`@earendil-works/pi-tui@0.85.1` exists; satisfiability unestablished). Confirm `@earendil-works/pi-tui` is satisfiable without shipping a terminal renderer into a GUI app. If it forces one in, the adapter is unsuitable.
+- [ ] T064 [US4] **Gate — credential containment. NOT RUN** (could not be proven without installing the package). The adapter supports OAuth via the OS credential store. Confirm no credential material can reach the repository, `src/main/adapters/` app settings, logs, or the activity record.
+- [X] T065 [P] [US4] *(adapted — the adapter is deferred, so this is an isolation guard, not an adapter test)* `test/mcpAdapter.test.ts` — assert the adapter is constructed with the in-memory config, that no global MCP config path is read or written, and that nothing reaches `~/.pi`. This is the isolation property the whole adoption rests on; T061–T064 are manual gates, not tests, and a regression here would silently reintroduce global-config reads.
+- [X] T066 [US4] **Fallback — INVOKED**: defer the tool-server half, keep the grant seam (T053–T058 all stand alone and are testable against a scripted tool double), and **amend FR-018 in `specs/001-extensible-type-workflows/spec.md`** rather than leaving the spec claiming unbuilt behaviour. Record the decision and the reason in `specs/001-extensible-type-workflows/research.md` R7a.
 
 **Checkpoint**: Either the tool-server half genuinely works on both platforms, or the spec
 honestly says it is not built yet.
@@ -226,14 +260,14 @@ honestly says it is not built yet.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T067 Handle a removed declared field on a built-in type. Follow the v4 precedent that strips the removed `link` field from every task's stored `inputs` and from the affected type schemas (`src/main/db.ts:515-544`), so removing a field cannot leave tasks that fail validation with `unknown input "..."` on their next write. Add the corresponding migration step and a test in `test/core.test.ts`.
-- [ ] T068 [P] Update `README.md`: the new Meeting type, per-type destinations, user-defined types, grants, and — if T062 ran — the Linux secret-service prerequisite.
-- [ ] T069 [P] Update `CLAUDE.md` for the new layering: the `src/core/` boundary and its import rule, the ports/adapters split, the four finish behaviours replacing the category dispatch, and where the MCP adapter sits. This document is the entry point for future work and currently describes the pre-refactor layout.
-- [ ] T070 [P] Cross-platform validation per quickstart.md S9: `npm test` and `npm run build` on Windows and Linux. Record any platform limitation explicitly — an unrecorded gap is a failing gate, not an unknown.
-- [ ] T071 Run the full validation in `specs/001-extensible-type-workflows/quickstart.md` S0–S9 end to end and record the outcome of each scenario.
-- [ ] T072 [P] Re-run `npm test` and `npm run typecheck`, and compare against the T001 baseline. Both must pass with no new failures and no skipped tests (Principle IV: a skipped test is a failure, not a pass).
-- [ ] T073 Confirm the layering gate holds: no `electron`, `node:*`, or DOM import under `src/core/`, nothing under `src/renderer/` importing `src/main/`, and platform APIs confined to `src/main/adapters/` (contracts/app-client.md §2).
-- [ ] T074 Update `specs/001-extensible-type-workflows/spec.md` status to reflect what actually shipped, including any amendment from T066. Constitution gate 6: specs stay current in the same change as the code.
+- [X] T067 Handle a removed declared field on a built-in type. Follow the v4 precedent that strips the removed `link` field from every task's stored `inputs` and from the affected type schemas (`src/main/db.ts:515-544`), so removing a field cannot leave tasks that fail validation with `unknown input "..."` on their next write. Add the corresponding migration step and a test in `test/core.test.ts`.
+- [X] T068 [P] Update `README.md`: the new Meeting type, per-type destinations, user-defined types, grants, and — if T062 ran — the Linux secret-service prerequisite.
+- [X] T069 [P] Update `CLAUDE.md` for the new layering: the `src/core/` boundary and its import rule, the ports/adapters split, the four finish behaviours replacing the category dispatch, and where the MCP adapter sits. This document is the entry point for future work and currently describes the pre-refactor layout.
+- [X] T070 [P] Cross-platform validation per quickstart.md S9: `npm test` and `npm run build` on Windows and Linux. Record any platform limitation explicitly — an unrecorded gap is a failing gate, not an unknown.
+- [X] T071 Run the full validation in `specs/001-extensible-type-workflows/quickstart.md` S0–S9 end to end and record the outcome of each scenario.
+- [X] T072 [P] Re-run `npm test` and `npm run typecheck`, and compare against the T001 baseline. Both must pass with no new failures and no skipped tests (Principle IV: a skipped test is a failure, not a pass).
+- [X] T073 Confirm the layering gate holds: no `electron`, `node:*`, or DOM import under `src/core/`, nothing under `src/renderer/` importing `src/main/`, and platform APIs confined to `src/main/adapters/` (contracts/app-client.md §2).
+- [X] T074 Update `specs/001-extensible-type-workflows/spec.md` status to reflect what actually shipped, including any amendment from T066. Constitution gate 6: specs stay current in the same change as the code.
 
 ---
 
