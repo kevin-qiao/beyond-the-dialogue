@@ -205,3 +205,28 @@ test('the audit walk still covers the wiki default when no destination is named'
   assert.ok(handle.files.includes('learning-notes/a-note.md'), `got ${handle.files}`)
   assert.ok(handle.files.includes('index.md'))
 })
+
+// ---- the store lookup (T075) ----
+
+test('artifactStoreFor maps a destination store to its adapter', async () => {
+  const { artifactStoreFor } = await import('../src/main/adapters/artifacts')
+  const { WikiArtifactStore } = await import('../src/main/adapters/artifacts/wikiStore')
+  const storeFor = artifactStoreFor('/some/wiki')
+
+  const wiki = storeFor({ store: 'wiki', rootPath: null, subdir: 'learning-notes' })
+  assert.ok(wiki instanceof WikiArtifactStore, 'a wiki destination resolves to the wiki store')
+  // Bound to the wiki root it was built with, not a global.
+  await assert.rejects(() => wiki.prepare({ store: 'wiki', root: '/some/wiki', subdir: 'x', absRoot: '/nope/does/not/exist/at/all' }))
+
+  const folder = storeFor({ store: 'folder', rootPath: '/home/u/Documents/Minutes', subdir: '' })
+  assert.equal(typeof folder.writeArtifact, 'function')
+  assert.equal(typeof folder.prepare, 'function')
+  assert.ok(!(folder instanceof WikiArtifactStore), 'a folder destination does not get the wiki store')
+})
+
+test('two lookups for different wiki roots do not share state', async () => {
+  const { artifactStoreFor } = await import('../src/main/adapters/artifacts')
+  const a = artifactStoreFor('/wiki-a')({ store: 'wiki', rootPath: null, subdir: '' })
+  const b = artifactStoreFor('/wiki-b')({ store: 'wiki', rootPath: null, subdir: '' })
+  assert.notEqual(a, b, 'each wiki root gets its own store instance')
+})

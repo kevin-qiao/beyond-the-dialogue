@@ -64,10 +64,17 @@ export interface TypeInputField {
   required?: boolean
   // Static options for `select` fields (e.g. jira sourceKind).
   options?: { value: string; label: string }[]
-  // Dynamic options sourced from settings collections (skill/MCP selectors).
+  // Dynamic options sourced from settings collections.
+  //
+  // RETAINED AFTER v7, WITH NO SHIPPED USER: the per-task skill/MCP selectors
+  // that used these were removed because grants are declared on the TYPE
+  // (FR-019) — a per-task selector duplicated a working mechanism and its
+  // "not yet active" label was untrue. The mechanism stays because it encodes
+  // a rule the design depends on and a test pins deliberately: an inert field
+  // is stored but must not affect the agent session, and must not invalidate a
+  // pre-process run (design D3, test/triggers.test.ts). Removing it would
+  // remove that rule. No built-in type declares one today.
   optionsSource?: 'skills' | 'mcpServers'
-  // Placeholder selectors (skill/MCP in v0.8): stored with the task but with
-  // no effect on the agent session. Rendered labeled "not yet active".
   inert?: boolean
   // Set at creation only (jira sourceKind): later edits to the value are
   // rejected.

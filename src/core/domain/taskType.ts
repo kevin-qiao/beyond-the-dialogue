@@ -1,5 +1,4 @@
-import type { Destination, FinishBehaviour, PluginGrant, Task, TaskTypeDef } from '../../shared/types'
-import { NO_GRANT } from '../../shared/types'
+import type { Destination, FinishBehaviour, Task, TaskTypeDef } from '../../shared/types'
 import type { TaskCategory } from './categories'
 
 // Effective-type resolution and the workflow a type declares.
@@ -74,8 +73,4 @@ export function declaredWorkflow(def: TaskTypeDef): {
   const legacy = legacyWorkflow(def.kind)
   if (!legacy) return { finishBehaviour: null, destination: def.destination }
   return { finishBehaviour: legacy.finishBehaviour, destination: def.destination ?? legacy.destination }
-}
-
-export function grantsOf(def: TaskTypeDef | null | undefined): PluginGrant {
-  return def?.grants ?? NO_GRANT
 }

@@ -36,7 +36,9 @@ import type { RemoteProposalView } from '../shared/ipc'
 import { finishTask as runFinishTask, type FinishDeps } from '../core/services/finishService'
 import { declaredWorkflow } from '../core/domain/taskType'
 import { saveSettings as saveSettingsService } from '../core/services/settingsService'
+import { runPreprocess as runPreprocessService } from '../core/services/preprocessService'
 import { buildSessionContext, createProposalQueue } from '../core/domain/grant'
+import { buildChatContext } from '../core/domain/chatContext'
 import {
   createTask as createTaskService,
   setMyDay as setMyDayService,
@@ -79,15 +81,14 @@ function raiseAlarmNotification(fire: { taskId: string; title: string }): void {
   n.show()
 }
 
-// Per-kind chat grounding (spec learning-type / jira-confluence-type):
-// learning = working prompt + inputs + current note; jira = pasted source +
-// pre-process summaries. Built fresh on each send; never persisted.
+// Per-category chat grounding. What each category contributes lives in
+// src/core/domain/chatContext.ts; this is the transport-side wrapper.
 //
 // THE EGRESS BOUNDARY. Once a type has been granted external reach, this
 // session can echo onward whatever it can see — so the full context stops
 // being built for it (FR-029, contracts/plugin-grants.md §3). Filtering at the
 // tool boundary would be too late: the content would already be in the prompt.
-function buildChatContext(d: DatabaseSync, taskId: string): string | undefined {
+function chatContextFor(d: DatabaseSync, taskId: string): string | undefined {
   const task = getTask(d, taskId)
   if (!task) return undefined
   const def = effectiveTypeDef(d, task)
@@ -95,27 +96,18 @@ function buildChatContext(d: DatabaseSync, taskId: string): string | undefined {
     task,
     typeDef: def,
     purpose: 'interactive',
-    fullContext: () => fullChatContext(d, task, def)
+    fullContext: () => fullChatContext(d, task)
   })
 }
 
-function fullChatContext(d: DatabaseSync, task: Task, def: TaskTypeDef | null): string | undefined {
-  const kind = def?.kind ?? 'plain'
-  if (kind === 'plain') return undefined
-  const pp = getPreprocess(d, task.id)
-  const note = getNotes(d, task.id)
-  const lines = [
-    `Task: ${task.title}`,
-    task.notes ? `Description: ${task.notes}` : '',
-    kind === 'learning' && pp?.generatedPrompt ? `Working prompt: ${pp.generatedPrompt}` : '',
-    pp?.summary ? `Pre-process summary: ${pp.summary}` : '',
-    kind === 'learning' && typeof task.inputs.target === 'string' ? `Target: ${task.inputs.target}` : '',
-    kind === 'learning' && typeof task.inputs.purpose === 'string' ? `Prompt: ${task.inputs.purpose}` : '',
-    kind === 'jira' ? `Source kind: ${task.inputs.sourceKind === 'page' ? 'Confluence page' : 'JIRA issue'}` : '',
-    kind === 'jira' && typeof task.inputs.sourceText === 'string' ? `Pasted source content:\n${task.inputs.sourceText.slice(0, 60_000)}` : '',
-    kind === 'learning' && note?.content ? `Current learning note:\n${note.content.slice(0, 60_000)}` : ''
-  ].filter(Boolean)
-  return lines.join('\n')
+function fullChatContext(d: DatabaseSync, task: Task): string | undefined {
+  // A missing registry entry would silently thin the grounding, which is the
+  // failure this replaced — so it is a registry lookup, never a fallback.
+  return buildChatContext(effectiveKind(d, task), {
+    task,
+    preprocess: getPreprocess(d, task.id),
+    workingContent: getNotes(d, task.id)?.content ?? null
+  })
 }
 
 function buildSnapshot(): AppSnapshot {
@@ -335,15 +327,11 @@ function registerIpc(): void {
     return outcome.task
   })
   ipcMain.handle(IPC.runPreprocess, (_e, args) => {
-    const t = getTask(d(), args.id)
-    if (!t) throw new Error('task not found')
-    const kind = effectiveKind(d(), t)
-    if (kind === 'plain') throw new Error('this task type has no pre-process')
-    if (!isConfigured(loadSettings(d()))) throw new Error('AI not configured: open Settings to configure a provider, model and API key')
-    const task = updateTask(d(), args.id, { preprocessStatus: 'queued', preprocessError: null })
-    queue!.enqueue('preprocess', task.id)
-    broadcast(IPC.evTaskUpdated, task)
-    return task
+    // The guards live in the service; this handler only acts on its decision.
+    const outcome = runPreprocessService(createSqliteStorage(d()), args.id, loadSettings(d()))
+    for (const work of outcome.enqueue) queue!.enqueue(work, outcome.task.id)
+    broadcast(IPC.evTaskUpdated, outcome.task)
+    return outcome.task
   })
   ipcMain.handle(IPC.deleteTask, (_e, args) => {
     serviceDeleteTask(d(), args.id)
@@ -485,7 +473,7 @@ function registerIpc(): void {
       chatSession.reset()
       chatTaskId = args.taskId ?? null
     }
-    const context = args.taskId ? buildChatContext(d(), args.taskId) : undefined
+    const context = args.taskId ? chatContextFor(d(), args.taskId) : undefined
     try {
       const reply = await chatSession.send(args.text, settings, (delta) => broadcast(IPC.evChatDelta, { delta }), context)
       broadcast(IPC.evChatDone, { text: reply })

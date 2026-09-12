@@ -6,7 +6,7 @@ import * as path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { openDB, migrate, createList, listLists, createTask, listTasks, updateTask, getTask, loadSettings, saveSettings, deleteList } from '../src/main/db'
 import { rolloverMyDay, todayStr, serviceToggleTask, serviceSetMyDay } from '../src/main/tasks'
-import { createTypeDef, getTypeDef, updateTypeDef, validateInputs } from '../src/main/types'
+import { createTypeDef, effectiveTypeDef, getTypeDef, updateTypeDef, validateInputs } from '../src/main/types'
 import { reconcileInputsForType, LEARNING_INPUT_SCHEMA } from '../src/main/db'
 import type { TaskTypeDef } from '../src/shared/types'
 
@@ -468,5 +468,76 @@ test('reconciliation respects the effective type of a task using a custom type',
   // not against the built-in meeting type's.
   reconcileInputsForType(db.db, 'retro')
   assert.deepEqual(getTask(db.db, t.id)!.inputs, { target: 'x' })
+  db.close()
+})
+
+// ---- v7: the per-task skill/MCP placeholders are retired ----
+
+test('v7 strips the retired placeholder inputs from schemas and from tasks', () => {
+  const { db } = freshDB()
+  const l = createList(db.db, 'L')
+
+  // Recreate the pre-v7 state: a task holding values for the retired fields.
+  const t = createTask(db.db, { listId: l.id, title: 'x', type: 'learning', inputs: { target: 'eigenvalues' } })
+  db.db
+    .prepare('UPDATE tasks SET inputs = ? WHERE id = ?')
+    .run(JSON.stringify({ target: 'eigenvalues', skill: 'summarize', mcp: 'jira-server' }), t.id)
+
+  // A custom type that copied the built-in schema, as creation used to do.
+  db.db
+    .prepare(
+      `INSERT INTO task_types (key, kind, label, emoji, input_schema, is_builtin, sort, finish_behaviour, grants_json)
+       VALUES ('copied', 'learning', 'Copied', '🎓', ?, 0, 0, 'complete-only', '{"skills":[],"toolServers":[]}')`
+    )
+    .run(
+      JSON.stringify([
+        { key: 'target', label: 'Target', type: 'text' },
+        { key: 'skill', label: 'Skill', type: 'select', optionsSource: 'skills', inert: true }
+      ])
+    )
+  const t2 = createTask(db.db, { listId: l.id, title: 'y', type: 'plain', customTypeKey: 'copied', inputs: { target: 'a' } })
+  db.db.prepare('UPDATE tasks SET inputs = ? WHERE id = ?').run(JSON.stringify({ target: 'a', skill: 'x' }), t2.id)
+
+  // Re-run the step.
+  db.db.prepare('DELETE FROM schema_migrations WHERE version = 7').run()
+  migrate(db.db)
+
+  // The schemas no longer declare them...
+  const builtinSchema = JSON.parse((db.db.prepare("SELECT input_schema FROM task_types WHERE key='learning'").get() as any).input_schema)
+  assert.ok(!builtinSchema.some((f: any) => f.key === 'skill' || f.key === 'mcp'), 'built-in schema stripped')
+  const customSchema = JSON.parse((db.db.prepare("SELECT input_schema FROM task_types WHERE key='copied'").get() as any).input_schema)
+  assert.ok(!customSchema.some((f: any) => f.key === 'skill'), 'a copied custom schema is stripped too')
+
+  // ...the tasks no longer carry them, and their real inputs survive...
+  assert.deepEqual(getTask(db.db, t.id)!.inputs, { target: 'eigenvalues' })
+  assert.equal(getTask(db.db, t2.id)!.inputs.skill, undefined)
+  assert.equal(getTask(db.db, t2.id)!.inputs.target, 'a')
+
+  // ...and every task is writable again, which is the whole point: an input the
+  // type does not declare is rejected by validation on every write.
+  for (const task of [getTask(db.db, t.id)!, getTask(db.db, t2.id)!]) {
+    const def = effectiveTypeDef(db.db, task)!
+    assert.equal(validateInputs(def, task.inputs).ok, true, `${task.title} left unwritable`)
+  }
+
+  // Idempotent.
+  const before = db.db.prepare('SELECT inputs FROM tasks ORDER BY id').all()
+  migrate(db.db)
+  assert.deepEqual(db.db.prepare('SELECT inputs FROM tasks ORDER BY id').all(), before)
+  db.close()
+})
+
+test('a fresh database ships no inert placeholder inputs at all', () => {
+  const { db } = freshDB()
+  for (const key of ['learning', 'jira', 'meeting', 'plain']) {
+    const def = getTypeDef(db.db, key)!
+    assert.ok(
+      !def.inputSchema.some((f) => f.key === 'skill' || f.key === 'mcp'),
+      `"${key}" still declares a per-task skill/MCP placeholder`
+    )
+    // Nothing shipped is inert either: grants are per type, and the mechanism
+    // is retained without a user (see src/shared/types.ts).
+    assert.ok(!def.inputSchema.some((f) => f.inert), `"${key}" declares an inert field`)
+  }
   db.close()
 })

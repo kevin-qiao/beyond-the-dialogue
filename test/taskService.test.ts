@@ -7,7 +7,7 @@ import { openDB, migrate, saveSettings, createList, savePreprocess, type DB } fr
 import { createSqliteStorage } from '../src/main/adapters/sqlite/storageAdapter'
 import { createTask, setMyDay, updateTask } from '../src/core/services/taskService'
 import { setUserDataRoot } from '../src/main/paths'
-import { effectiveTypeDef, preprocessInputHash } from '../src/main/types'
+import { createTypeDef, effectiveTypeDef, preprocessInputHash } from '../src/main/types'
 import type { StoragePort } from '../src/core/ports/storage'
 import type { Settings } from '../src/shared/types'
 
@@ -79,7 +79,24 @@ test('with no provider configured, a first add requests nothing', () => {
 
 test('an edit that changes a relevant input re-runs pre-processing, an irrelevant one does not', () => {
   const { conn, storage, settings, listId } = harness()
-  const task = createTask(storage, { listId, title: 'learn', type: 'learning', inputs: { target: 'A' } })
+  // A type declaring an INERT extra field, so the assertion is about the
+  // mechanism rather than about the built-in learning schema (which no longer
+  // declares one — the per-task skill/MCP placeholders were retired in v7).
+  createTypeDef(conn.db, {
+    key: 'learn_inert',
+    kind: 'learning',
+    label: 'Learn with inert',
+    emoji: '🎓',
+    inputSchema: [
+      { key: 'target', label: 'Target', type: 'text', required: true },
+      { key: 'purpose', label: 'Purpose', type: 'textarea' },
+      { key: 'decoration', label: 'Decoration', type: 'text', inert: true }
+    ],
+    isBuiltin: false,
+    finishBehaviour: 'complete-only',
+    grants: { skills: [], toolServers: [] }
+  })
+  const task = createTask(storage, { listId, title: 'learn', type: 'plain', customTypeKey: 'learn_inert', inputs: { target: 'A' } })
   setMyDay(storage, task.id, true, settings)
   // Stand in for a completed run that consumed the current inputs.
   const def = effectiveTypeDef(conn.db, task)!
@@ -99,10 +116,10 @@ test('an edit that changes a relevant input re-runs pre-processing, an irrelevan
 
   // An inert field is declared but does not feed the pre-process, so changing
   // it must NOT invalidate the run.
-  const inertOnly = updateTask(storage, { id: task.id, inputs: { target: 'A', skill: 'summarize' } }, settings)
+  const inertOnly = updateTask(storage, { id: task.id, inputs: { target: 'A', decoration: 'x' } }, settings)
   assert.deepEqual(inertOnly.enqueue, [], 'an inert input change does not invalidate the outputs')
 
-  const relevant = updateTask(storage, { id: task.id, inputs: { target: 'A', skill: 'summarize', purpose: 'go deeper' } }, settings)
+  const relevant = updateTask(storage, { id: task.id, inputs: { target: 'A', decoration: 'x', purpose: 'go deeper' } }, settings)
   assert.deepEqual(relevant.enqueue, ['preprocess'])
   assert.equal(relevant.task.preprocessStatus, 'queued')
   conn.close()

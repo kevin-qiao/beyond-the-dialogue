@@ -12,7 +12,7 @@ so rather than leaving it implied.
 
 | | Baseline (T001, commit `1d48cfd`) | Final |
 |---|---|---|
-| `npm test` | 65 tests, 65 pass, 0 fail, 0 skipped | **164 tests, 164 pass, 0 fail, 0 cancelled, 0 skipped, 0 todo** |
+| `npm test` | 65 tests, 65 pass, 0 fail, 0 skipped | **196 tests, 196 pass, 0 fail, 0 cancelled, 0 skipped, 0 todo** |
 | `npm run typecheck` | exit 0 *(see the finding below)* | exit 0, **genuinely checked** |
 | `npm run build` | not recorded | exit 0 |
 
@@ -200,7 +200,7 @@ unbuilt behaviour.
 - **S0–S8**: pass, with S0's finding recorded (the typecheck gate was not gating).
 - **S9**: Linux pass; Windows **not run** and recorded as a limitation.
 - **Phase 7**: gates run; **tool-server transport deferred** with evidence, and the spec amended.
-- **Tests**: 65 → **164**, none failing, none skipped. Four pre-existing assertions changed —
+- **Tests**: 65 → **196**, none failing, none skipped. Four pre-existing assertions changed —
   seven deleted lines in total, all listed above — and `test/wiki.test.ts`,
   `test/queue.test.ts` and `test/failure.test.ts` are **byte-identical**, with e2e's
   flagship learning scenario unchanged. That is the SC-003 proof.

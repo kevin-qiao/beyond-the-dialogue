@@ -252,4 +252,3 @@ ${p.suggestions.map((s) => `- ${s}`).join('\n') || '(none)'}
 `
 }
 
-export { writesArtifact }

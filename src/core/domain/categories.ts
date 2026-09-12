@@ -34,21 +34,6 @@ export type FinishBehaviour = (typeof FINISH_BEHAVIOURS)[number]
 export const DESTINATION_STORES = ['wiki', 'folder'] as const
 export type DestinationStore = (typeof DESTINATION_STORES)[number]
 
-/**
- * Finish behaviours that produce an artifact on disk. Everything that is not
- * `complete-only`, derived rather than restated, so adding a behaviour cannot
- * leave this list stale.
- */
-export const WRITING_BEHAVIOURS: readonly FinishBehaviour[] = FINISH_BEHAVIOURS.filter(
-  (b) => b !== 'complete-only'
-)
-
-/** Categories whose pre-processing runs at all. `plain` has no pre-process. */
-export const PREPROCESSING_CATEGORIES: readonly TaskCategory[] = CATEGORIES.filter((c) => c !== 'plain')
-
-/** Categories whose working area is the markdown editor (contracts/type-definition.md). */
-export const MARKDOWN_CATEGORIES: readonly TaskCategory[] = ['learning', 'meeting']
-
 export function isCategory(value: unknown): value is TaskCategory {
   return typeof value === 'string' && (CATEGORIES as readonly string[]).includes(value)
 }
@@ -64,6 +49,3 @@ export function isDestinationStore(value: unknown): value is DestinationStore {
 export function writesArtifact(behaviour: FinishBehaviour): boolean {
   return behaviour !== 'complete-only'
 }
-
-/** The category set as a SQL `IN (...)` list body, for the mirror-comments in db.ts. */
-export const CATEGORY_SQL_LIST = CATEGORIES.map((c) => `'${c}'`).join(',')

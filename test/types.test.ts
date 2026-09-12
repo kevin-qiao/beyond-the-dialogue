@@ -137,7 +137,7 @@ test('required inputs gate Finish (3.5); inert placeholders never gate', () => {
   assert.deepEqual(hasUnfilledRequiredInputs(learning, { target: 'eigenvalues' }), [])
   // whitespace-only does not count as filled
   assert.equal(hasUnfilledRequiredInputs(learning, { target: '   ' }).length, 1)
-  // jira requires sourceText + target; skill/mcp are inert and never required
+  // jira requires sourceText + target; no declared field is inert any more
   const jira = getTypeDef(db.db, 'jira')!
   assert.deepEqual(hasUnfilledRequiredInputs(jira, { sourceKind: 'issue', target: 'x' }).map((f) => f.key), ['sourceText'])
   assert.equal(hasUnfilledRequiredInputs(jira, { sourceKind: 'issue', target: 'x', sourceText: 'body', skill: '', mcp: '' }).length, 0)

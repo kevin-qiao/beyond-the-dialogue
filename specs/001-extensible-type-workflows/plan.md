@@ -128,61 +128,94 @@ specs/001-extensible-type-workflows/
 
 ### Source Code (repository root)
 
+As built. See "Structure deviations" below for where this differs from the layout
+originally proposed, and why.
+
 ```text
 src/
-├── shared/                     # The contract. Pure types + constants, zero runtime deps.
-│   ├── types.ts                  #   + finishBehaviour, Destination, PluginGrant, meeting kind
-│   └── ipc.ts                    #   + typed command/event maps (replaces string events)
+├── shared/                        # The contract. Pure types + constants.
+│   ├── types.ts                     #   + finishBehaviour, Destination, PluginGrant, meeting
+│   └── ipc.ts                       #   + typed AppCommands/AppEvents maps
 │
-├── core/                       # NEW — domain + application. No electron, node:*, or DOM.
+├── core/                          # NEW — domain + application. No electron, node:*, or DOM.
+│   ├── README.md                    #   the layering rule, in one paragraph
 │   ├── domain/
-│   │   ├── taskType.ts           #   category + behaviour + destination declarations
-│   │   ├── categories.ts         #   the single category declaration everything derives from
-│   │   ├── validation.ts         #   input + type-definition validation (from main/types.ts)
-│   │   ├── hashing.ts            #   pre-process input hash
-│   │   ├── finish.ts             #   the four finish strategies
-│   │   ├── destination.ts        #   destination resolution + confinement
-│   │   └── grant.ts              #   grant resolution, egress policy
+│   │   ├── categories.ts            #   the single category + finish-behaviour declaration
+│   │   ├── taskType.ts              #   effective type, declared workflow, category legacy
+│   │   ├── validation.ts            #   input + type-definition validation
+│   │   ├── destination.ts           #   resolution + confinement + override confinement
+│   │   ├── finish.ts                #   the four finish strategies + the polish bound
+│   │   ├── grant.ts                 #   grant resolution, egress, propose/confirm
+│   │   ├── chatContext.ts           #   per-category chat grounding (T076)
+│   │   ├── preprocess.ts            #   per-category pre-process registry
+│   │   ├── hashing.ts               #   pre-process input hash
+│   │   ├── slug.ts                  #   filename derivation + distinct-name collision
+│   │   ├── workingArea.ts           #   category → surface, finish affordance wording
+│   │   ├── plugins.ts               #   skills/MCP entry validation
+│   │   └── config.ts                #   isConfigured
 │   ├── services/
-│   │   ├── taskService.ts        #   create/update/move-to-My-Day (from index.ts handlers)
-│   │   ├── finishService.ts      #   finish orchestration (from index.ts:321-355)
-│   │   ├── preprocessService.ts  #   pre-process enqueue + hash gating (from index.ts:202-266)
-│   │   ├── typeService.ts        #   type registry CRUD (from main/types.ts)
-│   │   └── settingsService.ts    #   settings load/save + plugin validation
+│   │   ├── finishService.ts         #   finish orchestration (was index.ts:321-355)
+│   │   ├── taskService.ts           #   create/edit/My Day (was index.ts:202-255, :279-296)
+│   │   ├── preprocessService.ts     #   pre-process guards (was index.ts:256-266) (T079)
+│   │   └── settingsService.ts       #   settings save + plugin validation
 │   └── ports/
-│       ├── storage.ts            #   StoragePort — the type/task/settings repository
-│       ├── artifactStore.ts      #   ArtifactStorePort — prepare/write/deposit/snapshot/diff
-│       ├── agent.ts              #   AgentSessionPort — build + run a session
-│       ├── notifier.ts           #   NotifierPort
-│       └── clock.ts              #   ClockPort
+│       ├── storage.ts               #   StoragePort — the repository seam
+│       ├── artifactStore.ts         #   ArtifactStorePort — prepare/write/deposit/snapshot/diff
+│       ├── agent.ts                 #   AgentSessionPort + resolveGrant re-export
+│       ├── notifier.ts              #   NotifierPort
+│       ├── clock.ts                 #   ClockPort
+│       └── paths.ts                 #   PathPort — path primitives, so core stays platform-free
 │
-├── main/                       # Electron host + adapters
-│   ├── index.ts                  # composition root: adapters → services → transport
+├── main/                          # Electron host + adapters
+│   ├── index.ts                     #   composition root: adapters → services → transport
 │   ├── adapters/
-│   │   ├── sqlite/               #   db.ts, migrate.ts (schema v5)
+│   │   ├── sqlite/storageAdapter.ts #     StoragePort over db.ts
 │   │   ├── artifacts/
-│   │   │   ├── wikiStore.ts      #     wiki artifact store (from wiki/*)
-│   │   │   └── folderStore.ts    #     NEW — plain-folder artifact store
-│   │   ├── agent/
-│   │   │   ├── runtime.ts        #     Pi SDK wrapper (from ai/agent-runtime.ts)
-│   │   │   ├── sessionFactory.ts #     + grant evaluation
-│   │   │   └── mcpAdapter.ts     #     NEW (P4) — pi-mcp-adapter, isolated config
-│   │   ├── notifier.ts           #     Electron Notification
-│   │   └── paths.ts              #     centralized path resolution (single declaration)
-│   ├── jobs/                     # preprocess, suggestion, ingest, polish handlers
-│   └── transport/
-│       └── ipc.ts                #   command → service call; service events → typed events
+│   │   │   ├── wikiStore.ts         #     wiki artifact store (delegates to wiki/*)
+│   │   │   ├── folderStore.ts       #     NEW — plain-folder artifact store
+│   │   │   ├── deposit.ts           #     shared deposit-first helper
+│   │   │   └── index.ts             #     destination.store → store lookup
+│   │   ├── agent/sessionAdapter.ts  #     AgentSessionPort over the Pi SDK seam
+│   │   ├── notifier.ts              #     NotifierPort over the IPC broadcast
+│   │   └── paths.ts                 #     PathPort over node:path
+│   ├── db.ts                        #   SQLite store + migrations (v5, v6, v7)
+│   ├── types.ts                     #   db-bound wrappers over the core domain rules
+│   ├── job-queue.ts                 #   the persisted queue
+│   ├── tasks.ts, alarms.ts, plugins.ts, paths.ts, skills.ts
+│   ├── preprocess.ts                #   preprocess job host (uses the core registry)
+│   ├── suggestions.ts               #   suggestion job
+│   ├── ai/                          #   Pi-SDK seams: agent-runtime, session-factory, chat, triggers
+│   └── wiki/                        #   wiki.ts, vault.ts, ingest.ts (deposit-then-curate host)
 │
-├── preload/                    # Electron host implementation of the client contract
-└── renderer/                   # UI. Imports only src/shared. Web-portable already.
+├── preload/                       # Electron host implementation of the client contract
+└── renderer/                      # UI. Imports only src/shared and src/core.
+    └── src/lib/typeCatalog.ts       #   renderer-side effective-type resolution
 
-test/
-├── (existing 11 files — the learning ones must pass UNMODIFIED)
-├── destination.test.ts           #   NEW — resolution, confinement, collisions
-├── finish.test.ts                #   NEW — the four behaviours + degradation
-├── grants.test.ts                #   NEW — grant resolution + confinement conformance
-└── egress.test.ts                #   NEW — context excludes working content when granted
+test/                                # 20 files, all headless
+├── (existing 11 — the learning ones pass UNMODIFIED: wiki, queue, failure)
+├── destination.test.ts              #   resolution, confinement, forward-only retargeting
+├── artifactStore.test.ts            #   folder-store failure paths, collisions, the audit walk
+├── finish.test.ts                   #   the four behaviours + the polish bound + degradation
+├── finishService.test.ts            #   ordering: validate before completing
+├── grants.test.ts                   #   grant resolution, confinement, egress, propose/confirm
+├── chatContext.test.ts              #   per-category grounding + the meeting regression
+├── workingArea.test.ts, categories.test.ts, preprocessService.test.ts,
+├── taskService.test.ts, sessionAdapter.test.ts, mcpAdapter.test.ts, layering.test.ts
+└── helpers/finishHarness.ts         #   shared finish setup
 ```
+
+### Structure deviations
+
+Recorded rather than silently taken, because the "Structure Decision" below is a boundary
+claim and a claim that no longer matches the tree is worse than a narrower one.
+
+| Proposed | As built | Why |
+|---|---|---|
+| `main/jobs/` for the job handlers | handlers stay at `src/main/{preprocess,suggestions}.ts` and `src/main/wiki/ingest.ts` | Each is now a thin host over a core strategy or registry. Moving them would churn imports that three test files depend on and the implementation tasks forbid editing. |
+| `main/transport/ipc.ts` | IPC registration stays in `src/main/index.ts` | The handlers are thin enough that a separate module would add a file boundary without enforcing one. The composition root still does exactly the three things the contract names. |
+| `adapters/sqlite/db.ts`, `migrate.ts` | `db.ts` stays at `src/main/db.ts`; the port impl is `adapters/sqlite/storageAdapter.ts` | `db.ts` is imported directly by **13** test files. Moving it breaks the SC-003 boundary for no boundary gain — the port is what matters, and the adapter provides it. |
+| `adapters/agent/runtime.ts`, `sessionFactory.ts` | retained at `src/main/ai/{agent-runtime,session-factory}.ts` | `session-factory` is the documented test seam and is imported by three test files. `sessionAdapter.ts` is the port implementation over it. |
+| a `polish` job handler | none — polishing runs inside the finish | `polish-then-file` must not mark the task complete until the artifact is written, so the polish is awaited by the finish service rather than handed to the queue. The plan's own performance goal ("polish latency is bounded by the configured provider, with a degradation path") is met by the degradation path, and progress is still reported through `onStep`. |
 
 **Structure Decision**: Single repository, layered in place rather than split into
 workspace packages. `src/core/` is not a new directory — it is already listed in the

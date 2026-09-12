@@ -16,6 +16,4 @@ export interface PathPort {
   isAbsolute(p: string): boolean
   /** The platform separator: '\\' on Windows, '/' elsewhere. */
   readonly sep: string
-  /** The platform's conventional segment separator for stored, displayable paths. */
-  readonly posixSep: '/'
 }

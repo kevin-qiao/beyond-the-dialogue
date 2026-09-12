@@ -159,9 +159,7 @@ export const LEARNING_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
   { key: 'target', label: 'Target', type: 'text', required: true, placeholder: 'The concept or question to learn' },
   { key: 'filePath', label: 'File', type: 'file', placeholder: 'Optional markdown (.md) attachment' },
   { key: 'purpose', label: 'Prompt', type: 'textarea', placeholder: 'What you want the learning note to cover (injected into the learning prompt)' },
-  { key: 'learningNotePath', label: 'Learning-note path', type: 'text', placeholder: 'Defaults inside the wiki' },
-  { key: 'skill', label: 'Skill', type: 'select', optionsSource: 'skills', inert: true },
-  { key: 'mcp', label: 'MCP server', type: 'select', optionsSource: 'mcpServers', inert: true }
+  { key: 'learningNotePath', label: 'Learning-note path', type: 'text', placeholder: 'Defaults inside the wiki' }
 ]
 
 export const JIRA_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
@@ -179,9 +177,7 @@ export const JIRA_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
   { key: 'sourceLink', label: 'Link', type: 'url', placeholder: 'Ticket/page URL (reference only in v0.8)' },
   { key: 'sourceText', label: 'Source content', type: 'textarea', required: true, placeholder: 'Paste the issue/page content' },
   { key: 'target', label: 'Target / Purpose', type: 'textarea', required: true, placeholder: 'What you want done with it' },
-  { key: 'comments', label: 'Comment drafts', type: 'textarea', hidden: true, placeholder: 'Draft comments for the issue/page (local only)' },
-  { key: 'skill', label: 'Skill', type: 'select', optionsSource: 'skills', inert: true },
-  { key: 'mcp', label: 'MCP server', type: 'select', optionsSource: 'mcpServers', inert: true }
+  { key: 'comments', label: 'Comment drafts', type: 'textarea', hidden: true, placeholder: 'Draft comments for the issue/page (local only)' }
 ]
 
 // Meeting minutes: the objective drives the agenda, the attachment is
@@ -202,9 +198,7 @@ export const MEETING_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
     label: 'Prompt',
     type: 'textarea',
     placeholder: 'What the agenda and core topics should focus on'
-  },
-  { key: 'skill', label: 'Skill', type: 'select', optionsSource: 'skills', inert: true },
-  { key: 'mcp', label: 'MCP server', type: 'select', optionsSource: 'mcpServers', inert: true }
+  }
 ]
 
 // The Learning type's wiki destination, expressed as data rather than as a
@@ -813,6 +807,48 @@ export function migrate(db: DatabaseSync): void {
       reconcileInputsForType(db, t.key)
     }
     mark(6)
+  }
+
+  // v6 → v7: retire the per-task skill/MCP placeholder inputs.
+  //
+  // Grants are declared on the TYPE (FR-019, contracts/plugin-grants.md §1).
+  // The per-task selectors were inert placeholders from before grants existed;
+  // keeping them means the inputs form offers a control that appears to
+  // configure tooling and does nothing, while the real mechanism lives
+  // somewhere else entirely. They are removed from the built-in schemas, and
+  // this step removes any trace of them from databases that already hold them.
+  //
+  // Same shape as v4's `link` removal: strip the field from every type schema
+  // (custom types copied the built-in schema on creation), then reconcile each
+  // type's tasks so no task is left holding an input its type no longer
+  // declares — which validation rejects on every write.
+  if (!ran(7)) {
+    const RETIRED = ['skill', 'mcp']
+    const stripRetired = (schema: string): string | null => {
+      let parsed: unknown[]
+      try {
+        parsed = JSON.parse(schema)
+      } catch {
+        return null
+      }
+      if (!Array.isArray(parsed)) return null
+      const next = parsed.filter((f: any) => !f || !RETIRED.includes(f.key))
+      return next.length === parsed.length ? null : JSON.stringify(next)
+    }
+    for (const t of db.prepare('SELECT key, input_schema FROM task_types').all() as {
+      key: string
+      input_schema: string
+    }[]) {
+      const stripped = stripRetired(t.input_schema)
+      if (stripped !== null) db.prepare('UPDATE task_types SET input_schema = ? WHERE key = ?').run(stripped, t.key)
+      reconcileInputsForType(db, t.key)
+    }
+    // A task whose custom type is gone keeps its `type` only; reconcile the
+    // built-ins once more so those tasks are covered too.
+    for (const t of db.prepare('SELECT DISTINCT type FROM tasks').all() as { type: string }[]) {
+      reconcileInputsForType(db, t.type)
+    }
+    mark(7)
   }
 
   // Seed a default list on first open.
