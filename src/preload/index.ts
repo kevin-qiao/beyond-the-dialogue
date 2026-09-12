@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent } from '../shared/ipc'
+import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent, RemoteProposalView } from '../shared/ipc'
 import type { IngestRecord, List, Settings, SkillEntry, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from '../shared/types'
 
 const api: RendererApi = {
@@ -18,7 +18,11 @@ const api: RendererApi = {
   runPreprocess: (args) => ipcRenderer.invoke(IPC.runPreprocess, args),
   finishTask: (args) => ipcRenderer.invoke(IPC.finishTask, args),
   chooseFile: () => ipcRenderer.invoke(IPC.chooseFile),
+  chooseFolder: () => ipcRenderer.invoke(IPC.chooseFolder),
   importSkill: () => ipcRenderer.invoke(IPC.importSkill) as Promise<SkillEntry | null>,
+  getProposals: () => ipcRenderer.invoke(IPC.getProposals),
+  confirmRemoteChange: (args) => ipcRenderer.invoke(IPC.confirmRemoteChange, args),
+  dismissProposal: (args) => ipcRenderer.invoke(IPC.dismissProposal, args),
   saveNote: (args) => ipcRenderer.invoke(IPC.saveNote, args),
   listTypes: () => ipcRenderer.invoke(IPC.listTypes),
   saveType: (args) => ipcRenderer.invoke(IPC.saveType, args),
@@ -104,6 +108,11 @@ const api: RendererApi = {
     const h = (_e: unknown, taskId: string) => cb(taskId)
     ipcRenderer.on(IPC.evOpenTask, h)
     return () => ipcRenderer.removeListener(IPC.evOpenTask, h)
+  },
+  onProposals: (cb) => {
+    const h = (_e: unknown, p: RemoteProposalView[]) => cb(p)
+    ipcRenderer.on(IPC.evProposals, h)
+    return () => ipcRenderer.removeListener(IPC.evProposals, h)
   }
 }
 

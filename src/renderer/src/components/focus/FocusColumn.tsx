@@ -4,7 +4,18 @@ import { TaskBand } from './TaskBand'
 import { TaskNotes } from './TaskNotes'
 import { JiraArea } from './JiraArea'
 import { IconChevronDown, IconChevronLeft, IconChevronRight, IconChevronUp, IconTarget } from '../ui/icons'
-import { effectiveKind, effectiveType } from '../../lib/typeCatalog'
+import { effectiveType } from '../../lib/typeCatalog'
+import { workingAreaFor, type WorkingArea } from '../../../../core/domain/workingArea'
+
+// The category selects the working surface (spec scope boundary: per-type
+// working-area declaration is out of scope). The mapping is an explicit table
+// rather than a ternary, so a new category is an entry here instead of another
+// branch in a component.
+const WorkingAreaView: Record<WorkingArea, (task: Parameters<typeof TaskNotes>[0]['task']) => JSX.Element> = {
+  notes: (task) => <TaskNotes task={task} />,
+  markdown: (task) => <TaskNotes task={task} />,
+  'source-panel': (task) => <JiraArea task={task} />
+}
 
 interface Props {
   collapsed: boolean
@@ -75,7 +86,7 @@ export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
           </div>
         )}
         <div className={`focus-work ${bandCollapsed ? 'full' : ''}`}>
-          {effectiveKind(task, snapshot?.taskTypes) === 'jira' ? <JiraArea task={task} /> : <TaskNotes task={task} />}
+          {WorkingAreaView[workingAreaFor(meta.kind)](task)}
         </div>
       </div>
     </aside>

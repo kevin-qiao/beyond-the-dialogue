@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useApp } from '../../store'
-import type { Task } from '../../../../shared/types'
+import type { Task, TaskTypeDef } from '../../../../shared/types'
 import { allTypeConfigs, typeEmoji, typeLabel } from '../../lib/typeCatalog'
 
 // CommandPalette (⌘K) — spec app-layout v2: a global palette that fuses quick
@@ -127,20 +127,20 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       const open = snapshot.tasks.filter((t) => !t.completed && !t.deletedAt).slice(0, 50)
       const done = snapshot.tasks.filter((t) => t.completed && !t.deletedAt).slice(0, 20)
       for (const t of [...open, ...done]) {
-        out.push(taskToItem(t, snapshot.lists, selectTask, snapshot.settings))
+        out.push(taskToItem(t, snapshot.lists, selectTask, snapshot.taskTypes))
       }
     }
 
     // -- Types (built-in + custom from settings) --
-    for (const c of allTypeConfigs(snapshot?.settings)) {
+    for (const c of allTypeConfigs(snapshot?.taskTypes)) {
       out.push({
         kind: 'type',
         id: 'type-' + c.key,
         title: c.label,
-        sub: c.key + (c.isCustom ? ' · 自定义' : ' · 内置'),
+        sub: c.key + (c.isBuiltin ? ' · 内置' : ' · 自定义'),
         ico: c.emoji,
         run: () => {
-          notify(c.isCustom ? `类型「${c.label}」已存在` : `内置类型「${c.label}」`)
+          notify(c.isBuiltin ? `内置类型「${c.label}」` : `类型「${c.label}」已存在`)
         }
       })
     }
@@ -267,11 +267,11 @@ function taskToItem(
   t: Task,
   lists: { id: string; name: string }[],
   selectTask: (id: string | null) => void,
-  settings?: import('../../../../shared/types').Settings | null
+  types?: TaskTypeDef[] | null
 ): TaskItem {
   const list = lists.find((l) => l.id === t.listId)
-  const label = typeLabel(t, settings)
-  const ico = typeEmoji(t, settings)
+  const label = typeLabel(t, types)
+  const ico = typeEmoji(t, types)
   return {
     kind: 'task',
     id: 'task-' + t.id,

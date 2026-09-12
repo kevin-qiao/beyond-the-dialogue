@@ -140,7 +140,7 @@ export async function streamChat(
   const model = resolveModel(settings.provider, settings.model)
   if (!model) throw new Error(`no model available for provider ${settings.provider}`)
   await configureRuntimeFromSettings(settings)
-  const messages = history.map((m) => ({ role: m.role, content: m.content, timestamp: Date.now() }))
+  const messages = history.map((m) => ({ role: m.role, content: m.content, timestamp: Date.now() })) as never[]
   const stream = r.streamSimple(model, { messages }, { reasoning: 'low' })
   let text = ''
   for await (const ev of stream) {

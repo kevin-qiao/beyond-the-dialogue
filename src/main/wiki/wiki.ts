@@ -3,6 +3,8 @@ import * as path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { getTask, getPreprocess, getNotes, loadSettings } from '../db'
 import { defaultWikiPath } from '../paths'
+import { depositInto } from '../adapters/artifacts/deposit'
+import { slugify } from '../../core/domain/slug'
 import type { TaskPreprocess } from '../../shared/types'
 
 // LLM-WiKi integration: scaffolding, deposit-first safety net, .history
@@ -34,6 +36,12 @@ export function resolveWikiPath(configured: string): string {
   return defaultWikiPath()
 }
 
+// Wiki scaffolding, create-only. It creates `learning-notes/` because that
+// directory is part of the *wiki's* own shape — the wiki schema this function
+// writes into CLAUDE.md documents it, and the learning flow writes there by
+// default. Scaffolding is therefore scoped to the destination that is actually
+// a wiki: the folder store never calls this, so a meeting-minutes folder is
+// never restructured into a wiki (contracts/destination.md §3).
 export function ensureWikiDir(wikiPath: string): void {
   fs.mkdirSync(path.join(wikiPath, 'raw'), { recursive: true })
   fs.mkdirSync(path.join(wikiPath, 'wiki'), { recursive: true })
@@ -96,22 +104,10 @@ You have read/write/edit/grep/find/ls tools only — never run shell commands. W
 
 // ---- learning-note path helpers (design D5) ----
 
-// Kebab-case slug from a task title, safe as a filename. Falls back to the
-// task id fragment when the title has no usable characters.
-export function slugify(title: string, taskId?: string): string {
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60)
-    .replace(/-+$/g, '')
-  if (slug.length >= 2) return slug
-  return `note-${(taskId ?? '').slice(0, 8) || randomToken()}`
-}
-
-function randomToken(): string {
-  return Math.random().toString(36).slice(2, 10)
-}
+// Filename derivation now lives in the core domain (src/core/domain/slug.ts)
+// so the destination mechanism and the wiki share one implementation.
+// Re-exported here because this is where callers and tests have always found it.
+export { slugify }
 
 // Resolve the learning-note path for a task against the current wiki. The
 // stored value may be relative (normal case) or absolute (user typed it).
@@ -144,40 +140,22 @@ export function depositTask(db: DatabaseSync, taskId: string): DepositResult {
   const task = getTask(db, taskId)
   if (!task) throw new Error('task not found')
   const wikiPath = resolveWikiPath(loadSettings(db).wikiPath)
+  // Create-only scaffolding first: the deposit and the curating agent both
+  // need the wiki's structure (schema file, index, log) to exist.
   ensureWikiDir(wikiPath)
   const rawDir = path.join(wikiPath, 'raw', taskId)
-  fs.mkdirSync(rawDir, { recursive: true })
-  const files: string[] = []
 
   const note = getNotes(db, taskId)
-  if (note && note.content.trim()) {
-    const base = slugify(task.title, taskId)
-    let name = `${base}.md`
-    let n = 2
-    while (fs.existsSync(path.join(rawDir, name))) {
-      name = `${base}-${n}.md`
-      n++
-    }
-    fs.copyFileSync(note.notePath, path.join(rawDir, name))
-    files.push(name)
-  }
-
   const preprocess = getPreprocess(db, taskId)
-  if (preprocess) {
-    const summary = renderPreprocessSummary(task.title, preprocess)
-    const dest = path.join(rawDir, 'ai-summary.md')
-    fs.writeFileSync(dest, summary, 'utf-8')
-    files.push('ai-summary.md')
-  }
-
   const filePath = typeof task.inputs.filePath === 'string' ? task.inputs.filePath : ''
-  if (filePath && fs.existsSync(filePath)) {
-    const dest = path.join(rawDir, `attachment-${path.basename(filePath)}`)
-    fs.copyFileSync(filePath, dest)
-    files.push(path.basename(dest))
-  }
-
-  return { rawDir, files }
+  const result = depositInto(rawDir, {
+    taskId,
+    title: task.title,
+    content: note?.content ?? '',
+    summary: preprocess ? renderPreprocessSummary(task.title, preprocess) : undefined,
+    attachmentPath: filePath || undefined
+  })
+  return { rawDir: result.dir, files: result.files }
 }
 
 function renderPreprocessSummary(title: string, p: TaskPreprocess): string {
@@ -194,14 +172,35 @@ ${p.suggestions.map((s) => `- ${s}`).join('\n') || '(none)'}
 `
 }
 
+// Which directories the audit walk covers.
+//
+// `wiki/` always holds the agent's authored pages. The destination's own
+// subdir is added on top of it: the walk used to be the hardcoded pair
+// ['wiki','learning-notes'], which made ANY other destination directory
+// invisible to snapshot and diff. That failure mode is worse than an error —
+// every finish would still report success while the audit trail stayed
+// silently empty, and nothing would signal it.
+function auditDirs(destSubdir?: string): string[] {
+  const dirs = ['wiki']
+  const sub = (destSubdir ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  if (!sub) {
+    // Caller did not name a destination: keep the historical default so the
+    // wiki's own tests and the learning flow are unchanged.
+    dirs.push('learning-notes')
+  } else if (sub !== 'wiki' && !sub.startsWith('..') && !path.isAbsolute(sub)) {
+    dirs.push(sub)
+  }
+  return dirs
+}
+
 // Snapshot existing files before ingestion. Returns list of (path, backup).
-export function snapshotWikiFiles(wikiPath: string, filesToProtect: string[]): string[] {
+export function snapshotWikiFiles(wikiPath: string, filesToProtect: string[], destSubdir?: string): string[] {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const histDir = path.join(wikiPath, '.history', stamp)
   fs.mkdirSync(histDir, { recursive: true })
   const protectedFiles = filesToProtect.length
     ? filesToProtect
-    : listExistingWikiFiles(wikiPath)
+    : listExistingWikiFiles(wikiPath, destSubdir)
   const touched: string[] = []
   for (const rel of protectedFiles) {
     const src = path.join(wikiPath, rel)
@@ -214,7 +213,7 @@ export function snapshotWikiFiles(wikiPath: string, filesToProtect: string[]): s
   return touched
 }
 
-function listExistingWikiFiles(wikiPath: string): string[] {
+export function listExistingWikiFiles(wikiPath: string, destSubdir?: string): string[] {
   const out: string[] = []
   const walk = (dir: string, base: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -225,7 +224,7 @@ function listExistingWikiFiles(wikiPath: string): string[] {
       else out.push(rel)
     }
   }
-  for (const dirName of ['wiki', 'learning-notes']) {
+  for (const dirName of auditDirs(destSubdir)) {
     if (fs.existsSync(path.join(wikiPath, dirName))) walk(path.join(wikiPath, dirName), dirName)
   }
   if (fs.existsSync(path.join(wikiPath, 'index.md'))) out.push('index.md')
@@ -235,7 +234,7 @@ function listExistingWikiFiles(wikiPath: string): string[] {
 
 // Diff current wiki files against the most recent .history snapshot to report
 // which files the ingestion actually modified (or newly created).
-export function diffTouchedFiles(wikiPath: string): string[] {
+export function diffTouchedFiles(wikiPath: string, destSubdir?: string): string[] {
   const histDir = path.join(wikiPath, '.history')
   const stamps = fs.existsSync(histDir) ? fs.readdirSync(histDir).sort() : []
   if (stamps.length === 0) return []
@@ -251,7 +250,7 @@ export function diffTouchedFiles(wikiPath: string): string[] {
   }
   if (fs.existsSync(base)) walk(base, '')
   const touched: string[] = []
-  for (const rel of listExistingWikiFiles(wikiPath)) {
+  for (const rel of listExistingWikiFiles(wikiPath, destSubdir)) {
     const cur = path.join(wikiPath, rel)
     if (!fs.existsSync(cur)) continue
     const beforeContent = before.get(rel)

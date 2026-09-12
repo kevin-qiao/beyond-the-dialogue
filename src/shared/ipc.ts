@@ -31,6 +31,10 @@ export const IPC = {
   listModels: 'ai:list-models',
   listProviders: 'ai:list-providers',
   testConnection: 'ai:test-connection',
+  chooseFolder: 'dialog:choose-folder',
+  getProposals: 'remote:get-proposals',
+  confirmRemoteChange: 'remote:confirm',
+  dismissProposal: 'remote:dismiss',
   sendChat: 'chat:send',
   resetChat: 'chat:reset',
   dismissSuggestion: 'suggestions:dismiss',
@@ -42,7 +46,6 @@ export const IPC = {
   evJobProgress: 'ev:job-progress',
   evPreprocessUpdated: 'ev:preprocess-updated',
   evSuggestionsUpdated: 'ev:suggestions-updated',
-  evSnapshot: 'ev:snapshot',
   evToast: 'ev:toast',
   evSettingsUpdated: 'ev:settings-updated',
   evTypesUpdated: 'ev:types-updated',
@@ -51,8 +54,44 @@ export const IPC = {
   evChatDelta: 'ev:chat-delta',
   evChatDone: 'ev:chat-done',
   evChatError: 'ev:chat-error',
-  evOpenTask: 'ev:open-task'
+  evOpenTask: 'ev:open-task',
+  evProposals: 'ev:proposals'
 } as const
+
+// ---- Typed command and event maps (contracts/app-client.md §3) ----
+//
+// Payload shapes were previously asserted only where they were constructed:
+// `broadcast(event: string, payload: unknown)` accepted anything, and the
+// renderer's handler believed whatever arrived. A second host could then
+// silently disagree with the first about a payload — which is the failure the
+// web-host requirement makes load-bearing. Naming each payload once, keyed by
+// its channel, turns that into a compile error.
+
+/** A task update, or a tombstone for a deleted one. */
+export type TaskEvent = Task | { id: string; deleted: true }
+
+/**
+ * A remote change the assistant has proposed and is waiting for the user to
+ * confirm. It carries a plain-language summary AND the exact payload: the user
+ * is confirming a specific change, so they have to be able to see it
+ * (contracts/plugin-grants.md §4).
+ */
+export interface RemoteProposalView {
+  id: string
+  server: string
+  operation: string
+  target: string
+  summary: string
+  /** The literal JSON that would be sent, for inspection before confirming. */
+  payloadPreview: string
+  createdAt: string
+}
+
+export interface RemoteOutcomeView {
+  ok: boolean
+  detail?: string
+  error?: string
+}
 
 export interface JobProgressEvent {
   jobId: string
@@ -149,6 +188,7 @@ export interface RendererApi {
   runPreprocess: (args: { id: string }) => Promise<Task>
   finishTask: (args: { id: string }) => Promise<Task>
   chooseFile: () => Promise<string | null>
+  chooseFolder: () => Promise<string | null>
   importSkill: () => Promise<SkillEntry | null>
   saveNote: (args: SaveNoteArgs) => Promise<TaskNote>
   listTypes: () => Promise<TaskTypeDef[]>
@@ -166,6 +206,9 @@ export interface RendererApi {
   dismissSuggestion: (args: { suggestionId: string }) => Promise<Suggestion>
   getActivity: () => Promise<import('./types').IngestRecord[]>
   retryIngest: (args: { ingestId: string }) => Promise<void>
+  getProposals: () => Promise<RemoteProposalView[]>
+  confirmRemoteChange: (args: { proposalId: string }) => Promise<RemoteOutcomeView>
+  dismissProposal: (args: { proposalId: string }) => Promise<void>
   // subscriptions
   onTaskUpdated: (cb: (t: Task) => void) => () => void
   onListUpdated: (cb: (l: List) => void) => () => void
@@ -181,4 +224,67 @@ export interface RendererApi {
   onChatDone: (cb: (e: ChatDoneEvent) => void) => () => void
   onChatError: (cb: (e: ChatErrorEvent) => void) => () => void
   onOpenTask: (cb: (taskId: string) => void) => () => void
+  onProposals: (cb: (proposals: RemoteProposalView[]) => void) => () => void
+}
+
+/**
+ * Every event's payload, keyed by channel. The main process's `broadcast` is
+ * typed by this map; a payload that drifts from what the renderer expects is
+ * caught at compile time.
+ */
+export interface AppEvents {
+  [IPC.evTaskUpdated]: TaskEvent
+  [IPC.evListUpdated]: List | null
+  [IPC.evJobProgress]: JobProgressEvent
+  [IPC.evPreprocessUpdated]: TaskPreprocess
+  [IPC.evSuggestionsUpdated]: Suggestion[]
+  [IPC.evToast]: ToastPayload
+  [IPC.evSettingsUpdated]: Settings
+  [IPC.evTypesUpdated]: TaskTypeDef[]
+  [IPC.evIngestUpdated]: import('./types').IngestRecord
+  [IPC.evIngestProgress]: IngestProgressEvent
+  [IPC.evChatDelta]: ChatDeltaEvent
+  [IPC.evChatDone]: ChatDoneEvent
+  [IPC.evChatError]: ChatErrorEvent
+  [IPC.evOpenTask]: string
+  [IPC.evProposals]: RemoteProposalView[]
+}
+
+/** Every command's arguments and result, keyed by channel. */
+export interface AppCommands {
+  [IPC.getSnapshot]: { args: void; result: AppSnapshot }
+  [IPC.createList]: { args: CreateListArgs; result: List }
+  [IPC.renameList]: { args: { id: string; name: string }; result: List }
+  [IPC.deleteList]: { args: { id: string }; result: void }
+  [IPC.createTask]: { args: CreateTaskArgs; result: Task }
+  [IPC.updateTask]: { args: UpdateTaskArgs; result: Task }
+  [IPC.deleteTask]: { args: { id: string }; result: void }
+  [IPC.toggleTask]: { args: { id: string }; result: Task }
+  [IPC.setMyDay]: { args: { id: string; inMyDay: boolean }; result: Task }
+  [IPC.setTaskDone]: { args: { id: string; done: boolean }; result: Task }
+  [IPC.setAlarm]: { args: SetAlarmArgs; result: Task }
+  [IPC.runPreprocess]: { args: { id: string }; result: Task }
+  [IPC.finishTask]: { args: { id: string }; result: Task }
+  [IPC.chooseFile]: { args: void; result: string | null }
+  [IPC.chooseFolder]: { args: void; result: string | null }
+  [IPC.importSkill]: { args: void; result: SkillEntry | null }
+  [IPC.saveNote]: { args: SaveNoteArgs; result: TaskNote }
+  [IPC.listTypes]: { args: void; result: TaskTypeDef[] }
+  [IPC.saveType]: { args: SaveTypeArgs; result: TaskTypeDef }
+  [IPC.deleteType]: { args: { key: string }; result: void }
+  [IPC.retryJob]: { args: { jobId: string }; result: void }
+  [IPC.cancelJob]: { args: { jobId: string }; result: void }
+  [IPC.getSettings]: { args: void; result: Settings }
+  [IPC.saveSettings]: { args: SaveSettingsArgs; result: Settings }
+  [IPC.listModels]: { args: string; result: string[] }
+  [IPC.listProviders]: { args: void; result: string[] }
+  [IPC.testConnection]: { args: Settings; result: { ok: boolean; text?: string; error?: string } }
+  [IPC.sendChat]: { args: SendChatArgs; result: void }
+  [IPC.resetChat]: { args: void; result: void }
+  [IPC.dismissSuggestion]: { args: { suggestionId: string }; result: Suggestion }
+  [IPC.getActivity]: { args: void; result: import('./types').IngestRecord[] }
+  [IPC.retryIngest]: { args: { ingestId: string }; result: void }
+  [IPC.getProposals]: { args: void; result: RemoteProposalView[] }
+  [IPC.confirmRemoteChange]: { args: { proposalId: string }; result: RemoteOutcomeView }
+  [IPC.dismissProposal]: { args: { proposalId: string }; result: void }
 }

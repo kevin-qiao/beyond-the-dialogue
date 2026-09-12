@@ -1,5 +1,6 @@
 import type { Settings, Task, TaskKind } from '../../shared/types'
 import { isConfigured } from './ai-config'
+import { hasPreprocess } from '../../core/domain/preprocess'
 
 // Job trigger rules for the IPC handlers in index.ts. Kept pure and free of
 // Electron/JobQueue imports so the decoupling semantics are unit-testable:
@@ -16,7 +17,9 @@ export function shouldSuggestOnMyDayAdd(before: Task | null, inMyDay: boolean): 
 // Pre-process fires on first add to My Day for AI-kinded types when the AI
 // is configured (spec task-types: per-type AI pre-processing).
 export function shouldPreprocessOnAdd(before: Task | null, inMyDay: boolean, kind: TaskKind, settings: Settings): boolean {
-  return shouldSuggestOnMyDayAdd(before, inMyDay) && kind !== 'plain' && isConfigured(settings)
+  // Which categories pre-process is a property of the category registry, not a
+  // comparison against `plain` (contracts/type-definition.md).
+  return shouldSuggestOnMyDayAdd(before, inMyDay) && hasPreprocess(kind) && isConfigured(settings)
 }
 
 // Re-run when a task's relevant inputs change while it sits in My Day
@@ -31,7 +34,7 @@ export function shouldPreprocessOnEdit(
   newHash: string,
   consumedHash: string
 ): boolean {
-  if (kind === 'plain' || !isConfigured(settings)) return false
+  if (!hasPreprocess(kind) || !isConfigured(settings)) return false
   if (!task.inMyDay || task.completed) return false
   if (task.preprocessStatus === 'queued' || task.preprocessStatus === 'running') return false
   return newHash !== consumedHash

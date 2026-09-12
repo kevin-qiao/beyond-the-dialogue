@@ -14,7 +14,10 @@ const FALLBACK_PLAIN: TaskTypeDef = {
   label: 'Plain task',
   emoji: '📝',
   inputSchema: [],
-  isBuiltin: true
+  isBuiltin: true,
+  // A plain task finishes locally and writes nothing.
+  finishBehaviour: 'complete-only',
+  grants: { skills: [], toolServers: [] }
 }
 
 export function allTypeConfigs(types?: TaskTypeDef[] | null): TaskTypeDef[] {
@@ -25,7 +28,7 @@ export function getTypeConfig(key: string | null | undefined, types?: TaskTypeDe
   if (!key) return FALLBACK_PLAIN
   const found = allTypeConfigs(types).find((c) => c.key === key)
   if (found) return found
-  return { key, kind: 'plain', label: key, emoji: '📌', inputSchema: [], isBuiltin: false }
+  return { key, kind: 'plain', label: key, emoji: '📌', inputSchema: [], isBuiltin: false, finishBehaviour: 'complete-only', grants: { skills: [], toolServers: [] } }
 }
 
 // Effective type for a task: customTypeKey wins when the referenced type

@@ -17,8 +17,20 @@ export function userDataDir(): string {
   return app.getPath('userData')
 }
 
+// The database FILENAME is declared once here. `openDB` used to join
+// 'app.db' itself while this function computed the same value independently —
+// the same path derived in two places, which Principle VI forbids and which
+// drifts the moment either side changes.
+export const DB_FILENAME = 'app.db'
+
+/** The database path for a given data directory. */
+export function dbPathIn(dataDir: string): string {
+  return path.join(dataDir, DB_FILENAME)
+}
+
+/** The database path under the app's user data root. */
 export function appDbPath(): string {
-  return path.join(userDataDir(), 'app.db')
+  return dbPathIn(userDataDir())
 }
 
 export function settingsPath(): string {
@@ -51,4 +63,11 @@ export function skillsDir(): string {
 
 export function defaultWikiPath(): string {
   return path.join(os.homedir(), 'Documents', 'WorkBoard-Wiki')
+}
+
+// The default destination for the Meeting type's minutes: a plain folder under
+// the user's documents, mirroring how the wiki location already defaults. The
+// user can re-point it per type in Settings; this is only the initial value.
+export function defaultMeetingMinutesPath(): string {
+  return path.join(os.homedir(), 'Documents', 'WorkBoard-Meeting-Minutes')
 }

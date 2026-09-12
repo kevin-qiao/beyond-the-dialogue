@@ -11,7 +11,7 @@ import type { SkillEntry } from '../shared/types'
 
 function parseFrontmatter(raw: string): { name?: string; description?: string } {
   const m = /^---\s*\n([\s\S]*?)\n---/.exec(raw)
-  if (!m) return {}
+  if (!m || m[1] === undefined) return {}
   const out: { name?: string; description?: string } = {}
   for (const line of m[1].split('\n')) {
     const idx = line.indexOf(':')

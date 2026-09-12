@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import type { CreateTaskArgs, JobProgressEvent, ToastPayload, UpdateTaskArgs } from '../../shared/ipc'
+import type { CreateTaskArgs, JobProgressEvent, RemoteOutcomeView, RemoteProposalView, ToastPayload, UpdateTaskArgs } from '../../shared/ipc'
 import type { AppSnapshot, ChatMessage, IngestRecord, List, Settings, Suggestion, Task, TaskTypeDef } from '../../shared/types'
 
 interface AppState {
@@ -57,6 +57,9 @@ interface AppContextValue extends AppState {
   saveSettings: (s: Settings) => Promise<Settings>
   dismissSuggestion: (suggestionId: string) => Promise<Suggestion>
   retryIngest: (ingestId: string) => Promise<void>
+  proposals: RemoteProposalView[]
+  confirmRemoteChange: (proposalId: string) => Promise<RemoteOutcomeView>
+  dismissProposal: (proposalId: string) => Promise<void>
   taskById: (id: string) => Task | undefined
   tasksForList: (listId: string) => Task[]
   myDayTasks: Task[]
@@ -68,6 +71,9 @@ const AppCtx = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null)
+  // Pending remote-change proposals. Held outside the snapshot: they are
+  // per-session working state, not persisted configuration.
+  const [proposals, setProposals] = useState<RemoteProposalView[]>([])
   const [loading, setLoading] = useState(true)
   const [activeView, setActiveViewRaw] = useState<View>('my-day')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
@@ -180,6 +186,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       })
     })
+    const offProposals = window.api.onProposals((p) => setProposals(p))
     const offIngestProgress = window.api.onIngestProgress((e) => {
       setIngestSteps((prev) => ({ ...prev, [e.ingestId]: e.stepLabel }))
     })
@@ -209,6 +216,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       offTypes()
       offToast()
       offIngest()
+      offProposals()
       offIngestProgress()
       offChatDelta()
       offChatDone()
@@ -344,10 +352,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return s
       },
       retryIngest: (ingestId) => window.api.retryIngest({ ingestId }),
+      confirmRemoteChange: (proposalId) => window.api.confirmRemoteChange({ proposalId }),
+      dismissProposal: (proposalId) => window.api.dismissProposal({ proposalId }),
       taskById: (id) => snap?.tasks.find((t) => t.id === id),
       tasksForList: (listId) => (snap?.tasks ?? []).filter((t) => t.listId === listId),
       myDayTasks: (snap?.tasks ?? []).filter((t) => t.inMyDay),
       activity: snap?.ingestHistory ?? [],
+      proposals,
       types: snap?.taskTypes ?? [],
       query,
       setQuery,

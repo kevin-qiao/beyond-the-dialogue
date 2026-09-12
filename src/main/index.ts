@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, Notification } from 'electro
 import { AlarmScheduler } from './alarms'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -9,13 +10,11 @@ import { openDB, migrate, loadSettings, saveSettings, type DB } from './db'
 import { ensureVault, writeNote } from './wiki/vault'
 import {
   serviceCreateList,
-  serviceCreateTask,
   serviceDeleteList,
   serviceDeleteTask,
   serviceListForList,
   serviceLists,
   serviceRenameList,
-  serviceSetMyDay,
   serviceToggleTask,
   serviceUpdateTask,
   rolloverMyDay
@@ -26,15 +25,29 @@ import { runPreprocessJob } from './preprocess'
 import { runIngestJob } from './wiki/ingest'
 import { configureRuntimeFromSettings, isConfigured, listModelsForProvider, listProviders, testPrompt } from './ai/agent-runtime'
 import { ChatSession } from './ai/chat'
-import { shouldSuggestOnMyDayAdd, shouldPreprocessOnAdd, shouldPreprocessOnEdit } from './ai/triggers'
 import { getPreprocess, getNotes, listIngest, listSuggestions, listAllSuggestions, getTask, saveNotes, dismissSuggestion, getJob, updateTask } from './db'
 import { notePathFor } from './wiki/vault'
-import { resolveWikiPath, resolveLearningNotePath } from './wiki/wiki'
-import { createTypeDef, deleteTypeDef, effectiveKind, effectiveTypeDef, getTypeDef, hasUnfilledRequiredInputs, listTypeDefs, preprocessInputHash, updateTypeDef, validateInputsForWrite } from './types'
-import { validatePluginEntries } from './plugins'
+import { resolveWikiPath } from './wiki/wiki'
+import { createTypeDef, deleteTypeDef, effectiveKind, effectiveTypeDef, getTypeDef, listTypeDefs, updateTypeDef } from './types'
 import { importSkillFolder } from './skills'
-import { IPC } from '../shared/ipc'
+import { IPC, type AppEvents } from '../shared/ipc'
 import type { AppSnapshot, Settings, Task, TaskTypeDef } from '../shared/types'
+import type { RemoteProposalView } from '../shared/ipc'
+import { finishTask as runFinishTask, type FinishDeps } from '../core/services/finishService'
+import { declaredWorkflow } from '../core/domain/taskType'
+import { saveSettings as saveSettingsService } from '../core/services/settingsService'
+import { buildSessionContext, createProposalQueue } from '../core/domain/grant'
+import {
+  createTask as createTaskService,
+  setMyDay as setMyDayService,
+  updateTask as updateTaskService
+} from '../core/services/taskService'
+import { createSqliteStorage } from './adapters/sqlite/storageAdapter'
+import { createAgentSessionAdapter } from './adapters/agent/sessionAdapter'
+import { createNotifier } from './adapters/notifier'
+import { artifactStoreFor } from './adapters/artifacts'
+import { nodePathPort } from './adapters/paths'
+import { systemClock } from '../core/ports/clock'
 
 let mainWindow: BrowserWindow | null = null
 let db: DB | null = null
@@ -69,14 +82,28 @@ function raiseAlarmNotification(fire: { taskId: string; title: string }): void {
 // Per-kind chat grounding (spec learning-type / jira-confluence-type):
 // learning = working prompt + inputs + current note; jira = pasted source +
 // pre-process summaries. Built fresh on each send; never persisted.
+//
+// THE EGRESS BOUNDARY. Once a type has been granted external reach, this
+// session can echo onward whatever it can see — so the full context stops
+// being built for it (FR-029, contracts/plugin-grants.md §3). Filtering at the
+// tool boundary would be too late: the content would already be in the prompt.
 function buildChatContext(d: DatabaseSync, taskId: string): string | undefined {
   const task = getTask(d, taskId)
   if (!task) return undefined
   const def = effectiveTypeDef(d, task)
+  return buildSessionContext({
+    task,
+    typeDef: def,
+    purpose: 'interactive',
+    fullContext: () => fullChatContext(d, task, def)
+  })
+}
+
+function fullChatContext(d: DatabaseSync, task: Task, def: TaskTypeDef | null): string | undefined {
   const kind = def?.kind ?? 'plain'
   if (kind === 'plain') return undefined
-  const pp = getPreprocess(d, taskId)
-  const note = getNotes(d, taskId)
+  const pp = getPreprocess(d, task.id)
+  const note = getNotes(d, task.id)
   const lines = [
     `Task: ${task.title}`,
     task.notes ? `Description: ${task.notes}` : '',
@@ -118,7 +145,10 @@ function buildSnapshot(): AppSnapshot {
   }
 }
 
-function broadcast(event: string, payload: unknown): void {
+// Typed by the event contract (src/shared/ipc.ts): the payload for a channel
+// is whatever AppEvents says it is, so an implementation cannot satisfy a name
+// with the wrong shape.
+function broadcast<K extends keyof AppEvents>(event: K, payload: AppEvents[K]): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(event, payload)
   }
@@ -175,9 +205,94 @@ function wireJobEvents(q: JobQueue): void {
   })
 }
 
+// Broadcast a task's new state, or nothing when it has since been deleted —
+// the renderer's handler reads the payload, and a null would throw there rather
+// than here.
+function broadcastTask(taskId: string): void {
+  const t = getTask(db!.db, taskId)
+  if (t) broadcast(IPC.evTaskUpdated, t)
+}
+
+// The behaviour a task's type declares, or null when it declares none.
+function declaredBehaviourForTask(d: DatabaseSync, task: Task): string | null {
+  const def = defFor(d, task.type, task.customTypeKey)
+  if (!def) return null
+  try {
+    return declaredWorkflow(def).finishBehaviour
+  } catch {
+    return null
+  }
+}
+
+// Broadcast the newest activity record for a task. The renderer merges by id,
+// so a null payload would be worse than no event at all — only a real record
+// is sent.
+function broadcastActivityFor(taskId: string): void {
+  const rec = listIngest(db!.db).find((r) => r.taskId === taskId)
+  if (rec) broadcast(IPC.evIngestUpdated, rec)
+}
+
+// The pending remote-change proposals (contracts/plugin-grants.md §4).
+//
+// In-memory: a proposal the user never confirmed is working state, not durable
+// configuration, and a change that was never made leaving nothing behind is the
+// safe direction. The MUTATOR is the only thing that can talk to a remote
+// system, and it is reachable only from here — never from the model's tool
+// surface.
+const proposals = createProposalQueue(systemClock, () => randomUUID())
+
+function proposalViews(): RemoteProposalView[] {
+  return proposals.list().map((p) => ({
+    id: p.id,
+    server: p.server,
+    operation: p.operation,
+    target: p.target,
+    summary: p.summary,
+    payloadPreview: JSON.stringify(p.payload, null, 2),
+    createdAt: p.createdAt
+  }))
+}
+
+function broadcastProposals(): void {
+  broadcast(IPC.evProposals, proposalViews())
+}
+
 // Resolve the effective type def for a task about to be created/edited.
 function defFor(db: DatabaseSync, type: Task['type'] | undefined, customTypeKey: string | null | undefined): TaskTypeDef | null {
   return effectiveTypeDef(db, { type: type ?? 'plain', customTypeKey: customTypeKey ?? null })
+}
+
+// Adapters + services for a finish. Built per call so the store factory and the
+// wiki root always reflect the current settings.
+function finishDeps(): FinishDeps {
+  const d = db!.db
+  return {
+    paths: nodePathPort,
+    storage: createSqliteStorage(d),
+    storeFor: artifactStoreFor(resolveWikiPath(loadSettings(d).wikiPath)),
+    session: createAgentSessionAdapter(() => loadSettings(d)),
+    clock: systemClock,
+    notifier: createNotifier({
+      toast: (message, opts) => broadcast(IPC.evToast, { message, view: opts?.view }),
+      progress: (stepLabel, progress) =>
+        broadcast(IPC.evJobProgress, {
+          jobId: 'finish',
+          kind: 'ingest',
+          taskId: null,
+          state: 'running',
+          stepLabel: progress ? `${stepLabel} — ${progress}` : stepLabel,
+          error: null
+        })
+    }),
+    wikiRoot: () => resolveWikiPath(loadSettings(d).wikiPath),
+    taskTargetOverride: (task) =>
+      typeof task.inputs.learningNotePath === 'string' ? task.inputs.learningNotePath : undefined,
+    // deposit-then-curate hands the long-running curating agent to the queue,
+    // which owns the activity record for that behaviour.
+    enqueueCurate: (task) => {
+      queue!.enqueueIngest(task.id, task.title, [])
+    }
+  }
 }
 
 function registerIpc(): void {
@@ -200,58 +315,24 @@ function registerIpc(): void {
     return undefined
   })
   ipcMain.handle(IPC.createTask, (_e, args) => {
-    const def = defFor(d(), args.type, args.customTypeKey ?? null)
-    const inputs = args.inputs ?? {}
-    if (def) {
-      const v = validateInputsForWrite(def, inputs, {})
-      if (!v.ok) throw new Error(v.errors.join('; '))
-    }
-    const task = serviceCreateTask(d(), {
+    const task = createTaskService(createSqliteStorage(d()), {
       listId: args.listId,
       title: args.title,
       notes: args.notes,
       type: args.type,
       customTypeKey: args.customTypeKey ?? null,
-      inputs
+      inputs: args.inputs ?? {}
     })
     broadcast(IPC.evTaskUpdated, task)
     return task
   })
   ipcMain.handle(IPC.updateTask, (_e, args) => {
-    const before = getTask(d(), args.id)
-    if (!before) throw new Error('task not found')
-    const patch: Partial<Task> = { title: args.title, notes: args.notes }
-    const typeChanged = (args.type !== undefined && args.type !== before.type) || (args.customTypeKey !== undefined && (args.customTypeKey ?? null) !== before.customTypeKey)
-    if (args.type !== undefined) patch.type = args.type
-    if (args.customTypeKey !== undefined) patch.customTypeKey = args.customTypeKey ?? null
-    if (typeChanged) {
-      // Switching type discards inputs not present in the new type (spec).
-      // We clear all inputs; the renderer re-collects what carries over.
-      patch.inputs = {}
-    } else if (args.inputs !== undefined) {
-      const def = defFor(d(), before.type, before.customTypeKey)
-      if (def) {
-        const v = validateInputsForWrite(def, args.inputs, before.inputs)
-        if (!v.ok) throw new Error(v.errors.join('; '))
-      }
-      patch.inputs = args.inputs
-    }
-    let task = serviceUpdateTask(d(), args.id, patch)
-    // Hash-gated pre-process re-run: relevant inputs changed while the task
-    // sits in My Day (design D3). Skipped when the type itself changed (the
-    // stale outputs belong to the old kind; My Day re-add re-runs fresh).
-    if (!typeChanged && (args.inputs !== undefined || args.title !== undefined || args.notes !== undefined)) {
-      const kind = effectiveKind(d(), task)
-      const def = defFor(d(), task.type, task.customTypeKey)
-      const newHash = preprocessInputHash(task, def)
-      const consumed = getPreprocess(d(), task.id)?.inputsHash ?? ''
-      if (shouldPreprocessOnEdit(task, kind, loadSettings(d()), newHash, consumed)) {
-        task = updateTask(d(), task.id, { preprocessStatus: 'queued', preprocessError: null })
-        queue!.enqueue('preprocess', task.id)
-      }
-    }
-    broadcast(IPC.evTaskUpdated, task)
-    return task
+    // The routing rules live in the service; this handler only reports the
+    // result and performs the background work the service asked for.
+    const outcome = updateTaskService(createSqliteStorage(d()), args, loadSettings(d()))
+    for (const work of outcome.enqueue) queue!.enqueue(work, outcome.task.id)
+    broadcast(IPC.evTaskUpdated, outcome.task)
+    return outcome.task
   })
   ipcMain.handle(IPC.runPreprocess, (_e, args) => {
     const t = getTask(d(), args.id)
@@ -277,22 +358,10 @@ function registerIpc(): void {
     return task
   })
   ipcMain.handle(IPC.setMyDay, (_e, args) => {
-    const before = getTask(d(), args.id)
-    let task = serviceSetMyDay(d(), args.id, args.inMyDay)
-    // My Day is planning-only: first add fires the suggestion chips for
-    // plain tasks, or the kind's pre-process for AI-kinded types (whose
-    // activity suggestions land as chips from the pre-process output —
-    // design D3 folds them in, so the two jobs never both run).
-    const kind = effectiveKind(d(), task)
-    if (shouldSuggestOnMyDayAdd(before, args.inMyDay) && kind === 'plain') {
-      queue!.enqueue('suggestion', task.id)
-    }
-    if (shouldPreprocessOnAdd(before, args.inMyDay, kind, loadSettings(d()))) {
-      task = updateTask(d(), task.id, { preprocessStatus: 'queued', preprocessError: null })
-      queue!.enqueue('preprocess', task.id)
-    }
-    broadcast(IPC.evTaskUpdated, task)
-    return task
+    const outcome = setMyDayService(createSqliteStorage(d()), args.id, args.inMyDay, loadSettings(d()))
+    for (const work of outcome.enqueue) queue!.enqueue(work, outcome.task.id)
+    broadcast(IPC.evTaskUpdated, outcome.task)
+    return outcome.task
   })
   ipcMain.handle(IPC.setTaskDone, (_e, args) => {
     const task = serviceUpdateTask(d(), args.id, {
@@ -315,43 +384,42 @@ function registerIpc(): void {
     ensureVault()
     writeNote(args.taskId, args.content)
     const notes = saveNotes(d(), { taskId: args.taskId, notePath: notePathFor(args.taskId), content: args.content })
-    broadcast(IPC.evTaskUpdated, getTask(d(), args.taskId))
+    broadcastTask(args.taskId)
     return notes
   })
-  ipcMain.handle(IPC.finishTask, (_e, args) => {
-    const t = getTask(d(), args.id)
-    if (!t) throw new Error('task not found')
-    // Finish gating: required inputs of the effective type must be filled
-    // (spec task-types: required input gates finish).
-    const def = defFor(d(), t.type, t.customTypeKey)
-    if (def) {
-      const missing = hasUnfilledRequiredInputs(def, t.inputs)
-      if (missing.length > 0) {
-        throw new Error(`cannot finish: missing required input(s): ${missing.map((f) => f.label).join(', ')}`)
-      }
+  ipcMain.handle(IPC.finishTask, async (_e, args) => {
+    // Finish is dispatched on the type's DECLARED behaviour, not on a hardcoded
+    // category comparison (contracts/finish-behaviours.md). The service
+    // validates and confines before anything is marked complete, so a bad
+    // destination or a missing input is reported while the task is still
+    // actionable.
+    const stepKey = `finish:${args.id}`
+    try {
+      const outcome = await runFinishTask(finishDeps(), args.id)
+      broadcast(IPC.evJobProgress, {
+        jobId: stepKey,
+        kind: 'ingest',
+        taskId: args.id,
+        state: 'done',
+        stepLabel: null,
+        error: null
+      })
+      rescheduleAlarms()
+      broadcast(IPC.evTaskUpdated, outcome.task)
+      broadcastActivityFor(args.id)
+      return outcome.task
+    } catch (e: any) {
+      broadcast(IPC.evJobProgress, {
+        jobId: stepKey,
+        kind: 'ingest',
+        taskId: args.id,
+        state: 'failed',
+        stepLabel: null,
+        error: e?.message ?? String(e)
+      })
+      broadcastActivityFor(args.id)
+      throw e
     }
-    // A learning-note path that no longer resolves under the current wiki
-    // (wiki moved?) is surfaced, never silently mis-saved (spec learning-type).
-    if (typeof t.inputs.learningNotePath === 'string' && t.inputs.learningNotePath.trim()) {
-      const wikiPath = resolveWikiPath(loadSettings(d()).wikiPath)
-      const resolved = resolveLearningNotePath(wikiPath, t.inputs.learningNotePath, t.title, t.id)
-      if (!resolved.insideWiki) {
-        throw new Error(`learning-note path "${t.inputs.learningNotePath}" is outside the current wiki — re-point it in the task inputs`)
-      }
-    }
-    // Mark completed and hand off to ingestion immediately.
-    const now = new Date().toISOString()
-    const task = updateTask(d(), args.id, { completed: true, completedAt: now, alarmAt: null })
-    // Finish behavior is kind-specific (spec learning-type / jira-confluence-type):
-    // learning deposits the note and auto-ingests; jira kinds finish locally
-    // only (no remote write, no wiki ingestion in v0.8).
-    if (effectiveKind(d(), task) === 'learning') {
-      queue!.enqueueIngest(args.id, task.title, [])
-      broadcast(IPC.evToast, { message: 'Task finished — wiki ingestion started', view: 'activity' })
-    }
-    rescheduleAlarms()
-    broadcast(IPC.evTaskUpdated, task)
-    return task
   })
   ipcMain.handle(IPC.chooseFile, async () => {
     const res = await dialog.showOpenDialog(mainWindow!, {
@@ -361,10 +429,15 @@ function registerIpc(): void {
     if (res.canceled || res.filePaths.length === 0) return null
     return res.filePaths[0]
   })
+  ipcMain.handle(IPC.chooseFolder, async () => {
+    const res = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory', 'createDirectory'] })
+    if (res.canceled || res.filePaths.length === 0) return null
+    return res.filePaths[0]!
+  })
   ipcMain.handle(IPC.importSkill, async () => {
     const res = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory'] })
     if (res.canceled || res.filePaths.length === 0) return null
-    return importSkillFolder(res.filePaths[0])
+    return importSkillFolder(res.filePaths[0]!)
   })
   ipcMain.handle(IPC.listTypes, () => listTypeDefs(d()))
   ipcMain.handle(IPC.saveType, (_e, args) => {
@@ -395,16 +468,11 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.getSettings, () => loadSettings(d()))
   ipcMain.handle(IPC.saveSettings, async (_e, args: { settings: Settings }) => {
-    // Managed plugin entries are validated before persistence (spec
-    // skills-mcp-settings: duplicate names and malformed transports refuse).
-    const pluginErrors = validatePluginEntries(args.settings)
-    if (pluginErrors.length > 0) throw new Error(pluginErrors.join('; '))
-    // Configuring an API key counts as completing first-run setup.
-    const s = args.settings.apiKey ? { ...args.settings, showWelcome: false } : args.settings
-    saveSettings(d(), s)
-    await configureRuntimeFromSettings(s)
-    broadcast(IPC.evSettingsUpdated, s)
-    return loadSettings(d())
+    // The validation and the first-run rule live in the service.
+    const saved = saveSettingsService(createSqliteStorage(d()), args.settings)
+    await configureRuntimeFromSettings(saved)
+    broadcast(IPC.evSettingsUpdated, saved)
+    return saved
   })
   ipcMain.handle(IPC.listModels, (_e, provider: string) => listModelsForProvider(provider))
   ipcMain.handle(IPC.listProviders, () => listProviders())
@@ -433,9 +501,44 @@ function registerIpc(): void {
     broadcast(IPC.evSuggestionsUpdated, listSuggestions(d(), s.taskId))
     return s
   })
+  ipcMain.handle(IPC.getProposals, () => proposalViews())
+  ipcMain.handle(IPC.confirmRemoteChange, async (_e, args: { proposalId: string }) => {
+    // The remote transport is deferred (research R7a), so there is nothing that
+    // can actually reach an external system. That is reported as a failure —
+    // never as a success (FR-024).
+    const outcome = await proposals.confirm(args.proposalId, {
+      apply: async () => ({
+        ok: false,
+        error: 'no tool-server transport is connected in this version (see research R7a) — the change was not sent'
+      })
+    })
+    broadcastProposals()
+    if (!outcome.ok) broadcast(IPC.evToast, { message: outcome.error, view: 'activity' })
+    return outcome
+  })
+  ipcMain.handle(IPC.dismissProposal, (_e, args: { proposalId: string }) => {
+    proposals.dismiss(args.proposalId)
+    broadcastProposals()
+    return undefined
+  })
   ipcMain.handle(IPC.getActivity, () => listIngest(d()))
-  ipcMain.handle(IPC.retryIngest, (_e, args) => {
-    queue!.retryIngest(args.ingestId)
+  ipcMain.handle(IPC.retryIngest, async (_e, args) => {
+    // Retry means "try that finish again", and what that takes depends on the
+    // type's declared behaviour: a deposit-then-curate finish has a background
+    // curating job to re-queue, while an inline behaviour just runs again. The
+    // user's work is already on disk either way, so nothing is retyped (FR-027).
+    const rec = listIngest(d()).find((r) => r.id === args.ingestId)
+    const task = rec ? getTask(d(), rec.taskId) : null
+    const behaviour = task ? declaredBehaviourForTask(d(), task) : null
+    if (behaviour === 'deposit-then-curate') {
+      queue!.retryIngest(args.ingestId)
+      return undefined
+    }
+    if (task) {
+      await runFinishTask(finishDeps(), task.id)
+      broadcastActivityFor(task.id)
+      broadcastTask(task.id)
+    }
     return undefined
   })
 }
@@ -463,7 +566,9 @@ app.whenReady().then(async () => {
   // The UI is fully custom — no default menu bar (File/Edit/View/Window).
   Menu.setApplicationMenu(null)
 
-  const d = openDB(app.getPath('userData'))
+  // No argument: the data root resolves through the portability seam
+  // (`paths.userDataDir()`), not through a direct Electron call here.
+  const d = openDB()
   db = d
   migrate(d.db)
   ensureVault()

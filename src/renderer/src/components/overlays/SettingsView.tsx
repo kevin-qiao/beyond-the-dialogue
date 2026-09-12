@@ -1,10 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../../store'
-import type { McpServerEntry, Settings, SkillEntry, TaskKind, TaskTypeDef } from '../../../../shared/types'
+import type { Destination, DestinationStore, FinishBehaviour, McpServerEntry, Settings, SkillEntry, TaskKind, TaskTypeDef } from '../../../../shared/types'
+import { FINISH_BEHAVIOURS } from '../../../../core/domain/categories'
+import { describeDestination } from '../../../../core/domain/destination'
 import { allTypeConfigs } from '../../lib/typeCatalog'
 import { useDialog } from '../ui/Dialog'
 
 const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
+
+// The behaviour a brand-new type starts on: writes nothing, needs no
+// destination, so a half-filled form can always be saved.
+const DEFAULT_FINISH_BEHAVIOUR: FinishBehaviour = 'complete-only'
+
+// Plain-language descriptions of the closed set of four (FR-014). A user
+// choosing a behaviour is choosing what happens to their work, so the list
+// says what each one does rather than naming it and stopping.
+const FINISH_BEHAVIOUR_LABELS: Record<FinishBehaviour, string> = {
+  'complete-only': 'Complete only — writes nothing',
+  'file-as-is': 'File as-is — saves your content unchanged',
+  'polish-then-file': 'Polish then file — the assistant rewrites it, then saves',
+  'deposit-then-curate': 'Deposit then curate — raw material preserved first, then the assistant authors the artifact'
+}
 
 type Tab = 'general' | 'types' | 'plugins' | 'ai'
 
@@ -538,6 +554,7 @@ function TypeEditorModal({
   onSave: (cfg: TaskTypeDef) => Promise<void>
   onClose: () => void
 }) {
+  const { snapshot } = useApp()
   const isBuiltinEdit = mode === 'edit' && !!existing?.isBuiltin
   const [key, setKey] = useState(existing?.key ?? '')
   const [kind, setKind] = useState<TaskKind>(existing?.kind ?? 'learning')
@@ -545,7 +562,20 @@ function TypeEditorModal({
   const [emoji, setEmoji] = useState(existing?.emoji ?? '📌')
   const [description, setDescription] = useState(existing?.description ?? '')
   const [aiGuidance, setAiGuidance] = useState(existing?.aiGuidance ?? '')
+  // The declared workflow. A built-in's behaviour is immutable (FR-017), so
+  // for those the value is displayed rather than chosen.
+  const [finishBehaviour, setFinishBehaviour] = useState<FinishBehaviour>(
+    existing?.finishBehaviour ?? DEFAULT_FINISH_BEHAVIOUR
+  )
+  const [destStore, setDestStore] = useState<DestinationStore>(existing?.destination?.store ?? 'folder')
+  const [destRoot, setDestRoot] = useState(existing?.destination?.rootPath ?? '')
+  const [destSubdir, setDestSubdir] = useState(existing?.destination?.subdir ?? '')
+  const [grantSkills, setGrantSkills] = useState<Set<string>>(new Set(existing?.grants?.skills ?? []))
+  const [grantServers, setGrantServers] = useState<Set<string>>(new Set(existing?.grants?.toolServers ?? []))
   const supported = kindSchema(kind)
+  const behaviourWrites = (existing?.isBuiltin ? existing.finishBehaviour : finishBehaviour) !== 'complete-only'
+  const skillsForGrants = snapshot?.settings.skills ?? []
+  const serversForGrants = snapshot?.settings.mcpServers ?? []
   const [fieldKeys, setFieldKeys] = useState<Set<string>>(
     new Set(existing && !existing.isBuiltin ? existing.inputSchema.map((f) => f.key) : supported.map((f) => f.key))
   )
@@ -561,6 +591,21 @@ function TypeEditorModal({
     if (!label.trim()) return setError('Label is required')
     if (!emoji.trim()) return setError('Emoji is required')
     const inputSchema = existing?.isBuiltin ? existing.inputSchema : supported.filter((f) => fieldKeys.has(f.key))
+
+    // A built-in's behaviour is fixed; its destination is a setting the user
+    // owns (FR-004) and stays editable.
+    const behaviour = existing?.isBuiltin ? existing.finishBehaviour : finishBehaviour
+    const writes = behaviour !== 'complete-only'
+    if (writes && destStore === 'folder' && !destRoot.trim()) {
+      return setError('This behaviour writes a file, so it needs a destination folder')
+    }
+    if (writes && destStore === 'folder' && destSubdir.trim().split(/[\\/]/).includes('..')) {
+      return setError('The subfolder must be relative and must not contain ".."')
+    }
+    const destination: Destination | undefined = writes
+      ? { store: destStore, rootPath: destStore === 'folder' ? destRoot.trim() : null, subdir: destSubdir.trim() }
+      : undefined
+
     void onSave({
       key: existing?.key ?? k,
       kind: existing?.isBuiltin ? existing.kind : kind,
@@ -569,9 +614,25 @@ function TypeEditorModal({
       description: description.trim() || undefined,
       inputSchema,
       aiGuidance: (!existing?.isBuiltin && aiGuidance.trim()) || undefined,
-      isBuiltin: existing?.isBuiltin ?? false
+      isBuiltin: existing?.isBuiltin ?? false,
+      finishBehaviour: behaviour,
+      destination,
+      grants: { skills: [...grantSkills], toolServers: [...grantServers] }
     })
   }
+
+  const chooseDestFolder = async () => {
+    const picked = await window.api.chooseFolder()
+    if (picked) setDestRoot(picked)
+  }
+
+  const toggleGrant = (setter: (fn: (cur: Set<string>) => Set<string>) => void) => (name: string) =>
+    setter((cur) => {
+      const next = new Set(cur)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
 
   const toggleField = (fk: string) =>
     setFieldKeys((cur) => {
@@ -613,8 +674,9 @@ function TypeEditorModal({
                 Behavior kind
                 <select value={kind} disabled={mode === 'edit'} onChange={(e) => setKind(e.target.value as TaskKind)}>
                   <option value="plain">plain — notes &amp; suggestion chips only</option>
-                  <option value="learning">learning — prompt/summary, note editor, wiki ingest on Finish</option>
+                  <option value="learning">learning — prompt/summary, note editor, curated on Finish</option>
                   <option value="jira">jira — pasted source, chat, comment drafts</option>
+                  <option value="meeting">meeting — agenda/core topics, minutes editor</option>
                 </select>
               </label>
               {mode === 'add' && (
@@ -636,6 +698,98 @@ function TypeEditorModal({
               </label>
             </>
           )}
+
+          {/* ---- Declared finish behaviour and destination (FR-002, FR-014) ---- */}
+          <div className="tif-fields">
+            <span className="tif-label">Finish behaviour</span>
+            {existing?.isBuiltin ? (
+              <div className="muted">
+                {FINISH_BEHAVIOUR_LABELS[existing.finishBehaviour]} — fixed for a built-in type
+              </div>
+            ) : (
+              <>
+                <select value={finishBehaviour} onChange={(e) => setFinishBehaviour(e.target.value as FinishBehaviour)}>
+                  {FINISH_BEHAVIOURS.map((b) => (
+                    <option key={b} value={b}>
+                      {FINISH_BEHAVIOUR_LABELS[b]}
+                    </option>
+                  ))}
+                </select>
+                <span className="muted">What happens to your work when you press Finish on a task of this type.</span>
+              </>
+            )}
+          </div>
+
+          {behaviourWrites && (
+            <div className="tif-fields">
+              <span className="tif-label">Output destination</span>
+              <select value={destStore} onChange={(e) => setDestStore(e.target.value as DestinationStore)}>
+                <option value="folder">A folder I own</option>
+                <option value="wiki">The wiki</option>
+              </select>
+              {destStore === 'folder' ? (
+                <>
+                  <div className="row" style={{ gap: 8 }}>
+                    <input
+                      style={{ flex: 1 }}
+                      value={destRoot}
+                      onChange={(e) => setDestRoot(e.target.value)}
+                      placeholder="/path/to/your/folder"
+                      spellCheck={false}
+                    />
+                    <button type="button" className="secondary-btn" onClick={() => void chooseDestFolder()}>
+                      Choose…
+                    </button>
+                  </div>
+                  <label>
+                    Subfolder <span className="muted">(optional, relative)</span>
+                    <input value={destSubdir} onChange={(e) => setDestSubdir(e.target.value)} placeholder="e.g. minutes/2026" spellCheck={false} />
+                  </label>
+                  <span className="muted">Plain markdown files land here. Nothing else is written, and an existing file is never overwritten.</span>
+                </>
+              ) : (
+                <span className="muted">
+                  Resolved as {describeDestination({ store: 'wiki', rootPath: null, subdir: destSubdir })} — set the wiki
+                  directory on the General tab.
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* ---- Grants (FR-019; contracts/plugin-grants.md §6) ---- */}
+          <div className="tif-fields">
+            <span className="tif-label">Assistant capabilities</span>
+            <span className="muted">
+              Skills and tool servers let the assistant do more on a task of this type. Granting external reach means the
+              assistant can act on that system — and that sessions for this type will no longer see your notes and minutes.
+            </span>
+            <div className="tif-check-group">
+              <span className="muted">Skills — capabilities the assistant can load:</span>
+              {(skillsForGrants.length === 0 && <span className="muted">none imported yet</span>) || null}
+              {skillsForGrants.map((sk: SkillEntry) => (
+                <label key={`skill-${sk.name}`} className="tif-check">
+                  <input type="checkbox" checked={grantSkills.has(sk.name)} onChange={() => toggleGrant(setGrantSkills)(sk.name)} />
+                  {sk.name}
+                </label>
+              ))}
+            </div>
+            <div className="tif-check-group">
+              <span className="muted">Tool servers — external systems the assistant can read from and act on:</span>
+              {(serversForGrants.length === 0 && <span className="muted">none registered yet</span>) || null}
+              {serversForGrants.map((sv: McpServerEntry) => (
+                <label key={`server-${sv.name}`} className="tif-check">
+                  <input type="checkbox" checked={grantServers.has(sv.name)} onChange={() => toggleGrant(setGrantServers)(sv.name)} />
+                  {sv.name}
+                  <span className="muted"> — grants external reach</span>
+                </label>
+              ))}
+            </div>
+            {(grantServers.size > 0 || grantSkills.size > 0) && (
+              <span className="muted">
+                A change here takes effect on the next session; existing tasks do not need recreating.
+              </span>
+            )}
+          </div>
           {error && <div className="error-text">{error}</div>}
         </div>
         <div className="modal-actions">

@@ -3,10 +3,13 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
+  Destination,
+  FinishBehaviour,
   IngestRecord,
   JobRecord,
   List,
   McpServerEntry,
+  PluginGrant,
   Settings,
   SkillEntry,
   Suggestion,
@@ -16,6 +19,8 @@ import type {
   TaskPreprocess,
   TaskTypeDef
 } from '../shared/types'
+import { NO_GRANT } from '../shared/types'
+import { dbPathIn, defaultMeetingMinutesPath, userDataDir } from './paths'
 
 export interface DB {
   db: DatabaseSync
@@ -23,6 +28,13 @@ export interface DB {
   close: () => void
 }
 
+// NOTE ON THE CHECK CONSTRAINTS BELOW — constitution Principle VI.
+// SQL cannot reference a TypeScript constant, so the category and finish-
+// behaviour vocabularies are necessarily restated here as literals. That is
+// the unavoidable-hardcoding case: each restatement names its source so it
+// cannot drift unnoticed. The declaration they mirror is
+// src/core/domain/categories.ts (CATEGORIES and FINISH_BEHAVIOURS). When that
+// file changes, these change with it.
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS lists (
   id TEXT PRIMARY KEY,
@@ -37,7 +49,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   list_id TEXT NOT NULL REFERENCES lists(id),
   title TEXT NOT NULL,
   notes TEXT NOT NULL DEFAULT '',
-  type TEXT NOT NULL DEFAULT 'plain' CHECK (type IN ('plain','learning','jira')),
+  type TEXT NOT NULL DEFAULT 'plain' CHECK (type IN ('plain','learning','jira','meeting')),
   custom_type_key TEXT,
   inputs TEXT NOT NULL DEFAULT '{}',
   completed INTEGER NOT NULL DEFAULT 0,
@@ -56,7 +68,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_mine ON tasks(in_my_day) WHERE deleted_at I
 
 CREATE TABLE IF NOT EXISTS task_types (
   key TEXT PRIMARY KEY,
-  kind TEXT NOT NULL CHECK (kind IN ('plain','learning','jira')),
+  kind TEXT NOT NULL CHECK (kind IN ('plain','learning','jira','meeting')),
   label TEXT NOT NULL,
   emoji TEXT NOT NULL,
   description TEXT,
@@ -64,7 +76,10 @@ CREATE TABLE IF NOT EXISTS task_types (
   input_schema TEXT NOT NULL DEFAULT '[]',
   ai_guidance TEXT,
   is_builtin INTEGER NOT NULL DEFAULT 0,
-  sort INTEGER NOT NULL DEFAULT 0
+  sort INTEGER NOT NULL DEFAULT 0,
+  finish_behaviour TEXT NOT NULL DEFAULT 'complete-only' CHECK (finish_behaviour IN ('complete-only','file-as-is','polish-then-file','deposit-then-curate')),
+  destination_json TEXT,
+  grants_json TEXT NOT NULL DEFAULT '{"skills":[],"toolServers":[]}'
 );
 
 CREATE TABLE IF NOT EXISTS enrichment_jobs (
@@ -84,7 +99,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_state ON enrichment_jobs(state);
 
 CREATE TABLE IF NOT EXISTS task_preprocess (
   task_id TEXT PRIMARY KEY REFERENCES tasks(id),
-  kind TEXT NOT NULL CHECK (kind IN ('plain','learning','jira')),
+  kind TEXT NOT NULL CHECK (kind IN ('plain','learning','jira','meeting')),
   summary TEXT NOT NULL DEFAULT '',
   analysis TEXT NOT NULL DEFAULT '',
   suggestions_json TEXT NOT NULL DEFAULT '[]',
@@ -169,6 +184,38 @@ export const JIRA_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
   { key: 'mcp', label: 'MCP server', type: 'select', optionsSource: 'mcpServers', inert: true }
 ]
 
+// Meeting minutes: the objective drives the agenda, the attachment is
+// supporting material, the prompt guides what the agenda should emphasise.
+// Deliberately the learning shape minus the wiki-specific note path — the
+// minutes land in a plain folder the user owns (FR-010).
+export const MEETING_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
+  {
+    key: 'target',
+    label: 'Objective',
+    type: 'text',
+    required: true,
+    placeholder: 'What the meeting is about and what it should achieve'
+  },
+  { key: 'filePath', label: 'File', type: 'file', placeholder: 'Optional markdown (.md) attachment' },
+  {
+    key: 'purpose',
+    label: 'Prompt',
+    type: 'textarea',
+    placeholder: 'What the agenda and core topics should focus on'
+  },
+  { key: 'skill', label: 'Skill', type: 'select', optionsSource: 'skills', inert: true },
+  { key: 'mcp', label: 'MCP server', type: 'select', optionsSource: 'mcpServers', inert: true }
+]
+
+// The Learning type's wiki destination, expressed as data rather than as a
+// code path (FR-003). `subdir: 'learning-notes'` is the historical default the
+// wiki schema and the ingest workflow already speak.
+export const LEARNING_DESTINATION: Destination = {
+  store: 'wiki',
+  rootPath: null,
+  subdir: 'learning-notes'
+}
+
 export function builtinTypeSeeds(): TaskTypeDef[] {
   return [
     {
@@ -178,7 +225,9 @@ export function builtinTypeSeeds(): TaskTypeDef[] {
       emoji: '📝',
       description: 'A plain task — notes and suggestions only, no AI pre-process',
       inputSchema: [],
-      isBuiltin: true
+      isBuiltin: true,
+      finishBehaviour: 'complete-only',
+      grants: { skills: [], toolServers: [] }
     },
     {
       key: 'learning',
@@ -187,7 +236,12 @@ export function builtinTypeSeeds(): TaskTypeDef[] {
       emoji: '🎓',
       description: 'Learn a concept: AI prompt + summary, markdown note, Finish ingests to the wiki',
       inputSchema: LEARNING_INPUT_SCHEMA,
-      isBuiltin: true
+      isBuiltin: true,
+      // The existing Learning flow, declared: deposit the raw material first,
+      // then let the curated note be authored at the wiki's learning-note path.
+      finishBehaviour: 'deposit-then-curate',
+      destination: LEARNING_DESTINATION,
+      grants: { skills: [], toolServers: [] }
     },
     {
       key: 'jira',
@@ -196,7 +250,21 @@ export function builtinTypeSeeds(): TaskTypeDef[] {
       emoji: '🎫',
       description: 'Work an issue or page from pasted content: summaries, chat, comment drafts',
       inputSchema: JIRA_INPUT_SCHEMA,
-      isBuiltin: true
+      isBuiltin: true,
+      finishBehaviour: 'complete-only',
+      grants: { skills: [], toolServers: [] }
+    },
+    {
+      key: 'meeting',
+      kind: 'meeting',
+      label: 'Meeting',
+      emoji: '🗓',
+      description: 'Prepare for a meeting: AI agenda + core topics, minutes in the working area, polished into a folder you own',
+      inputSchema: MEETING_INPUT_SCHEMA,
+      isBuiltin: true,
+      finishBehaviour: 'polish-then-file',
+      destination: { store: 'folder', rootPath: defaultMeetingMinutesPath(), subdir: '' },
+      grants: { skills: [], toolServers: [] }
     }
   ]
 }
@@ -261,6 +329,39 @@ function mapJob(r: any): JobRecord {
   }
 }
 
+function parseDestination(value: unknown): Destination | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined
+  try {
+    const parsed = JSON.parse(value)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+    const d = parsed as Partial<Destination>
+    if (d.store !== 'wiki' && d.store !== 'folder') return undefined
+    return {
+      store: d.store,
+      rootPath: typeof d.rootPath === 'string' ? d.rootPath : null,
+      subdir: typeof d.subdir === 'string' ? d.subdir : ''
+    }
+  } catch {
+    // Corrupt descriptor → treat as undeclared rather than crash.
+    return undefined
+  }
+}
+
+function parseGrant(value: unknown): PluginGrant {
+  if (typeof value !== 'string' || !value.trim()) return { ...NO_GRANT }
+  try {
+    const parsed = JSON.parse(value)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ...NO_GRANT }
+    const g = parsed as Partial<PluginGrant>
+    return {
+      skills: Array.isArray(g.skills) ? g.skills.filter((s): s is string => typeof s === 'string') : [],
+      toolServers: Array.isArray(g.toolServers) ? g.toolServers.filter((s): s is string => typeof s === 'string') : []
+    }
+  } catch {
+    return { ...NO_GRANT }
+  }
+}
+
 function mapType(r: any): TaskTypeDef {
   let inputSchema: TaskTypeDef['inputSchema'] = []
   try {
@@ -278,7 +379,12 @@ function mapType(r: any): TaskTypeDef {
     color: r.color ?? undefined,
     inputSchema,
     aiGuidance: r.ai_guidance ?? undefined,
-    isBuiltin: !!r.is_builtin
+    isBuiltin: !!r.is_builtin,
+    // A row written before v5 has no declared workflow; 'complete-only' is the
+    // column default and the only behaviour that needs no destination.
+    finishBehaviour: (r.finish_behaviour ?? 'complete-only') as FinishBehaviour,
+    destination: parseDestination(r.destination_json),
+    grants: parseGrant(r.grants_json)
   }
 }
 
@@ -338,9 +444,13 @@ function mapIngest(r: any): IngestRecord {
   }
 }
 
-export function openDB(dataDir: string): DB {
-  fs.mkdirSync(dataDir, { recursive: true })
-  const dbPath = path.join(dataDir, 'app.db')
+// `dataDir` defaults to the app's user data root, which is the only place the
+// path is derived from: `paths.ts` declares it and this consumes it, rather
+// than joining the same filename a second time.
+export function openDB(dataDir?: string): DB {
+  const root = dataDir ?? userDataDir()
+  fs.mkdirSync(root, { recursive: true })
+  const dbPath = dbPathIn(root)
   const db = new DatabaseSync(dbPath)
   db.exec('PRAGMA journal_mode = WAL;')
   db.exec('PRAGMA foreign_keys = ON;')
@@ -545,6 +655,166 @@ export function migrate(db: DatabaseSync): void {
     mark(4)
   }
 
+  // v4 → v5: extensible type workflows. Gives `task_types` a declared finish
+  // behaviour, destination and grants, and widens the behaviour-category CHECK
+  // on three tables so `meeting` is a legal category.
+  if (!ran(5)) {
+    const tableDdl = (name: string): string =>
+      (
+        db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name = ?").get(name) as
+          | { sql: string }
+          | undefined
+      )?.sql ?? ''
+    // A table created before this migration names only the three original
+    // categories. SQLite cannot ALTER a CHECK, and PRAGMA cannot even read
+    // one, so the stored DDL text is the only available signal.
+    const isNarrow = (name: string): boolean => {
+      const ddl = tableDdl(name)
+      return ddl.length > 0 && !ddl.includes("'meeting'")
+    }
+
+    // 1. New declarations on task_types. A new column needs no rebuild.
+    const typeCols = db.prepare('PRAGMA table_info(task_types)').all() as { name: string }[]
+    if (!typeCols.some((c) => c.name === 'finish_behaviour')) {
+      db.exec("ALTER TABLE task_types ADD COLUMN finish_behaviour TEXT NOT NULL DEFAULT 'complete-only'")
+    }
+    if (!typeCols.some((c) => c.name === 'destination_json')) {
+      db.exec('ALTER TABLE task_types ADD COLUMN destination_json TEXT')
+    }
+    if (!typeCols.some((c) => c.name === 'grants_json')) {
+      db.exec(`ALTER TABLE task_types ADD COLUMN grants_json TEXT NOT NULL DEFAULT '{"skills":[],"toolServers":[]}'`)
+    }
+
+    // 2. Widen task_types (no children — safe to rebuild freely). The new
+    //    columns already exist at this point, so they copy across.
+    if (isNarrow('task_types')) {
+      db.exec('DROP TABLE IF EXISTS task_types_new')
+      db.exec(`
+        CREATE TABLE task_types_new (
+          key TEXT PRIMARY KEY,
+          kind TEXT NOT NULL CHECK (kind IN ('plain','learning','jira','meeting')),
+          label TEXT NOT NULL,
+          emoji TEXT NOT NULL,
+          description TEXT,
+          color TEXT,
+          input_schema TEXT NOT NULL DEFAULT '[]',
+          ai_guidance TEXT,
+          is_builtin INTEGER NOT NULL DEFAULT 0,
+          sort INTEGER NOT NULL DEFAULT 0,
+          finish_behaviour TEXT NOT NULL DEFAULT 'complete-only' CHECK (finish_behaviour IN ('complete-only','file-as-is','polish-then-file','deposit-then-curate')),
+          destination_json TEXT,
+          grants_json TEXT NOT NULL DEFAULT '{"skills":[],"toolServers":[]}'
+        )`)
+      db.exec(
+        `INSERT INTO task_types_new (key, kind, label, emoji, description, color, input_schema, ai_guidance, is_builtin, sort,
+           finish_behaviour, destination_json, grants_json)
+         SELECT key, kind, label, emoji, description, color, input_schema, ai_guidance, is_builtin, sort,
+           finish_behaviour, destination_json, grants_json FROM task_types`
+      )
+      db.exec('DROP TABLE task_types')
+      db.exec('ALTER TABLE task_types_new RENAME TO task_types')
+    }
+
+    // 3. Widen tasks. It has live child rows in suggestions, ingest_ledger and
+    //    task_preprocess, so DROPping it with foreign_keys=ON fails
+    //    immediately (documented at the v3 step above and covered by
+    //    test/core.test.ts). Same staging-table dance.
+    if (isNarrow('tasks')) {
+      db.exec('DROP TABLE IF EXISTS tasks_new')
+      db.exec('PRAGMA foreign_keys = OFF;')
+      try {
+        db.exec(`
+          CREATE TABLE tasks_new (
+            id TEXT PRIMARY KEY,
+            list_id TEXT NOT NULL REFERENCES lists(id),
+            title TEXT NOT NULL,
+            notes TEXT NOT NULL DEFAULT '',
+            type TEXT NOT NULL DEFAULT 'plain' CHECK (type IN ('plain','learning','jira','meeting')),
+            custom_type_key TEXT,
+            inputs TEXT NOT NULL DEFAULT '{}',
+            completed INTEGER NOT NULL DEFAULT 0,
+            completed_at TEXT,
+            in_my_day INTEGER NOT NULL DEFAULT 0,
+            my_day_added_at TEXT,
+            preprocess_status TEXT NOT NULL DEFAULT 'none' CHECK (preprocess_status IN ('none','queued','running','ready','failed')),
+            preprocess_error TEXT,
+            alarm_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+          )`)
+        db.exec(
+          `INSERT INTO tasks_new (id, list_id, title, notes, type, custom_type_key, inputs, completed, completed_at,
+             in_my_day, my_day_added_at, preprocess_status, preprocess_error, alarm_at, created_at, updated_at, deleted_at)
+           SELECT id, list_id, title, notes, type, custom_type_key, inputs, completed, completed_at,
+             in_my_day, my_day_added_at, preprocess_status, preprocess_error, alarm_at, created_at, updated_at, deleted_at
+           FROM tasks`
+        )
+        db.exec('DROP TABLE tasks')
+        db.exec('ALTER TABLE tasks_new RENAME TO tasks')
+        db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_list ON tasks(list_id) WHERE deleted_at IS NULL')
+        db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_mine ON tasks(in_my_day) WHERE deleted_at IS NULL AND in_my_day = 1')
+      } finally {
+        db.exec('PRAGMA foreign_keys = ON;')
+      }
+    }
+
+    // 4. Widen task_preprocess (the child, not the parent — safe to rebuild).
+    if (isNarrow('task_preprocess')) {
+      db.exec('DROP TABLE IF EXISTS task_preprocess_new')
+      db.exec(`
+        CREATE TABLE task_preprocess_new (
+          task_id TEXT PRIMARY KEY REFERENCES tasks(id),
+          kind TEXT NOT NULL CHECK (kind IN ('plain','learning','jira','meeting')),
+          summary TEXT NOT NULL DEFAULT '',
+          analysis TEXT NOT NULL DEFAULT '',
+          suggestions_json TEXT NOT NULL DEFAULT '[]',
+          generated_prompt TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'none',
+          inputs_hash TEXT NOT NULL DEFAULT '',
+          updated_at TEXT NOT NULL
+        )`)
+      db.exec(
+        `INSERT INTO task_preprocess_new (task_id, kind, summary, analysis, suggestions_json, generated_prompt, status, inputs_hash, updated_at)
+         SELECT task_id, kind, summary, analysis, suggestions_json, generated_prompt, status, inputs_hash, updated_at FROM task_preprocess`
+      )
+      db.exec('DROP TABLE task_preprocess')
+      db.exec('ALTER TABLE task_preprocess_new RENAME TO task_preprocess')
+    }
+
+    // 5. Backfill the built-ins' declared workflow. Learning's behaviour is
+    //    re-expressed as a declaration and must reproduce today's flow exactly
+    //    (FR-003, SC-003); plain and jira finish locally and write nothing.
+    const backfill = db.prepare(
+      'UPDATE task_types SET finish_behaviour = ?, destination_json = ? WHERE key = ? AND is_builtin = 1'
+    )
+    backfill.run('deposit-then-curate', JSON.stringify(LEARNING_DESTINATION), 'learning')
+    backfill.run('complete-only', null, 'plain')
+    backfill.run('complete-only', null, 'jira')
+
+    mark(5)
+  }
+
+  // v5 → v6: drop task inputs a type no longer declares.
+  //
+  // The v4 step above did this once, by name, for the removed `link` field.
+  // This generalizes it, because the hazard is not specific to any one field:
+  // input validation rejects an undeclared key on every write, so a task
+  // carrying a stale input cannot be edited or finished until it is cleared —
+  // and the user would see `unknown input "..."` with no way to act on it.
+  //
+  // Reconciliation is by EFFECTIVE type, so a task resolving through a custom
+  // type is checked against that type's schema, not the built-in's. It only
+  // ever REMOVES keys: a declared field that happens to be absent is left
+  // alone, because "absent" is a legitimate state the required-inputs gate
+  // handles separately.
+  if (!ran(6)) {
+    for (const t of db.prepare('SELECT key FROM task_types').all() as { key: string }[]) {
+      reconcileInputsForType(db, t.key)
+    }
+    mark(6)
+  }
+
   // Seed a default list on first open.
   const row = db.prepare('SELECT COUNT(*) AS n FROM lists').get() as { n: number }
   if (row.n === 0) {
@@ -554,11 +824,29 @@ export function migrate(db: DatabaseSync): void {
 
   // Seed the built-in types (create-only: later edits to their presentation
   // survive because this never overwrites existing rows).
+  //
+  // This runs OUTSIDE every version gate, so a built-in added to
+  // builtinTypeSeeds() (the Meeting type) lands on the next startup of an
+  // existing database with no migration step of its own.
   const insType = db.prepare(
-    `INSERT OR IGNORE INTO task_types (key, kind, label, emoji, description, color, input_schema, ai_guidance, is_builtin, sort)
-     VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, 1, ?)`
+    `INSERT OR IGNORE INTO task_types (key, kind, label, emoji, description, color, input_schema, ai_guidance, is_builtin, sort,
+       finish_behaviour, destination_json, grants_json)
+     VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, 1, ?, ?, ?, ?)`
   )
-  builtinTypeSeeds().forEach((t, i) => insType.run(t.key, t.kind, t.label, t.emoji, t.description ?? null, JSON.stringify(t.inputSchema), i))
+  builtinTypeSeeds().forEach((t, i) =>
+    insType.run(
+      t.key,
+      t.kind,
+      t.label,
+      t.emoji,
+      t.description ?? null,
+      JSON.stringify(t.inputSchema),
+      i,
+      t.finishBehaviour,
+      t.destination ? JSON.stringify(t.destination) : null,
+      JSON.stringify(t.grants ?? NO_GRANT)
+    )
+  )
 }
 
 // ---- Settings ----
@@ -753,13 +1041,20 @@ export function getType(db: DatabaseSync, key: string): TaskTypeDef | null {
   return r ? mapType(r) : null
 }
 
+// The explicit column list is the whole reason every declared field MUST be
+// threaded through BOTH the insert list and the ON CONFLICT SET list: a field
+// omitted here is silently dropped on save (contracts/type-definition.md
+// "Round-trip requirement", verified by test/types.test.ts).
 export function upsertType(db: DatabaseSync, t: TaskTypeDef): TaskTypeDef {
   db.prepare(
-    `INSERT INTO task_types (key, kind, label, emoji, description, color, input_schema, ai_guidance, is_builtin, sort)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO task_types (key, kind, label, emoji, description, color, input_schema, ai_guidance, is_builtin, sort,
+       finish_behaviour, destination_json, grants_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET kind=excluded.kind, label=excluded.label, emoji=excluded.emoji,
        description=excluded.description, color=excluded.color, input_schema=excluded.input_schema,
-       ai_guidance=excluded.ai_guidance, is_builtin=excluded.is_builtin, sort=excluded.sort`
+       ai_guidance=excluded.ai_guidance, is_builtin=excluded.is_builtin, sort=excluded.sort,
+       finish_behaviour=excluded.finish_behaviour, destination_json=excluded.destination_json,
+       grants_json=excluded.grants_json`
   ).run(
     t.key,
     t.kind,
@@ -770,7 +1065,10 @@ export function upsertType(db: DatabaseSync, t: TaskTypeDef): TaskTypeDef {
     JSON.stringify(t.inputSchema ?? []),
     t.aiGuidance ?? null,
     t.isBuiltin ? 1 : 0,
-    0
+    0,
+    t.finishBehaviour ?? 'complete-only',
+    t.destination ? JSON.stringify(t.destination) : null,
+    JSON.stringify(t.grants ?? NO_GRANT)
   )
   return getType(db, t.key)!
 }
@@ -784,6 +1082,56 @@ export function deleteType(db: DatabaseSync, key: string): void {
 export function reassignTasksFromType(db: DatabaseSync, key: string): void {
   const now = new Date().toISOString()
   db.prepare("UPDATE tasks SET type = 'plain', custom_type_key = NULL, inputs = '{}', updated_at = ? WHERE custom_type_key = ?").run(now, key)
+}
+
+// Drop task inputs the type no longer declares. Called on a type save (so a
+// narrowed schema cannot strand tasks) and once at startup for databases whose
+// schema was already narrowed before this step existed.
+//
+// Only removes: never invents a value for a declared-but-absent field.
+export function reconcileInputsForType(db: DatabaseSync, typeKey: string): number {
+  const row = db.prepare('SELECT input_schema, key FROM task_types WHERE key = ?').get(typeKey) as
+    | { input_schema: string; key: string }
+    | undefined
+  if (!row) return 0
+  let declared: string[]
+  try {
+    const parsed = JSON.parse(row.input_schema)
+    if (!Array.isArray(parsed)) return 0
+    declared = parsed.filter((f: any) => f && typeof f.key === 'string').map((f: any) => f.key)
+  } catch {
+    return 0
+  }
+  const allowed = new Set(declared)
+
+  // A task is governed by this type when it names it directly, or when it has
+  // no custom type and its built-in `type` is this key.
+  const tasks = db
+    .prepare(
+      `SELECT id, inputs FROM tasks WHERE custom_type_key = ?
+       UNION ALL
+       SELECT id, inputs FROM tasks WHERE custom_type_key IS NULL AND type = ?`
+    )
+    .all(typeKey, typeKey) as { id: string; inputs: string }[]
+
+  const upd = db.prepare('UPDATE tasks SET inputs = ?, updated_at = ? WHERE id = ?')
+  const now = new Date().toISOString()
+  let changed = 0
+  for (const t of tasks) {
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(t.inputs)
+    } catch {
+      continue
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue
+    const stale = Object.keys(parsed).filter((k) => !allowed.has(k))
+    if (stale.length === 0) continue
+    for (const k of stale) delete parsed[k]
+    upd.run(JSON.stringify(parsed), now, t.id)
+    changed++
+  }
+  return changed
 }
 
 // ---- Jobs ----

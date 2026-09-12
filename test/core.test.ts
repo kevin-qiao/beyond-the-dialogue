@@ -6,6 +6,9 @@ import * as path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { openDB, migrate, createList, listLists, createTask, listTasks, updateTask, getTask, loadSettings, saveSettings, deleteList } from '../src/main/db'
 import { rolloverMyDay, todayStr, serviceToggleTask, serviceSetMyDay } from '../src/main/tasks'
+import { createTypeDef, getTypeDef, updateTypeDef, validateInputs } from '../src/main/types'
+import { reconcileInputsForType, LEARNING_INPUT_SCHEMA } from '../src/main/db'
+import type { TaskTypeDef } from '../src/shared/types'
 
 function freshDB() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-test-'))
@@ -138,10 +141,11 @@ test('learning task creation records inputs and type', () => {
   db.close()
 })
 
-test('v0.8 built-in types are seeded and no paper_reading type exists', () => {
+test('built-in types are seeded and no paper_reading type exists', () => {
   const { db } = freshDB()
   const types = (db.db.prepare('SELECT * FROM task_types ORDER BY sort').all() as any[]).map((r) => r.key)
-  assert.deepEqual(types.sort(), ['jira', 'learning', 'plain'])
+  // SC-002: the built-in set grows from three to four (Meeting is new).
+  assert.deepEqual(types.sort(), ['jira', 'learning', 'meeting', 'plain'])
   const check = db.db.prepare("SELECT sql FROM sqlite_master WHERE name='tasks'").get() as { sql: string }
   assert.ok(!check.sql.includes('paper_reading'))
   db.close()
@@ -223,5 +227,246 @@ test('v3 migration: paper rows become learning, notes and core fields preserved'
   // And foreign keys still enforce after the rebuild.
   db.db.prepare("PRAGMA foreign_keys = ON").run()
   assert.throws(() => db.db.prepare('INSERT INTO suggestions (id,task_id,text,dismissed,created_at) VALUES (?,?,?,?,?)').run('x1', 'no-such-task', 'x', 0, now))
+  db.close()
+})
+
+// ---- v5 migration: extensible type workflows ----
+
+// A v4 database: the three tables carrying the behaviour-category CHECK still
+// name only the original three categories, and task_types has none of the
+// declared-workflow columns. Built by hand rather than by replaying history,
+// so it stays a fixed reference as the code moves on.
+function legacyV4DB() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-v5-'))
+  const legacy = new DatabaseSync(path.join(dir, 'app.db'))
+  legacy.exec(`
+    CREATE TABLE lists (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT);
+    CREATE TABLE tasks (
+      id TEXT PRIMARY KEY, list_id TEXT NOT NULL REFERENCES lists(id), title TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '',
+      type TEXT NOT NULL DEFAULT 'plain' CHECK (type IN ('plain','learning','jira')),
+      custom_type_key TEXT, inputs TEXT NOT NULL DEFAULT '{}',
+      completed INTEGER NOT NULL DEFAULT 0, completed_at TEXT,
+      in_my_day INTEGER NOT NULL DEFAULT 0, my_day_added_at TEXT,
+      preprocess_status TEXT NOT NULL DEFAULT 'none' CHECK (preprocess_status IN ('none','queued','running','ready','failed')),
+      preprocess_error TEXT, alarm_at TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT
+    );
+    CREATE TABLE task_types (
+      key TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('plain','learning','jira')),
+      label TEXT NOT NULL, emoji TEXT NOT NULL, description TEXT, color TEXT,
+      input_schema TEXT NOT NULL DEFAULT '[]', ai_guidance TEXT,
+      is_builtin INTEGER NOT NULL DEFAULT 0, sort INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE task_preprocess (
+      task_id TEXT PRIMARY KEY REFERENCES tasks(id),
+      kind TEXT NOT NULL CHECK (kind IN ('plain','learning','jira')),
+      summary TEXT NOT NULL DEFAULT '', analysis TEXT NOT NULL DEFAULT '',
+      suggestions_json TEXT NOT NULL DEFAULT '[]', generated_prompt TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'none', inputs_hash TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL
+    );
+    CREATE TABLE enrichment_jobs (id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('preprocess','suggestion','ingest')), task_id TEXT, state TEXT NOT NULL CHECK (state IN ('queued','running','done','failed')), step_label TEXT, progress TEXT, error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT);
+    CREATE TABLE suggestions (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), text TEXT NOT NULL, dismissed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+    CREATE TABLE ingest_ledger (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), state TEXT NOT NULL, deposit_files TEXT NOT NULL DEFAULT '[]', touched_files TEXT NOT NULL DEFAULT '[]', error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT);
+    CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+    INSERT INTO schema_migrations VALUES (4, '2026-01-01T00:00:00.000Z');
+  `)
+  const now = new Date().toISOString()
+  legacy.prepare('INSERT INTO lists VALUES (?,?,?,?,?)').run('l1', 'Work', now, now, null)
+  legacy
+    .prepare(`INSERT INTO tasks (id,list_id,title,notes,type,inputs,in_my_day,completed,created_at,updated_at)
+              VALUES ('t1','l1','Keep me','note','learning','{"target":"x"}',1,0,?,?)`)
+    .run(now, now)
+  // A real v4 database carries the learning type's actual schema; the INSERT
+  // OR IGNORE seed at the tail of migrate() never overwrites an existing row,
+  // so the fixture must supply it or v6 would (correctly) reconcile `target`
+  // away against an empty declaration.
+  legacy
+    .prepare(`INSERT INTO task_types (key,kind,label,emoji,input_schema,is_builtin,sort)
+              VALUES ('learning','learning','Learning','🎓',?,1,1)`)
+    .run(JSON.stringify(LEARNING_INPUT_SCHEMA))
+  legacy
+    .prepare(`INSERT INTO task_types (key,kind,label,emoji,input_schema,is_builtin,sort)
+              VALUES ('plain','plain','Plain task','📝','[]',1,0)`)
+    .run()
+  // A child row that must survive the `tasks` rebuild.
+  legacy.prepare('INSERT INTO suggestions (id,task_id,text,dismissed,created_at) VALUES (?,?,?,?,?)').run('s1', 't1', 'read section 2', 0, now)
+  legacy.close()
+  return dir
+}
+
+test('v5 applies to a legacy database and backfills the learning declaration', () => {
+  const dir = legacyV4DB()
+  const db = openDB(dir)
+  migrate(db.db)
+
+  // The tasks rebuild preserved rows and their child references.
+  const t1 = getTask(db.db, 't1')!
+  assert.equal(t1.title, 'Keep me')
+  assert.equal(t1.type, 'learning')
+  assert.equal(t1.inMyDay, true)
+  assert.deepEqual(t1.inputs, { target: 'x' })
+  assert.ok(db.db.prepare("SELECT 1 FROM suggestions WHERE id='s1' AND task_id='t1'").get(), 'child row survived the rebuild')
+
+  // Learning's behaviour is re-expressed as a declaration (FR-003).
+  const learning = db.db.prepare("SELECT * FROM task_types WHERE key='learning'").get() as any
+  assert.equal(learning.finish_behaviour, 'deposit-then-curate')
+  assert.deepEqual(JSON.parse(learning.destination_json), { store: 'wiki', rootPath: null, subdir: 'learning-notes' })
+  assert.deepEqual(JSON.parse(learning.grants_json), { skills: [], toolServers: [] })
+
+  // plain finishes locally and writes nothing.
+  const plain = db.db.prepare("SELECT * FROM task_types WHERE key='plain'").get() as any
+  assert.equal(plain.finish_behaviour, 'complete-only')
+  assert.equal(plain.destination_json, null)
+
+  // The Meeting built-in landed with no migration of its own.
+  const meeting = db.db.prepare("SELECT * FROM task_types WHERE key='meeting'").get() as any
+  assert.ok(meeting, 'Meeting seeded on the next startup of an existing database')
+  assert.equal(meeting.kind, 'meeting')
+  assert.equal(meeting.finish_behaviour, 'polish-then-file')
+  assert.equal(JSON.parse(meeting.destination_json).store, 'folder')
+
+  db.close()
+})
+
+test('v5 widens the category CHECK: meeting accepted, unknown values still rejected', () => {
+  const dir = legacyV4DB()
+  const db = openDB(dir)
+  migrate(db.db)
+  const now = new Date().toISOString()
+
+  // accepted on tasks
+  db.db
+    .prepare(`INSERT INTO tasks (id,list_id,title,notes,type,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
+    .run('t2', 'l1', 'Standup', '', 'meeting', now, now)
+  assert.equal(getTask(db.db, 't2')!.type, 'meeting')
+
+  // still rejected
+  assert.throws(() =>
+    db.db
+      .prepare(`INSERT INTO tasks (id,list_id,title,notes,type,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
+      .run('t3', 'l1', 'Bad', '', 'paper_reading', now, now)
+  )
+
+  // accepted on task_types and task_preprocess
+  db.db
+    .prepare(`INSERT INTO task_types (key,kind,label,emoji,input_schema,is_builtin,sort) VALUES (?,?,?,?,?,0,0)`)
+    .run('standup', 'meeting', 'Standup', '📣', '[]')
+  db.db
+    .prepare(`INSERT INTO task_preprocess (task_id,kind,updated_at) VALUES (?,?,?)`)
+    .run('t2', 'meeting', now)
+  assert.equal((db.db.prepare("SELECT kind FROM task_preprocess WHERE task_id='t2'").get() as any).kind, 'meeting')
+  assert.throws(() =>
+    db.db.prepare(`INSERT INTO task_types (key,kind,label,emoji,input_schema,is_builtin,sort) VALUES (?,?,?,?,?,0,0)`).run('bad', 'webinar', 'Bad', '❓', '[]')
+  )
+  db.close()
+})
+
+test('v5 is idempotent: re-running migrate changes nothing', () => {
+  const dir = legacyV4DB()
+  const db = openDB(dir)
+  migrate(db.db)
+  const before = db.db.prepare('SELECT key, kind, finish_behaviour, destination_json FROM task_types ORDER BY key').all()
+  const tasksBefore = listTasks(db.db).length
+  migrate(db.db)
+  migrate(db.db)
+  const after = db.db.prepare('SELECT key, kind, finish_behaviour, destination_json FROM task_types ORDER BY key').all()
+  assert.deepEqual(after, before)
+  assert.equal(listTasks(db.db).length, tasksBefore)
+  assert.equal((db.db.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 5').get() as any).n, 1)
+  db.close()
+})
+
+test('a fresh database gets the widened schema and the four built-ins directly', () => {
+  const { db } = freshDB()
+  const learning = getTypeDefFor(db, 'learning')
+  assert.equal(learning.finishBehaviour, 'deposit-then-curate')
+  assert.deepEqual(learning.destination, { store: 'wiki', rootPath: null, subdir: 'learning-notes' })
+  assert.equal(getTypeDefFor(db, 'meeting').finishBehaviour, 'polish-then-file')
+  assert.equal(getTypeDefFor(db, 'plain').finishBehaviour, 'complete-only')
+  assert.deepEqual(getTypeDefFor(db, 'jira').grants, { skills: [], toolServers: [] })
+  db.close()
+})
+
+function getTypeDefFor(db: DB, key: string): TaskTypeDef {
+  const r = db.db.prepare('SELECT * FROM task_types WHERE key = ?').get(key) as any
+  return {
+    key: r.key,
+    kind: r.kind,
+    label: r.label,
+    emoji: r.emoji,
+    description: r.description ?? undefined,
+    color: r.color ?? undefined,
+    inputSchema: JSON.parse(r.input_schema),
+    aiGuidance: r.ai_guidance ?? undefined,
+    isBuiltin: !!r.is_builtin,
+    finishBehaviour: r.finish_behaviour,
+    destination: r.destination_json ? JSON.parse(r.destination_json) : undefined,
+    grants: JSON.parse(r.grants_json)
+  }
+}
+
+// ---- T067: a removed declared field must not strand tasks ----
+
+test('a narrowed type schema clears the now-undeclared inputs from its tasks', () => {
+  const { db } = freshDB()
+  const l = createList(db.db, 'L')
+  const t = createTask(db.db, {
+    listId: l.id,
+    title: 'keep me',
+    type: 'learning',
+    inputs: { target: 'eigenvalues', purpose: 'notes', obsolete: 'stale value' }
+  })
+  // `obsolete` is stored, but not declared — exactly the state a removed field
+  // leaves behind, and `validateInputs` rejects an undeclared key on every
+  // write, so the task could not be edited or finished.
+  const learning = getTypeDef(db.db, 'learning')!
+  assert.equal(validateInputs(learning, t.inputs).ok, false)
+
+  updateTypeDef(db.db, { ...learning, label: 'Learning' })
+
+  const after = getTask(db.db, t.id)!
+  assert.deepEqual(after.inputs, { target: 'eigenvalues', purpose: 'notes' }, 'the declared inputs survived')
+  assert.equal(validateInputs(learning, after.inputs).ok, true, 'and the task is writable again')
+  assert.equal(after.title, 'keep me')
+  db.close()
+})
+
+test('v6 reconciles a database that was already narrowed before the step existed', () => {
+  const { db } = freshDB()
+  const l = createList(db.db, 'L')
+  const t = createTask(db.db, { listId: l.id, title: 't', type: 'learning', inputs: { target: 'x' } })
+  // Simulate the pre-v6 state: a stale key in a task's inputs.
+  db.db.prepare('UPDATE tasks SET inputs = ? WHERE id = ?').run(JSON.stringify({ target: 'x', removed_field: 'gone' }), t.id)
+  db.db.prepare('DELETE FROM schema_migrations WHERE version = 6').run()
+
+  migrate(db.db)
+
+  assert.deepEqual(getTask(db.db, t.id)!.inputs, { target: 'x' })
+  assert.equal((db.db.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 6').get() as any).n, 1)
+  // Idempotent — a second pass changes nothing.
+  migrate(db.db)
+  assert.deepEqual(getTask(db.db, t.id)!.inputs, { target: 'x' })
+  db.close()
+})
+
+test('reconciliation respects the effective type of a task using a custom type', () => {
+  const { db } = freshDB()
+  createTypeDef(db.db, {
+    key: 'retro',
+    kind: 'meeting',
+    label: 'Retro',
+    emoji: '🔁',
+    inputSchema: [{ key: 'target', label: 'Focus', type: 'text' }],
+    isBuiltin: false,
+    finishBehaviour: 'complete-only',
+    grants: { skills: [], toolServers: [] }
+  })
+  const l = createList(db.db, 'L')
+  const t = createTask(db.db, { listId: l.id, title: 'r', type: 'meeting', customTypeKey: 'retro', inputs: { target: 'x', stray: 'y' } })
+  // A task resolving through the custom type is checked against THAT schema,
+  // not against the built-in meeting type's.
+  reconcileInputsForType(db.db, 'retro')
+  assert.deepEqual(getTask(db.db, t.id)!.inputs, { target: 'x' })
   db.close()
 })

@@ -1,16 +1,58 @@
 // Shared domain types used by main, preload, and renderer.
 
-// ---- Task types (v0.8 type engine) ----
+// The behaviour-category and finish-behaviour vocabularies are declared
+// exactly once, in src/core/domain/categories.ts, and re-exported here so
+// every layer reads the same declaration (constitution Principle VI).
+// `TaskType` and `TaskKind` are retained as the names the rest of the code
+// already uses; they denote the same set.
+import type { TaskCategory, FinishBehaviour, DestinationStore } from '../core/domain/categories'
 
-// A task's `type` column holds one of the built-in type keys. A user-defined
-// type is referenced via `customTypeKey` and resolves through the task_types
-// registry. The kind governs behavior (inputs contract, pre-process, working
-// area, finish); custom types choose a kind (design D2).
-export type TaskType = 'plain' | 'learning' | 'jira'
-export type TaskKind = 'plain' | 'learning' | 'jira'
+export type { TaskCategory, FinishBehaviour, DestinationStore }
 
-export const BUILTIN_TYPE_KEYS: TaskType[] = ['plain', 'learning', 'jira']
-export const KINDS: TaskKind[] = ['plain', 'learning', 'jira']
+// A task's `type` column holds a category key. A user-defined type is
+// referenced via `customTypeKey` and resolves through the task_types registry.
+// The category governs pre-processing and the working area; the type's own
+// `finishBehaviour` and `destination` govern Finish.
+export type TaskType = TaskCategory
+export type TaskKind = TaskCategory
+
+// ---- Destinations (contracts/destination.md) ----
+
+// Where a type's finished artifacts are written. Declared as structured data
+// and resolved at write time, so confinement is checkable by construction.
+export interface Destination {
+  store: DestinationStore
+  // Absolute; required for 'folder', MUST be null for 'wiki' (the configured
+  // wiki location is used instead).
+  rootPath: string | null
+  // Relative directory under the root; '' means the root itself.
+  subdir: string
+}
+
+// A destination after its root has been determined. `absRoot` is root+subdir,
+// normalized; the artifact filename is derived at write time, never stored.
+export interface ResolvedDestination {
+  store: DestinationStore
+  root: string
+  subdir: string
+  absRoot: string
+}
+
+// ---- Plugin grants (contracts/plugin-grants.md) ----
+
+// The capabilities a type's *interactive* sessions may use. Confined
+// operations never receive a grant, by construction.
+export interface PluginGrant {
+  skills: string[]
+  toolServers: string[]
+}
+
+export const NO_GRANT: PluginGrant = { skills: [], toolServers: [] }
+
+export function hasAnyGrant(grant: PluginGrant | undefined | null): boolean {
+  if (!grant) return false
+  return (grant.skills?.length ?? 0) > 0 || (grant.toolServers?.length ?? 0) > 0
+}
 
 // A declared input field on a workflow type. The renderer draws a generic
 // form from these; the main `types` service validates task inputs against
@@ -49,6 +91,13 @@ export interface TaskTypeDef {
   // Extra guidance injected into this type's pre-process system prompt.
   aiGuidance?: string
   isBuiltin: boolean
+  // ---- declared workflow (contracts/type-definition.md) ----
+  // How Finish behaves. One of four; never inferred from the category.
+  finishBehaviour: FinishBehaviour
+  // Where finished artifacts go. Absent only for 'complete-only'.
+  destination?: Destination
+  // Skills/tool servers granted to this type's interactive sessions.
+  grants: PluginGrant
 }
 
 // ---- Skills & MCP (configuration entries, inert in v0.8 — design D6) ----

@@ -2,89 +2,23 @@ import type { JobContext } from './job-queue'
 import { getTask, updateTask, savePreprocess, addSuggestion, clearSuggestions, loadSettings } from './db'
 import { createJobSession } from './ai/session-factory'
 import { effectiveTypeDef, preprocessInputHash } from './types'
+import {
+  hasPreprocess,
+  parsePreprocessOutput,
+  preprocessInstruction
+} from '../core/domain/preprocess'
+import { hasAnyGrant } from '../shared/types'
+import { resolveGrant } from '../core/domain/grant'
 import { vaultDir } from './paths'
 import type { TaskKind } from '../shared/types'
 
 // Pre-process job engine (design D3): one job per task, dispatched to the
-// task's effective kind. Outputs are strict JSON from one agent turn — a
-// working prompt (learning), a summary, and 2-3 activity suggestions that
-// also land in the suggestions table as dismissible chips.
-
-interface PreprocessOutput {
-  generatedPrompt: string
-  summary: string
-  analysis: string
-  suggestions: string[]
-}
-
-function learningPrompt(context: string, userPrompt: string, aiGuidance: string): string {
-  return `You are a learning coach embedded in a to-do app. A user is about to study a topic. From the user's prompt and the task context below produce exactly one JSON object:
-
-{
-  "generatedPrompt": "a working prompt the user can start from — 1-3 sentences addressing them directly ('You are helping me learn ...')",
-  "summary": "a concise paragraph on what this learning task is about and why it matters",
-  "analysis": "one sentence guessing what the user most likely intends to accomplish with this learning task",
-  "suggestions": ["2 to 3 concrete activities for tackling it (max ~12 words each)"]
-}
-
-${aiGuidance ? `Type-specific guidance: ${aiGuidance}\n` : ''}
-Rules:
-- Work ONLY from the user's prompt and the task's own text (title, notes, target). Do not invent links or claim to have read attachments.
-- Output ONLY the JSON object. No markdown fences, no commentary.
-
-===USER PROMPT===
-${userPrompt || '(none)'}
-
-===TASK CONTEXT===
-${context}`
-}
-
-function jiraPrompt(sourceKind: string, context: string, aiGuidance: string): string {
-  const isIssue = sourceKind !== 'page'
-  return `You are a work-assistance agent embedded in a to-do app. The user pasted content from ${isIssue ? 'a JIRA issue' : 'a Confluence page'}. Analyze the pasted content below and produce exactly one JSON object:
-
-{
-  "generatedPrompt": "",
-  "summary": "${isIssue ? "a summary of the issue's status as understood from the pasted content" : 'a summary of the page content together with an assessment of its quality'}",
-  "suggestions": ["2 to 3 concrete ${isIssue ? 'next actions toward resolving the issue' : 'improvements to the page'}"]
-}
-
-${aiGuidance ? `Type-specific guidance: ${aiGuidance}\n` : ''}
-Rules:
-- Base everything strictly on the pasted content; where information is missing, say so.
-- You have no access to the remote system — never claim to have fetched or updated anything.
-- Output ONLY the JSON object. No markdown fences, no commentary.
-
-===PASTED CONTENT===
-${context}`
-}
-
-function buildContext(task: { title: string; notes: string }, inputs: Record<string, unknown>, kind: TaskKind): string {
-  const lines = [`Title: ${task.title}`, `Description/notes: ${task.notes || '(none)'}`]
-  if (kind === 'learning') {
-    if (inputs.target) lines.push(`Target: ${inputs.target}`)
-  } else if (kind === 'jira') {
-    lines.push(`Source kind: ${inputs.sourceKind === 'page' ? 'Confluence page' : 'JIRA issue'}`)
-    if (inputs.sourceLink) lines.push(`Source link (reference only): ${inputs.sourceLink}`)
-    if (inputs.target) lines.push(`What the user wants done: ${inputs.target}`)
-    lines.push(`--- pasted content ---\n${typeof inputs.sourceText === 'string' ? inputs.sourceText.slice(0, 200_000) : '(none)'}`)
-  }
-  return lines.join('\n')
-}
-
-function parseOutput(text: string): PreprocessOutput {
-  const cleaned = text.replace(/```(?:json)?/g, '').trim()
-  const start = cleaned.indexOf('{')
-  const end = cleaned.lastIndexOf('}')
-  if (start === -1 || end === -1) throw new Error('pre-process agent returned no JSON object')
-  const parsed = JSON.parse(cleaned.slice(start, end + 1))
-  return {
-    generatedPrompt: typeof parsed.generatedPrompt === 'string' ? parsed.generatedPrompt : '',
-    summary: typeof parsed.summary === 'string' ? parsed.summary : '',
-    analysis: typeof parsed.analysis === 'string' ? parsed.analysis : '',
-    suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.filter((s: unknown): s is string => typeof s === 'string' && s.trim()).slice(0, 3) : []
-  }
-}
+// task's effective category through the registry in src/core/domain/preprocess.
+// Outputs are strict JSON from one agent turn — a working prompt, a summary,
+// and 2-3 suggestions that also land in the suggestions table as chips.
+//
+// This is a CONFINED operation: the session is built with purpose 'confined',
+// so it never receives a plugin grant, whatever the task's type declares.
 
 function extractAssistantText(msg: any): string {
   if (!msg) return ''
@@ -105,8 +39,12 @@ export async function runPreprocessJob(ctx: JobContext): Promise<void> {
   const task = getTask(db, taskId)
   if (!task) throw new Error('task not found')
   const def = effectiveTypeDef(db, task)
-  const kind = def?.kind ?? 'plain'
-  if (kind === 'plain') return // no-op guard; plain tasks never enqueue preprocess
+  const kind = (def?.kind ?? 'plain') as TaskKind
+
+  // A category with no pre-process has nothing to do. Guarded here rather than
+  // by the caller so a stray job cannot produce a nonsense analysis.
+  if (!hasPreprocess(kind)) return
+  const instruction = preprocessInstruction(kind)!
 
   const settings = loadSettings(db)
   if (!settings.apiKey || !settings.model) {
@@ -116,20 +54,31 @@ export async function runPreprocessJob(ctx: JobContext): Promise<void> {
   }
 
   const inputsHash = preprocessInputHash(task, def)
-  ctx.setStep('Pre-processing', kind === 'learning' ? 'Generating learning summary' : 'Summarizing pasted content')
+  ctx.setStep('Pre-processing', instruction.step)
 
-  const prompt =
-    kind === 'learning'
-      ? learningPrompt(buildContext(task, task.inputs, kind), typeof task.inputs.purpose === 'string' ? task.inputs.purpose : '', def?.aiGuidance ?? '')
-      : jiraPrompt(typeof task.inputs.sourceKind === 'string' ? task.inputs.sourceKind : 'issue', buildContext(task, task.inputs, kind), def?.aiGuidance ?? '')
+  const prompt = instruction.buildPrompt({
+    context: instruction.buildContext(task, task.inputs),
+    userPrompt: typeof task.inputs.purpose === 'string' ? task.inputs.purpose : '',
+    aiGuidance: def?.aiGuidance ?? '',
+    inputs: task.inputs,
+    // This job is confined, so the grant is always empty — but the instruction
+    // is built from the resolved grant rather than from an assumption, so the
+    // two cannot drift apart.
+    granted: hasAnyGrant(resolveGrant({ purpose: 'confined', typeDef: def }))
+  })
 
   const session = await createJobSession({
     settings,
+    // The session is bound to the app-owned vault: a pre-process never reads
+    // the user's working content beyond the task's own declared inputs.
     cwd: vaultDir(),
     systemPrompt: `You produce structured JSON analysis for work-board tasks. Follow the output contract exactly.`,
     thinkingLevel: 'medium',
     tools: [],
-    noContextFiles: true
+    noContextFiles: true,
+    purpose: 'confined',
+    typeDef: def,
+    grant: { skills: [], toolServers: [] }
   })
 
   // User cancel (jobs:cancel) aborts the in-flight agent call.
@@ -142,7 +91,7 @@ export async function runPreprocessJob(ctx: JobContext): Promise<void> {
     const last = [...session.messages].reverse().find((m: any) => m.role === 'assistant' && m.content?.length)
     const text = extractAssistantText(last)
     if (!text) throw new Error('pre-process agent produced no output')
-    const out = parseOutput(text)
+    const out = parsePreprocessOutput(text)
 
     savePreprocess(db, {
       taskId,
