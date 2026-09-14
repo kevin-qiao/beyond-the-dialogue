@@ -1,17 +1,39 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { EditorView, basicSetup } from 'codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import MarkdownIt from 'markdown-it'
 
 const md = new MarkdownIt()
 
-export function NotesEditor({ taskId, initial, onSave }: { taskId: string; initial: string; onSave: (taskId: string, content: string) => Promise<void> }) {
+type Tab = 'write' | 'preview' | 'chat'
+
+// The working-area tab shell: Write (the CodeMirror editor), Preview (that
+// document rendered), and Chat when the caller supplies a panel for it. The
+// three are peers sharing one body, so the section fills the column and only
+// the active tab is displayed.
+//
+// The editor host is NEVER unmounted while another tab is active — it is
+// hidden with CSS. Rebuilding the CodeMirror view on every tab switch would
+// discard the cursor, the undo history and the scroll position, and the
+// autosave debounce lives in that view.
+export function NotesEditor({
+  taskId,
+  initial,
+  onSave,
+  chat
+}: {
+  taskId: string
+  initial: string
+  onSave: (taskId: string, content: string) => Promise<void>
+  /** The Chat tab's body. Omitted leaves the tab bar as Write | Preview. */
+  chat?: ReactNode
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingRef = useRef<{ taskId: string; content: string } | null>(null)
   const dirtyRef = useRef(false)
-  const [preview, setPreview] = useState(false)
+  const [tab, setTab] = useState<Tab>('write')
   const [html, setHtml] = useState('')
   const [savedAt, setSavedAt] = useState<string | null>(null)
 
@@ -31,6 +53,9 @@ export function NotesEditor({ taskId, initial, onSave }: { taskId: string; initi
 
   useEffect(() => {
     if (!containerRef.current) return
+    // Back to Write on a task switch: the view is rebuilt here, and it must be
+    // visible while it measures itself.
+    setTab('write')
     const scheduleSave = (content: string) => {
       pendingRef.current = { taskId, content }
       dirtyRef.current = true
@@ -61,27 +86,34 @@ export function NotesEditor({ taskId, initial, onSave }: { taskId: string; initi
     }
   }, [taskId])
 
+  // Preview reads the live document, so it is rendered on entry rather than
+  // kept in sync on every keystroke.
+  const openPreview = () => {
+    setHtml(md.render(viewRef.current?.state.doc.toString() ?? ''))
+    setTab('preview')
+  }
+
   return (
     <div className="notes-editor">
       <div className="editor-toolbar">
-        <button className={`mini-btn ${!preview ? 'active' : ''}`} onClick={() => setPreview(false)}>
+        <button className={`mini-btn ${tab === 'write' ? 'active' : ''}`} onClick={() => setTab('write')}>
           Write
         </button>
-        <button
-          className={`mini-btn ${preview ? 'active' : ''}`}
-          onClick={() => {
-            setHtml(md.render(viewRef.current?.state.doc.toString() ?? ''))
-            setPreview(true)
-          }}
-        >
+        <button className={`mini-btn ${tab === 'preview' ? 'active' : ''}`} onClick={openPreview}>
           Preview
         </button>
+        {chat && (
+          <button className={`mini-btn ${tab === 'chat' ? 'active' : ''}`} onClick={() => setTab('chat')}>
+            Chat
+          </button>
+        )}
         {savedAt && <span className="muted">saved {savedAt}</span>}
       </div>
       {/* The editor host stays mounted (hidden via CSS) so the CodeMirror view
-          survives Write→Preview→Write toggles; the preview is a sibling. */}
-      <div ref={containerRef} className="cm-editor-host" style={{ display: preview ? 'none' : '' }} />
-      {preview && <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: html }} />}
+          survives Write→Preview→Chat→Write; the other tabs are siblings. */}
+      <div ref={containerRef} className="cm-editor-host" style={{ display: tab === 'write' ? '' : 'none' }} />
+      {tab === 'preview' && <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: html }} />}
+      {tab === 'chat' && chat}
     </div>
   )
 }

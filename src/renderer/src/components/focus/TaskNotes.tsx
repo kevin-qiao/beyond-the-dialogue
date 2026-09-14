@@ -14,7 +14,8 @@ import { useDialog } from '../ui/Dialog'
 // describes what will actually happen — "ingest to wiki" is true for one
 // behaviour out of four, and saying it for a meeting would be a lie.
 
-/** The markdown editing surface: live editor with autosave, Finish, and chat. */
+/** The markdown editing surface: the editor's Write/Preview/Chat tabs over one
+ *  body, plus Finish and any proposed remote change. */
 function MarkdownArea({ task }: { task: Task }) {
   const { snapshot, saveNote, finishTask, notify } = useApp()
   const notes = snapshot?.notes[task.id]
@@ -46,7 +47,15 @@ function MarkdownArea({ task }: { task: Task }) {
   return (
     <div className="learning-area focus-notes">
       <section className="notes-section">
-        <NotesEditor taskId={task.id} initial={notes?.content ?? ''} onSave={saveNote} />
+        <NotesEditor
+          taskId={task.id}
+          initial={notes?.content ?? ''}
+          onSave={saveNote}
+          // The chat is the editor's third tab rather than a fixed pane under
+          // it, so the conversation and the note share the column's height
+          // instead of splitting it.
+          chat={<ChatPanel taskId={task.id} />}
+        />
       </section>
       {!task.completed && writes && (
         <div className="finish-row">
@@ -55,12 +64,9 @@ function MarkdownArea({ task }: { task: Task }) {
           </button>
         </div>
       )}
-      {/* A proposed remote change appears above the chat, where the user is
-          already working, and shows exactly what would be sent. */}
+      {/* A proposed remote change appears under the Finish action, where the
+          user is already working, and shows exactly what would be sent. */}
       <RemoteProposalBar />
-      <section className="learning-chat">
-        <ChatPanel taskId={task.id} label="" />
-      </section>
     </div>
   )
 }

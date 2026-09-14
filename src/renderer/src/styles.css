@@ -1574,6 +1574,13 @@ button {
   min-height: 0;
 }
 
+/* The tab shell takes the column's height: Write, Preview and Chat are peers
+   in one body, so the section fills the space rather than the editor alone. */
+.focus-notes .notes-section {
+  flex: 1;
+  min-height: 0;
+}
+
 .focus-notes .notes-editor {
   flex: 1;
   display: flex;
@@ -1613,13 +1620,6 @@ button {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-}
-
-.learning-chat {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
 }
 
 .jira-area {
