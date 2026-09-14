@@ -58,6 +58,10 @@ let queue: JobQueue | null = null
 // a time (design D4), keyed by the task whose panel owns it.
 const chatSession = new ChatSession()
 let chatTaskId: string | null = null
+// Identifies the grounding the open conversation was built from. The session
+// captures its context on the first message, so without comparing this a
+// pre-process that landed mid-conversation would never reach the model.
+let chatGrounding = ''
 let alarms: AlarmScheduler | null = null
 
 function rescheduleAlarms(): void {
@@ -108,6 +112,16 @@ function fullChatContext(d: DatabaseSync, task: Task): string | undefined {
     preprocess: getPreprocess(d, task.id),
     workingContent: getNotes(d, task.id)?.content ?? null
   })
+}
+
+// What the grounding behind a conversation is worth, as a comparable string.
+// The pre-process is the part that can move under an open conversation: it is
+// written by a background job that may land — or be re-run — while the user is
+// chatting.
+function chatGroundingVersion(d: DatabaseSync, taskId: string | null): string {
+  if (!taskId) return ''
+  const p = getPreprocess(d, taskId)
+  return p ? `${p.status}|${p.updatedAt}|${p.inputsHash}` : 'none'
 }
 
 function buildSnapshot(): AppSnapshot {
@@ -467,13 +481,21 @@ function registerIpc(): void {
   ipcMain.handle(IPC.testConnection, async (_e, settings: Settings) => testPrompt(settings, 'Reply with exactly: OK'))
   ipcMain.handle(IPC.sendChat, async (_e, args: { text: string; taskId?: string }) => {
     const settings = loadSettings(d())
+    const taskId = args.taskId ?? null
     // Chat conversations are per-surface: switching task (or returning to the
     // debug chat) starts a fresh conversation with fresh grounding.
-    if ((chatTaskId ?? null) !== (args.taskId ?? null)) {
+    const switched = (chatTaskId ?? null) !== taskId
+    if (switched) {
       chatSession.reset()
-      chatTaskId = args.taskId ?? null
+      chatTaskId = taskId
     }
-    const context = args.taskId ? chatContextFor(d(), args.taskId) : undefined
+    const context = taskId ? chatContextFor(d(), taskId) : undefined
+    // The same conversation with newer grounding: swap the context in rather
+    // than restarting, so a pre-process that has just landed reaches the reply
+    // without discarding the exchange so far.
+    const grounding = chatGroundingVersion(d(), taskId)
+    if (!switched && grounding !== chatGrounding) chatSession.refreshContext(context)
+    chatGrounding = grounding
     try {
       const reply = await chatSession.send(args.text, settings, (delta) => broadcast(IPC.evChatDelta, { delta }), context)
       broadcast(IPC.evChatDone, { text: reply })

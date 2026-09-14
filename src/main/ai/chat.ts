@@ -37,7 +37,8 @@ export class ChatSession {
     }
     const trimmed = userText.trim()
     if (!trimmed) throw new Error('empty message')
-    // The context is captured by the first message of a conversation.
+    // The context is captured by the first message of a conversation;
+    // `refreshContext` re-captures it when the grounding has moved.
     if (context && !this.context) this.context = context
     this.busy = true
     this.history.push({ role: 'user', content: trimmed })
@@ -59,6 +60,19 @@ export class ChatSession {
     } finally {
       this.busy = false
     }
+  }
+
+  /**
+   * Replace the conversation's grounding, keeping its history.
+   *
+   * `send` captures the context with the first message, which is right for
+   * grounding that does not move. A pre-process does move: it can land, or be
+   * re-run, while the conversation is open. Restarting the chat to pick that
+   * up would discard what the user already asked, so the newer picture is
+   * swapped in and reaches the next reply while the exchange stands.
+   */
+  refreshContext(context: string | undefined): void {
+    if (context) this.context = context
   }
 
   reset(): void {

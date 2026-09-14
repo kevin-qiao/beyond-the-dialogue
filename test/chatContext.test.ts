@@ -144,3 +144,31 @@ test('a whitespace-only input does not produce an empty labelled line', () => {
   })!
   assert.equal(ctx, 'Task: T')
 })
+
+test('every pre-process output reaches the chat, not only the summary', () => {
+  // The card shows all three and the deposit archives all three, so the one
+  // surface that can act on them must not be the one that sees one.
+  const ctx = buildChatContext('learning', {
+    task: { title: 'Rust ownership', notes: '', inputs: {} },
+    preprocess: preprocess({
+      summary: 'Borrowing basics',
+      analysis: 'They want to hold references across structs.',
+      suggestions: ['Work through 2x2 examples first', 'Connect to the SVD notes']
+    }),
+    workingContent: null
+  })!
+  assert.ok(ctx.includes('Pre-process summary: Borrowing basics'))
+  assert.ok(ctx.includes('Pre-process analysis: They want to hold references across structs.'))
+  assert.ok(
+    ctx.includes('Pre-process suggestions:\n- Work through 2x2 examples first\n- Connect to the SVD notes')
+  )
+})
+
+test('an empty pre-process field adds no line at all', () => {
+  const ctx = buildChatContext('learning', {
+    task: { title: 'T', notes: '', inputs: {} },
+    preprocess: preprocess({ summary: 'S', analysis: '', suggestions: [] }),
+    workingContent: null
+  })!
+  assert.equal(ctx, ['Task: T', 'Pre-process summary: S'].join('\n'))
+})

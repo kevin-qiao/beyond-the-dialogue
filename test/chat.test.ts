@@ -82,6 +82,42 @@ test('reset clears the conversation', async () => {
   assert.deepEqual(s.messages, [])
 })
 
+test('refreshContext replaces the grounding and keeps the exchange', async () => {
+  const seen: ChatMessage[][] = []
+  const fn: ChatStreamFn = async (_s, history, onDelta) => {
+    seen.push([...history])
+    onDelta('ok')
+    return 'ok'
+  }
+  const s = new ChatSession(fn)
+  await s.send('first', SETTINGS_ON, () => {}, 'pre-process: summary only')
+  // The pre-process lands while the conversation is open.
+  s.refreshContext('pre-process: summary, analysis, suggestions')
+  await s.send('second', SETTINGS_ON, () => {}, 'pre-process: summary, analysis, suggestions')
+
+  assert.equal(seen[1]!.length, 5, 'the context pair plus the two turns so far')
+  assert.ok(seen[1]![0]!.content.includes('analysis, suggestions'), 'the newer grounding reaches the model')
+  assert.equal(seen[1]![2]!.content, 'first', 'and the earlier exchange is still there')
+})
+
+test('a context passed on a later send does not replace the captured one', async () => {
+  const seen: ChatMessage[][] = []
+  const fn: ChatStreamFn = async (_s, history, onDelta) => {
+    seen.push([...history])
+    onDelta('ok')
+    return 'ok'
+  }
+  const s = new ChatSession(fn)
+  await s.send('first', SETTINGS_ON, () => {}, 'grounding at the first message')
+  await s.send('second', SETTINGS_ON, () => {}, 'grounding that arrived later')
+
+  // Why the transport compares a grounding version at all: passing a newer
+  // context is not enough on its own, so a pre-process landing mid-conversation
+  // is invisible to the model until something calls refreshContext.
+  assert.ok(seen[1]![0]!.content.includes('at the first message'))
+  assert.ok(!seen[1]![0]!.content.includes('arrived later'))
+})
+
 test('empty message is rejected', async () => {
   const s = new ChatSession(scriptedStream().fn)
   await assert.rejects(() => s.send('   ', SETTINGS_ON, () => {}), /empty message/)
