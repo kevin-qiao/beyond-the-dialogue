@@ -396,7 +396,6 @@ function mapPreprocess(r: any): TaskPreprocess {
     summary: r.summary,
     analysis: r.analysis ?? '',
     suggestions,
-    generatedPrompt: r.generated_prompt,
     status: r.status,
     inputsHash: r.inputs_hash ?? '',
     updatedAt: r.updated_at
@@ -1246,13 +1245,13 @@ export function savePreprocess(db: DatabaseSync, p: Omit<TaskPreprocess, 'update
   const existing = getPreprocess(db, p.taskId)
   if (existing) {
     db.prepare(
-      `UPDATE task_preprocess SET kind=?, summary=?, analysis=?, suggestions_json=?, generated_prompt=?, status=?, inputs_hash=?, updated_at=? WHERE task_id=?`
-    ).run(p.kind, p.summary, p.analysis, JSON.stringify(p.suggestions), p.generatedPrompt, p.status, p.inputsHash ?? '', now, p.taskId)
+      `UPDATE task_preprocess SET kind=?, summary=?, analysis=?, suggestions_json=?, status=?, inputs_hash=?, updated_at=? WHERE task_id=?`
+    ).run(p.kind, p.summary, p.analysis, JSON.stringify(p.suggestions), p.status, p.inputsHash ?? '', now, p.taskId)
   } else {
     db.prepare(
-      `INSERT INTO task_preprocess (task_id, kind, summary, analysis, suggestions_json, generated_prompt, status, inputs_hash, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(p.taskId, p.kind, p.summary, p.analysis, JSON.stringify(p.suggestions), p.generatedPrompt, p.status, p.inputsHash ?? '', now)
+      `INSERT INTO task_preprocess (task_id, kind, summary, analysis, suggestions_json, status, inputs_hash, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(p.taskId, p.kind, p.summary, p.analysis, JSON.stringify(p.suggestions), p.status, p.inputsHash ?? '', now)
   }
   return getPreprocess(db, p.taskId)!
 }

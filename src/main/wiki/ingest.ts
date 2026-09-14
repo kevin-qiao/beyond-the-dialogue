@@ -86,11 +86,11 @@ function renderSummary(taskId: string, p: TaskPreprocess | null): string | undef
   if (!p) return undefined
   return `# AI Pre-process Summary — ${taskId}
 
-## Generated working prompt
-${p.generatedPrompt || '(none)'}
-
 ## Summary
 ${p.summary || '(none)'}
+
+## Analysis
+${p.analysis || '(none)'}
 
 ## Activity suggestions
 ${p.suggestions.map((s) => `- ${s}`).join('\n') || '(none)'}

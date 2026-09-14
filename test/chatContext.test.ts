@@ -19,7 +19,6 @@ const preprocess = (over: Partial<TaskPreprocess> = {}): TaskPreprocess => ({
   summary: '## Suggested agenda\n1. Roadmap',
   analysis: '',
   suggestions: [],
-  generatedPrompt: '',
   status: 'ready',
   inputsHash: 'h',
   updatedAt: '2026-01-01T00:00:00.000Z',
@@ -81,14 +80,13 @@ test("a meeting task's context carries its own objective and focus prompt", () =
 test('the learning and jira groundings are unchanged by the registry move', () => {
   const learningCtx = buildChatContext('learning', {
     task: { title: 'NFTrig', notes: '', inputs: { target: 'blockchain in education', purpose: 'write it up' } },
-    preprocess: preprocess({ generatedPrompt: 'You are helping me learn', summary: 'A summary' }),
+    preprocess: preprocess({ summary: 'A summary' }),
     workingContent: 'Key insight: ...'
   })!
   assert.equal(
     learningCtx,
     [
       'Task: NFTrig',
-      'Working prompt: You are helping me learn',
       'Pre-process summary: A summary',
       'Target: blockchain in education',
       'Prompt: write it up',

@@ -161,11 +161,11 @@ export function depositTask(db: DatabaseSync, taskId: string): DepositResult {
 function renderPreprocessSummary(title: string, p: TaskPreprocess): string {
   return `# AI Pre-process Summary — ${title}
 
-## Generated working prompt
-${p.generatedPrompt || '(none)'}
-
 ## Summary
 ${p.summary || '(none)'}
+
+## Analysis
+${p.analysis || '(none)'}
 
 ## Activity suggestions
 ${p.suggestions.map((s) => `- ${s}`).join('\n') || '(none)'}

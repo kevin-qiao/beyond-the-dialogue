@@ -241,11 +241,11 @@ function renderSummary(deps: FinishDeps, taskId: string): string | undefined {
   if (!p) return undefined
   return `# AI Pre-process Summary — ${p.taskId}
 
-## Generated working prompt
-${p.generatedPrompt || '(none)'}
-
 ## Summary
 ${p.summary || '(none)'}
+
+## Analysis
+${p.analysis || '(none)'}
 
 ## Activity suggestions
 ${p.suggestions.map((s) => `- ${s}`).join('\n') || '(none)'}

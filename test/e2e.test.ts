@@ -24,7 +24,6 @@ import { workingAreaFor } from '../src/core/domain/workingArea'
 import { PREPROCESS_INSTRUCTIONS, hasPreprocess, preprocessInstruction } from '../src/core/domain/preprocess'
 
 const SCRIPTED_PREPROCESS = JSON.stringify({
-  generatedPrompt: 'You are helping me learn blockchain applications for math education. Start from the NFTrig paper\'s core claim.',
   summary: 'A learning task about applying blockchain techniques to math education, based on the NFTrig paper.',
   suggestions: ['Summarize the paper\'s mechanism in your own words', 'Compare with traditional LMS approaches', 'Sketch a small demo idea']
 })
@@ -159,7 +158,6 @@ test('8.1 flagship scenario: learning task -> My Day -> preprocess -> note -> Fi
   const processed = getTask(conn.db, task.id)!
   assert.equal(processed.preprocessStatus, 'ready')
   const pp = getPreprocess(conn.db, task.id)!
-  assert.ok(pp.generatedPrompt.length > 0, 'working prompt generated')
   assert.ok(pp.summary.includes('blockchain'), 'summary derived from task context')
   assert.equal(pp.kind, 'learning')
   assert.ok(pp.inputsHash, 'inputs hash recorded for the re-run gate')
@@ -254,7 +252,6 @@ test('8.1b re-running after input change refreshes outputs (hash gate)', { timeo
 // ---- US1: the Meeting journey end to end (quickstart S1) ----
 
 const MEETING_PREPROCESS = JSON.stringify({
-  generatedPrompt: 'You are preparing for the weekly sync. Start from the roadmap decision.',
   summary:
     '## Suggested agenda\n1. Roadmap review (10 min)\n2. Beta launch date (15 min)\n\n## Core topics\n- Whether the March beta date still holds\n- The onboarding drop-off Ana raised',
   analysis: 'The user wants to walk into the weekly sync with a settled beta date.',

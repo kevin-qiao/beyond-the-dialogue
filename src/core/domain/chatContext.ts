@@ -45,7 +45,6 @@ const learning: ChatContextInstruction = {
   build: ({ task, preprocess, workingContent }) =>
     [
       ...head(task),
-      text(preprocess?.generatedPrompt) ? `Working prompt: ${preprocess!.generatedPrompt}` : '',
       text(preprocess?.summary) ? `Pre-process summary: ${preprocess!.summary}` : '',
       text(task.inputs.target) ? `Target: ${text(task.inputs.target)}` : '',
       text(task.inputs.purpose) ? `Prompt: ${text(task.inputs.purpose)}` : '',

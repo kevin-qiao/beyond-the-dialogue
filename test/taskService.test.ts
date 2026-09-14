@@ -106,7 +106,6 @@ test('an edit that changes a relevant input re-runs pre-processing, an irrelevan
     summary: '',
     analysis: '',
     suggestions: [],
-    generatedPrompt: '',
     status: 'ready',
     inputsHash: preprocessInputHash(storage.getTask(task.id)!, def)
   })

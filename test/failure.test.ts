@@ -51,7 +51,6 @@ test('8.2c learning preprocess outputs persist and land as chips', async () => {
   const { conn, dir } = fresh()
   configured(dir, conn)
   const output = JSON.stringify({
-    generatedPrompt: 'You are helping me learn eigenvalues…',
     summary: 'A learning task about linear algebra.',
     suggestions: ['Work through 2x2 examples first', 'Connect to SVD notes']
   })
@@ -73,7 +72,7 @@ test('8.2c learning preprocess outputs persist and land as chips', async () => {
   assert.equal(task.preprocessStatus, 'ready')
   const { getPreprocess, listSuggestions } = await import('../src/main/db')
   const p = getPreprocess(conn.db, t.id)!
-  assert.ok(p.generatedPrompt.startsWith('You are helping'))
+  assert.ok(p.summary.includes('linear algebra'), 'summary persisted')
   assert.ok(p.inputsHash, 'hash recorded for the re-run gate')
   assert.equal(p.suggestions.length, 2)
   assert.equal(listSuggestions(conn.db, t.id).length, 2, 'suggestions land as dismissible chips')
@@ -92,7 +91,6 @@ test('8.2c2 jira/confluence preprocess: page kind produces quality summary from 
           {
             type: 'text',
             text: JSON.stringify({
-              generatedPrompt: '',
               summary: 'The page explains the release process but is missing a rollback section.',
               suggestions: ['Add a rollback section', 'Update the stale links']
             })
@@ -137,7 +135,7 @@ test('8.2d provider 429 mid-preprocess: auto-retry with backoff then success', a
         if (attempt < 3) throw new Error('Rate limit exceeded (429)')
         this.messages.push({
           role: 'assistant',
-          content: [{ type: 'text', text: JSON.stringify({ generatedPrompt: 'p', summary: 'ok', suggestions: ['a'] }) }]
+          content: [{ type: 'text', text: JSON.stringify({ summary: 'ok', suggestions: ['a'] }) }]
         })
       },
       async abort() {}

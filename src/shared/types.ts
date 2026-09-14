@@ -222,8 +222,6 @@ export interface TaskPreprocess {
   // Dismissible activity suggestion chips (also mirrored into the
   // suggestions table for the existing chip UI).
   suggestions: string[]
-  // Working prompt that seeds the task's chat context.
-  generatedPrompt: string
   status: PreprocessStatus
   // Hash of the inputs this output was computed from — gates re-runs when
   // relevant inputs change while the task sits in My Day (design D3).

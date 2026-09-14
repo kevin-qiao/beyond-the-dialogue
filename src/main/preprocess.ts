@@ -99,7 +99,6 @@ export async function runPreprocessJob(ctx: JobContext): Promise<void> {
       summary: out.summary,
       analysis: out.analysis,
       suggestions: out.suggestions,
-      generatedPrompt: out.generatedPrompt,
       status: 'ready',
       inputsHash
     })
