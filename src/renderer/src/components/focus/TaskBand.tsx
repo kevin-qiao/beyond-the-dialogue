@@ -4,12 +4,15 @@ import { useApp } from '../../store'
 import { useDialog } from '../ui/Dialog'
 import { effectiveType } from '../../lib/typeCatalog'
 import { statusChip } from '../board/status'
-import { TaskInputsForm } from '../board/TaskInputsForm'
 
 // AI band of the focus column (spec app-layout, design D4): everything about
 // the selected task except its working note — header/title/type editing,
-// per-type inputs, alarm, pre-process status + outputs, and the actions
-// (My Day, complete, Finish, delete). Notes live in TaskNotes.
+// alarm, pre-process status + outputs, and the actions (My Day, complete,
+// Finish, delete). Notes live in TaskNotes.
+//
+// The declared type inputs are not edited here. They are entered at creation
+// and edited through the task's ✎ Edit modal (TaskForm), which owns the one
+// TaskInputsForm in the app.
 export function TaskBand({ task }: { task: Task }) {
   const { snapshot, types, toggleTask, setMyDay, deleteTask, updateTask, finishTask, runPreprocess, setAlarm, notify, cancelJob, liveJobs } = useApp()
   const def = effectiveType(task, types)
@@ -19,14 +22,12 @@ export function TaskBand({ task }: { task: Task }) {
   const chip = statusChip(task, types)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.title)
-  const [inputsDraft, setInputsDraft] = useState<Record<string, unknown>>(task.inputs)
   const [alarmDraft, setAlarmDraft] = useState('')
   const { confirm, dialog } = useDialog()
 
   // Remount on task switch resets the drafts.
   useEffect(() => {
     setTitleDraft(task.title)
-    setInputsDraft(task.inputs)
     setAlarmDraft(task.alarmAt ? task.alarmAt.slice(0, 16) : '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id])
@@ -67,10 +68,6 @@ export function TaskBand({ task }: { task: Task }) {
       danger: true
     })
     if (ok) void deleteTask(task.id)
-  }
-
-  const saveInputs = () => {
-    void updateTask({ id: task.id, inputs: inputsDraft })
   }
 
   const saveTitle = () => {
@@ -158,24 +155,6 @@ export function TaskBand({ task }: { task: Task }) {
       </div>
 
       {task.completed && <div className="completed-banner">Completed {task.completedAt ? new Date(task.completedAt).toLocaleString() : ''}</div>}
-
-      {def.inputSchema.length > 0 && (
-        <section className="settings-section inputs-section">
-          <div className="section-head">
-            <h4>Details</h4>
-            <button className="mini-btn" onClick={saveInputs}>
-              Save
-            </button>
-          </div>
-          <TaskInputsForm
-            def={def}
-            values={inputsDraft}
-            onChange={setInputsDraft}
-            settings={snapshot?.settings}
-            lockedKeys={def.inputSchema.filter((f) => f.immutable).map((f) => f.key)}
-          />
-        </section>
-      )}
 
       <section className="settings-section alarm-section">
         <div className="section-head">

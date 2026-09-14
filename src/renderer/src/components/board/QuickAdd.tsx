@@ -9,7 +9,8 @@ import { allTypeConfigs } from '../../lib/typeCatalog'
 //
 // Right-side chips pin the next task's type — the pinned type applies to
 // captures until unpinned. Quick capture fills only shared fields; type
-// inputs are completed later from the focus band (or the New-task modal).
+// inputs are completed later through the task's ✎ Edit modal (TaskForm), which
+// is the only place they are edited after creation.
 export function QuickAdd({ listId, onCreated }: { listId: string; onCreated?: () => void }) {
   const { snapshot, types, createTask } = useApp()
   const [value, setValue] = useState('')

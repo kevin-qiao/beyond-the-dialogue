@@ -48,7 +48,7 @@ export function JiraArea({ task }: { task: Task }) {
           <h4>{isPage ? 'Confluence page content' : 'JIRA issue content'}</h4>
           <span className="muted">pasted source · read-only</span>
         </div>
-        {sourceText ? <pre className="source-text">{sourceText}</pre> : <div className="empty-hint">No source content yet — paste the issue/page content in Details above.</div>}
+        {sourceText ? <pre className="source-text">{sourceText}</pre> : <div className="empty-hint">No source content yet — right-click this task, choose ✎ Edit, and paste the issue/page content.</div>}
       </section>
       <section className="jira-comments">
         <div className="section-head">
