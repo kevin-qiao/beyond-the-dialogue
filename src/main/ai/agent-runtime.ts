@@ -6,6 +6,7 @@ import type { ChatMessage, Settings } from '../../shared/types'
 import { piAgentDir, piAuthPath, piModelsPath } from '../paths'
 import * as fs from 'node:fs'
 import { isConfigured } from './ai-config'
+import { toSdkMessages } from './chatMessages'
 
 // Thin adapter around the Pi SDK. All Pi usage outside this module goes
 // through this wrapper so SDK upgrades touch exactly one place.
@@ -102,13 +103,46 @@ export async function testPrompt(settings: Settings, prompt: string): Promise<{ 
     if (!model) return { ok: false, error: `no model available for provider ${settings.provider}` }
     await configureRuntimeFromSettings(settings)
     const res = await r.completeSimple(model, { messages: [{ role: 'user', content: prompt, timestamp: Date.now() }] }, { reasoning: 'low' })
-    const text = res.content
-      .filter((c: any) => c.type === 'text')
-      .map((c: any) => c.text)
-      .join('')
+    const text = textOf(res)
+    // A failed call carries no text, and reporting it as a successful empty
+    // reply would tell the user their provider works when it does not.
+    if (!text) throw new Error(noReplyReason(res))
     return { ok: true, text }
   } catch (e: any) {
     return { ok: false, error: e?.message ?? String(e) }
+  }
+}
+
+/** The text parts of a final assistant message, concatenated. */
+function textOf(message: { content: readonly { type: string }[] }): string {
+  return message.content
+    .filter((c: any) => c.type === 'text')
+    .map((c: any) => c.text)
+    .join('')
+}
+
+/**
+ * Why a call produced no text.
+ *
+ * A provider that fails ends its stream with an error rather than throwing at
+ * the caller, and the failure arrives on the final message as `stopReason` +
+ * `errorMessage`. Reading only `content` turns every one of those into an empty
+ * success: the chat drops its "replying" indicator and renders nothing at all,
+ * with no error to explain it. An empty reply is therefore reported as the
+ * failure it is, carrying the provider's own words when there are any.
+ */
+function noReplyReason(message: { stopReason?: string; errorMessage?: string }): string {
+  const said = message.errorMessage?.trim()
+  if (said) return said
+  switch (message.stopReason) {
+    case 'error':
+      return 'the model reported an error and wrote no reply'
+    case 'aborted':
+      return 'the request was aborted before the model replied'
+    case 'length':
+      return 'the model hit its output limit before writing anything'
+    default:
+      return 'the model returned an empty reply'
   }
 }
 
@@ -122,10 +156,9 @@ export async function runSimplePrompt(
   if (!model) throw new Error(`no model available for provider ${settings.provider}`)
   await configureRuntimeFromSettings(settings)
   const res = await r.completeSimple(model, { messages: [{ role: 'user', content: prompt, timestamp: Date.now() }] }, { reasoning: opts.reasoning ?? 'low' })
-  return res.content
-    .filter((c: any) => c.type === 'text')
-    .map((c: any) => c.text)
-    .join('')
+  const text = textOf(res)
+  if (!text) throw new Error(noReplyReason(res))
+  return text
 }
 
 // Debug chat (connection check): a streaming multi-turn conversation against
@@ -140,8 +173,9 @@ export async function streamChat(
   const model = resolveModel(settings.provider, settings.model)
   if (!model) throw new Error(`no model available for provider ${settings.provider}`)
   await configureRuntimeFromSettings(settings)
-  const messages = history.map((m) => ({ role: m.role, content: m.content, timestamp: Date.now() })) as never[]
-  const stream = r.streamSimple(model, { messages }, { reasoning: 'low' })
+  // toSdkMessages carries the SDK's message-shape rules; see its module for why
+  // an assistant entry without a usage is not merely untidy.
+  const stream = r.streamSimple(model, { messages: toSdkMessages(history) } as never, { reasoning: 'low' })
   let text = ''
   for await (const ev of stream) {
     if (ev.type === 'text_delta') {
@@ -152,8 +186,9 @@ export async function streamChat(
   if (text) return text
   // Providers that emit no deltas: fall back to the final message content.
   const result = await stream.result()
-  return result.content
-    .filter((c: any) => c.type === 'text')
-    .map((c: any) => c.text)
-    .join('')
+  const final = textOf(result)
+  if (final) return final
+  // Nothing streamed and nothing in the final message: this is a failure, and
+  // returning '' would reach the user as a chat reply that never appears.
+  throw new Error(noReplyReason(result))
 }
