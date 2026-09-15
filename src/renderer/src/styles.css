@@ -472,10 +472,9 @@ button {
   background: var(--bg-panel);
 }
 
-/* Quick add capture */
+/* Quick add capture — one line: icon + title. */
 .quick-add {
   display: flex;
-  flex-wrap: wrap;               /* icon+input on row 1, type pills wrap to row 2 */
   align-items: center;
   column-gap: 8px;
   row-gap: 5px;
@@ -504,7 +503,7 @@ button {
 
 .quick-add input {
   flex: 1;
-  min-width: 120px;              /* keep the field usable; forces the type pills to wrap below */
+  min-width: 120px;
   background: none;
   border: none;
   outline: none;
@@ -585,12 +584,6 @@ button {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.task-step {
-  color: var(--accent);
-  font-size: 12px;
-  margin-top: 4px;
 }
 
 .task-meta {
@@ -1942,13 +1935,6 @@ button {
   border-color: var(--accent);
 }
 
-.t-emoji {
-  font-size: 15px;
-  width: 22px;
-  text-align: center;
-  flex-shrink: 0;
-}
-
 .task-meta {
   display: flex;
   align-items: center;
@@ -1962,16 +1948,6 @@ button {
   font-size: 11px;
   color: var(--text-faint);
   white-space: nowrap;
-}
-
-.suggest-hint {
-  color: var(--text-faint);
-  font-size: 11px;
-}
-
-.task-step {
-  font-size: 11.5px;
-  margin-top: 3px;
 }
 
 .task-actions {
@@ -2755,59 +2731,6 @@ select,
   background: var(--bg-panel);
   box-shadow: var(--ring-focus);
 }
-.qa-type-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  flex-shrink: 0;
-  height: 24px;
-}
-.qa-type-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 9px;
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
-  border-radius: 999px;
-  color: var(--text-muted);
-  cursor: pointer;
-  line-height: 0;                 /* ensure child boxes own the line box */
-  transition: background-color var(--t-fast) var(--ease),
-              border-color var(--t-fast) var(--ease),
-              color var(--t-fast) var(--ease);
-}
-.qa-type-chip:hover {
-  border-color: var(--border-2);
-  color: var(--text);
-}
-.qa-type-chip.sel {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent-ink);
-}
-.qa-type-chip .qa-ico {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  font-size: 13px;
-  line-height: 1;
-}
-.qa-type-chip .qa-label {
-  display: inline-flex;
-  align-items: center;
-  height: 14px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  line-height: 1;
-}
-
 /* ===== TASK ROW v2.1 ===== */
 .task-list {
   padding: 6px 0 14px;
@@ -2816,7 +2739,9 @@ select,
 
 .task-row {
   display: grid;
-  grid-template-columns: 24px 1fr auto;
+  /* title/meta | actions. The leading 24px column was the type emoji, which
+     the row no longer carries — the type is the label in .task-meta. */
+  grid-template-columns: 1fr auto;
   gap: 10px;
   align-items: center;
   border-radius: 8px;
@@ -2853,23 +2778,6 @@ select,
   text-decoration-thickness: 1px;
 }
 
-.t-emoji {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  font-size: 13px;
-  flex-shrink: 0;
-}
-.task-row.selected .t-emoji {
-  background: var(--accent-soft);
-  border-color: transparent;
-}
-
 .task-main {
   min-width: 0;
 }
@@ -2900,27 +2808,6 @@ select,
   font-family: var(--font-ui);
   font-size: 11px;
   color: var(--text-muted);
-}
-
-.task-step {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--accent);
-  margin-top: 3px;
-  letter-spacing: 0.02em;
-  text-transform: lowercase;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.task-step::before {
-  content: '';
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: st-pulse 1.2s ease-in-out infinite;
 }
 
 .task-actions {
@@ -3221,6 +3108,34 @@ select,
   background: var(--accent-soft);
   color: var(--accent-ink);
   border-color: transparent;
+}
+
+/* Alarm: an action on the same line as the rest, not a section of its own.
+   The toggle reads as "set" once a reminder exists; the datetime control only
+   occupies space while it is being edited. */
+.detail-actions .alarm-toggle.on {
+  color: var(--warn);
+  border-color: var(--border-2);
+}
+.detail-actions .alarm-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.detail-actions .alarm-inline input[type='datetime-local'] {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 12px;
+}
+.detail-actions .alarm-inline .mini-btn {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
 }
 
 /* ===== Analysis cards v2.1 — left accent bar, iconified header ===== */

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent, RemoteProposalView } from '../shared/ipc'
+import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent, SuggestionsUpdatedEvent, RemoteProposalView } from '../shared/ipc'
 import type { IngestRecord, List, Settings, SkillEntry, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from '../shared/types'
 
 const api: RendererApi = {
@@ -35,7 +35,7 @@ const api: RendererApi = {
   listProviders: () => ipcRenderer.invoke(IPC.listProviders),
   testConnection: (settings) => ipcRenderer.invoke(IPC.testConnection, settings),
   sendChat: (args) => ipcRenderer.invoke(IPC.sendChat, args),
-  resetChat: () => ipcRenderer.invoke(IPC.resetChat),
+  resetChat: (args) => ipcRenderer.invoke(IPC.resetChat, args),
   dismissSuggestion: (args) => ipcRenderer.invoke(IPC.dismissSuggestion, args),
   getActivity: () => ipcRenderer.invoke(IPC.getActivity),
   retryIngest: (args) => ipcRenderer.invoke(IPC.retryIngest, args),
@@ -60,7 +60,7 @@ const api: RendererApi = {
     return () => ipcRenderer.removeListener(IPC.evPreprocessUpdated, h)
   },
   onSuggestionsUpdated: (cb) => {
-    const h = (_e: unknown, s: Suggestion[]) => cb(s)
+    const h = (_e: unknown, e: SuggestionsUpdatedEvent) => cb(e)
     ipcRenderer.on(IPC.evSuggestionsUpdated, h)
     return () => ipcRenderer.removeListener(IPC.evSuggestionsUpdated, h)
   },

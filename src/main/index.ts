@@ -54,15 +54,36 @@ import { systemClock } from '../core/ports/clock'
 let mainWindow: BrowserWindow | null = null
 let db: DB | null = null
 let queue: JobQueue | null = null
-// Debug chat + task-grounded working-area chat: one in-memory conversation at
-// a time (design D4), keyed by the task whose panel owns it.
-const chatSession = new ChatSession()
-let chatTaskId: string | null = null
-// Identifies the grounding the open conversation was built from. The session
-// captures its context on the first message, so without comparing this a
-// pre-process that landed mid-conversation would never reach the model.
-let chatGrounding = ''
+// Debug chat + task-grounded working-area chat: one in-memory conversation per
+// SURFACE (design D4), not one per app. A single shared session made every
+// panel share one transcript — opening another task's chat showed the previous
+// task's exchange, and sending from it discarded the other conversation.
+const chatSessions = new Map<string, ChatEntry>()
 let alarms: AlarmScheduler | null = null
+
+interface ChatEntry {
+  session: ChatSession
+  // Identifies the grounding this conversation was built from. The session
+  // captures its context on the first message, so without comparing this a
+  // pre-process that landed mid-conversation would never reach the model.
+  grounding: string
+}
+
+// The surface key: a task id, or the debug chat's empty string. The wire
+// carries `null` for the debug surface; this is the in-process key for it.
+function chatKeyOf(taskId: string | null): string {
+  return taskId ?? ''
+}
+
+function chatEntryFor(taskId: string | null): ChatEntry {
+  const key = chatKeyOf(taskId)
+  let entry = chatSessions.get(key)
+  if (!entry) {
+    entry = { session: new ChatSession(), grounding: '' }
+    chatSessions.set(key, entry)
+  }
+  return entry
+}
 
 function rescheduleAlarms(): void {
   alarms?.reschedule()
@@ -184,7 +205,8 @@ function wireJobEvents(q: JobQueue): void {
       if (t) broadcast(IPC.evTaskUpdated, t)
     }
     if (job.kind === 'suggestion' && job.taskId) {
-      broadcast(IPC.evSuggestionsUpdated, listSuggestions(d(), job.taskId))
+      const taskId = job.taskId
+      broadcast(IPC.evSuggestionsUpdated, { taskId, suggestions: listSuggestions(d(), taskId) })
     }
   })
   q.on('failed', (job) => {
@@ -349,6 +371,9 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.deleteTask, (_e, args) => {
     serviceDeleteTask(d(), args.id)
+    // A deleted task's conversation can never be reopened, so it is dropped
+    // rather than kept for the life of the process.
+    chatSessions.delete(chatKeyOf(args.id))
     rescheduleAlarms()
     broadcast(IPC.evTaskUpdated, { id: args.id, deleted: true })
     return undefined
@@ -482,33 +507,36 @@ function registerIpc(): void {
   ipcMain.handle(IPC.sendChat, async (_e, args: { text: string; taskId?: string }) => {
     const settings = loadSettings(d())
     const taskId = args.taskId ?? null
-    // Chat conversations are per-surface: switching task (or returning to the
-    // debug chat) starts a fresh conversation with fresh grounding.
-    const switched = (chatTaskId ?? null) !== taskId
-    if (switched) {
-      chatSession.reset()
-      chatTaskId = taskId
-    }
+    // Conversations are per-surface: the entry is created on the surface's
+    // first message and kept for as long as the app runs, so a task's chat is
+    // still there when the user comes back to it.
+    const entry = chatEntryFor(taskId)
     const context = taskId ? chatContextFor(d(), taskId) : undefined
     // The same conversation with newer grounding: swap the context in rather
     // than restarting, so a pre-process that has just landed reaches the reply
     // without discarding the exchange so far.
     const grounding = chatGroundingVersion(d(), taskId)
-    if (!switched && grounding !== chatGrounding) chatSession.refreshContext(context)
-    chatGrounding = grounding
+    if (grounding !== entry.grounding) entry.session.refreshContext(context)
+    entry.grounding = grounding
     try {
-      const reply = await chatSession.send(args.text, settings, (delta) => broadcast(IPC.evChatDelta, { delta }), context)
-      broadcast(IPC.evChatDone, { text: reply })
+      const reply = await entry.session.send(
+        args.text,
+        settings,
+        (delta) => broadcast(IPC.evChatDelta, { owner: taskId, delta }),
+        context
+      )
+      broadcast(IPC.evChatDone, { owner: taskId, text: reply })
     } catch (e: any) {
-      broadcast(IPC.evChatError, { error: e?.message ?? String(e) })
+      broadcast(IPC.evChatError, { owner: taskId, error: e?.message ?? String(e) })
     }
   })
-  ipcMain.handle(IPC.resetChat, () => {
-    chatSession.reset()
+  ipcMain.handle(IPC.resetChat, (_e, args: { taskId?: string }) => {
+    const taskId = args?.taskId ?? null
+    chatEntryFor(taskId).session.reset()
   })
   ipcMain.handle(IPC.dismissSuggestion, (_e, args) => {
     const s = dismissSuggestion(d(), args.suggestionId)
-    broadcast(IPC.evSuggestionsUpdated, listSuggestions(d(), s.taskId))
+    broadcast(IPC.evSuggestionsUpdated, { taskId: s.taskId, suggestions: listSuggestions(d(), s.taskId) })
     return s
   })
   ipcMain.handle(IPC.getProposals, () => proposalViews())

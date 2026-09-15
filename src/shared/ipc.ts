@@ -113,15 +113,23 @@ export interface ToastPayload {
   view?: 'activity'
 }
 
-export interface ChatDeltaEvent {
+// Every chat event names the surface it belongs to: the owning task id, or
+// null for the ungrounded debug chat. Transcripts are per-surface, so a delta
+// must be routable to the panel that asked for it rather than to whichever
+// panel happens to be mounted.
+export interface ChatOwner {
+  owner: string | null
+}
+
+export interface ChatDeltaEvent extends ChatOwner {
   delta: string
 }
 
-export interface ChatDoneEvent {
+export interface ChatDoneEvent extends ChatOwner {
   text: string
 }
 
-export interface ChatErrorEvent {
+export interface ChatErrorEvent extends ChatOwner {
   error: string
 }
 
@@ -172,6 +180,21 @@ export interface SendChatArgs {
   taskId?: string
 }
 
+// A task's suggestions, pushed after a pre-process or a dismissal. The payload
+// names the task so the renderer can merge it into the app's full list —
+// replacing the list outright would drop every other task's chips, which is
+// what made the chips unreliable once they moved off the board row.
+export interface SuggestionsUpdatedEvent {
+  taskId: string
+  suggestions: Suggestion[]
+}
+
+export interface ResetChatArgs {
+  // Which surface's conversation to drop. Undefined = the ungrounded debug
+  // chat, which is also what the debug drawer means.
+  taskId?: string
+}
+
 // The API surface exposed on window.api by the preload script.
 export interface RendererApi {
   getSnapshot: () => Promise<AppSnapshot>
@@ -202,7 +225,7 @@ export interface RendererApi {
   listProviders: () => Promise<string[]>
   testConnection: (settings: Settings) => Promise<{ ok: boolean; text?: string; error?: string }>
   sendChat: (args: SendChatArgs) => Promise<void>
-  resetChat: () => Promise<void>
+  resetChat: (args: ResetChatArgs) => Promise<void>
   dismissSuggestion: (args: { suggestionId: string }) => Promise<Suggestion>
   getActivity: () => Promise<import('./types').IngestRecord[]>
   retryIngest: (args: { ingestId: string }) => Promise<void>
@@ -214,7 +237,7 @@ export interface RendererApi {
   onListUpdated: (cb: (l: List) => void) => () => void
   onJobProgress: (cb: (e: JobProgressEvent) => void) => () => void
   onPreprocessUpdated: (cb: (p: TaskPreprocess) => void) => () => void
-  onSuggestionsUpdated: (cb: (s: Suggestion[]) => void) => () => void
+  onSuggestionsUpdated: (cb: (e: SuggestionsUpdatedEvent) => void) => () => void
   onSettingsUpdated: (cb: (s: Settings) => void) => () => void
   onTypesUpdated: (cb: (types: TaskTypeDef[]) => void) => () => void
   onToast: (cb: (t: ToastPayload) => void) => () => void
@@ -237,7 +260,7 @@ export interface AppEvents {
   [IPC.evListUpdated]: List | null
   [IPC.evJobProgress]: JobProgressEvent
   [IPC.evPreprocessUpdated]: TaskPreprocess
-  [IPC.evSuggestionsUpdated]: Suggestion[]
+  [IPC.evSuggestionsUpdated]: SuggestionsUpdatedEvent
   [IPC.evToast]: ToastPayload
   [IPC.evSettingsUpdated]: Settings
   [IPC.evTypesUpdated]: TaskTypeDef[]
@@ -280,7 +303,7 @@ export interface AppCommands {
   [IPC.listProviders]: { args: void; result: string[] }
   [IPC.testConnection]: { args: Settings; result: { ok: boolean; text?: string; error?: string } }
   [IPC.sendChat]: { args: SendChatArgs; result: void }
-  [IPC.resetChat]: { args: void; result: void }
+  [IPC.resetChat]: { args: ResetChatArgs; result: void }
   [IPC.dismissSuggestion]: { args: { suggestionId: string }; result: Suggestion }
   [IPC.getActivity]: { args: void; result: import('./types').IngestRecord[] }
   [IPC.retryIngest]: { args: { ingestId: string }; result: void }

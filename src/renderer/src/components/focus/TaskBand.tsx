@@ -4,11 +4,12 @@ import { useApp } from '../../store'
 import { useDialog } from '../ui/Dialog'
 import { effectiveType } from '../../lib/typeCatalog'
 import { statusChip } from '../board/status'
+import { hasPreprocess } from '../../../../core/domain/preprocess'
 
 // AI band of the focus column (spec app-layout, design D4): everything about
-// the selected task except its working note — header/title/type editing,
-// alarm, pre-process status + outputs, and the actions (My Day, complete,
-// Finish, delete). Notes live in TaskNotes.
+// the selected task except its working note — the header (title/type editing),
+// pre-process status + outputs, the agent's suggestions, and one action line
+// holding My Day, complete, delete and the alarm. Notes live in TaskNotes.
 //
 // The declared type inputs are not edited here. They are entered at creation
 // and edited through the task's ✎ Edit modal (TaskForm), which owns the one
@@ -23,17 +24,27 @@ export function TaskBand({ task }: { task: Task }) {
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.title)
   const [alarmDraft, setAlarmDraft] = useState('')
+  const [editingAlarm, setEditingAlarm] = useState(false)
   const { confirm, dialog } = useDialog()
 
   // Remount on task switch resets the drafts.
   useEffect(() => {
     setTitleDraft(task.title)
     setAlarmDraft(task.alarmAt ? task.alarmAt.slice(0, 16) : '')
+    setEditingAlarm(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id])
 
-  const isAgentic = def.kind !== 'plain'
+  // Whether this kind pre-processes is the registry's answer, not a comparison
+  // against `plain` — the same declaration decides which kinds get a
+  // suggestion job instead (taskService.setMyDay).
+  const hasPre = hasPreprocess(def.kind)
   const running = task.preprocessStatus === 'queued' || task.preprocessStatus === 'running'
+  // A kind that does not pre-process gets its chips from the suggestion job and
+  // has no card to carry them, so they need a section of their own. Whether it
+  // has any decides if that section is rendered at all: an empty "Suggestions"
+  // heading is noise.
+  const ownSuggestions = hasPre ? [] : (snapshot?.suggestions ?? []).filter((s) => s.taskId === task.id)
 
   // Type change supports built-ins and custom type keys. Selecting a custom
   // key sets customTypeKey + that key's built-in behavior stays via the def;
@@ -151,33 +162,53 @@ export function TaskBand({ task }: { task: Task }) {
           <button className="danger-btn" onClick={() => void handleDeleteClick()}>
             Delete
           </button>
+          {/* The alarm is an action like the rest, so it sits on their line
+              rather than claiming a section of its own. The control only
+              appears while it is being edited; the set time shows in .f-meta. */}
+          <button
+            className={`secondary-btn alarm-toggle ${task.alarmAt ? 'on' : ''}`}
+            onClick={() => setEditingAlarm((v) => !v)}
+            title={task.alarmAt ? `Alarm set for ${new Date(task.alarmAt).toLocaleString()}` : 'Set a reminder for this task'}
+          >
+            ⏰ {task.alarmAt ? 'Alarm set' : 'Alarm'}
+          </button>
+          {editingAlarm && (
+            <span className="alarm-inline">
+              <input
+                type="datetime-local"
+                value={alarmDraft}
+                aria-label="Alarm time"
+                onChange={(e) => setAlarmDraft(e.target.value)}
+              />
+              <button
+                className="mini-btn"
+                disabled={!alarmDraft}
+                onClick={() => {
+                  void setAlarm(task.id, new Date(alarmDraft).toISOString()).then(() => notify('Alarm set'))
+                  setEditingAlarm(false)
+                }}
+              >
+                Set
+              </button>
+              {task.alarmAt && (
+                <button
+                  className="mini-btn"
+                  onClick={() => {
+                    void setAlarm(task.id, null)
+                    setEditingAlarm(false)
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </span>
+          )}
         </div>
       </div>
 
       {task.completed && <div className="completed-banner">Completed {task.completedAt ? new Date(task.completedAt).toLocaleString() : ''}</div>}
 
-      <section className="settings-section alarm-section">
-        <div className="section-head">
-          <h4>Alarm</h4>
-          <div className="row">
-            <input type="datetime-local" value={alarmDraft} onChange={(e) => setAlarmDraft(e.target.value)} />
-            <button
-              className="mini-btn"
-              disabled={!alarmDraft}
-              onClick={() => void setAlarm(task.id, new Date(alarmDraft).toISOString()).then(() => notify('Alarm set'))}
-            >
-              Set
-            </button>
-            {task.alarmAt && (
-              <button className="mini-btn" onClick={() => void setAlarm(task.id, null)}>
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {isAgentic && (
+      {hasPre && (
         <section className="analysis-section">
           <div className="section-head">
             <h4>Pre-process</h4>
@@ -232,11 +263,7 @@ export function TaskBand({ task }: { task: Task }) {
               )}
               {preprocess.suggestions.length > 0 && (
                 <PreCard kind="suggest" title="Suggestions">
-                  <ul>
-                    {preprocess.suggestions.map((s, i) => (
-                      <li key={i}>{s}</li>
-                    ))}
-                  </ul>
+                  <SuggestionList task={task} recorded={preprocess.suggestions} />
                 </PreCard>
               )}
             </div>
@@ -244,7 +271,19 @@ export function TaskBand({ task }: { task: Task }) {
         </section>
       )}
 
-      {isAgentic && def.kind !== 'learning' && !task.completed && (
+      {/* A kind without a pre-process has no card to carry the suggestion job's
+          chips, and the board row no longer repeats them — without this they
+          would have no surface at all. */}
+      {!hasPre && ownSuggestions.length > 0 && (
+        <section className="analysis-section">
+          <div className="section-head">
+            <h4>Suggestions</h4>
+          </div>
+          <SuggestionList task={task} />
+        </section>
+      )}
+
+      {hasPre && def.kind !== 'learning' && !task.completed && (
         <div className="finish-row">
           <button className="finish-btn" onClick={() => void handleFinishClick()}>
             Finish
@@ -253,6 +292,49 @@ export function TaskBand({ task }: { task: Task }) {
       )}
       {dialog}
     </div>
+  )
+}
+
+/**
+ * The agent's suggestions for a task, with the × to dismiss.
+ *
+ * Sourced from the suggestions table — the same rows `dismissSuggestion`
+ * writes — so the list and the dismissal cannot disagree. `recorded` is the
+ * pre-process's own copy, shown read-only when a task has no chips (an older
+ * task, whose pre-process predates them); once chips exist they are the list,
+ * and dismissing every one says so rather than resurrecting the record.
+ */
+function SuggestionList({ task, recorded = [] }: { task: Task; recorded?: string[] }) {
+  const { snapshot } = useApp()
+  const chips = (snapshot?.suggestions ?? []).filter((s) => s.taskId === task.id)
+  const live = chips.filter((s) => !s.dismissed)
+
+  if (live.length > 0) {
+    return (
+      <div className="suggestion-chips">
+        {live.map((s) => (
+          <span key={s.id} className="chip">
+            {s.text}
+            <button
+              className="chip-x"
+              title="Dismiss this suggestion"
+              onClick={() => void window.api.dismissSuggestion({ suggestionId: s.id })}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+    )
+  }
+  if (chips.length > 0) return <p className="muted">All suggestions dismissed.</p>
+  if (recorded.length === 0) return null
+  return (
+    <ul>
+      {recorded.map((s, i) => (
+        <li key={i}>{s}</li>
+      ))}
+    </ul>
   )
 }
 

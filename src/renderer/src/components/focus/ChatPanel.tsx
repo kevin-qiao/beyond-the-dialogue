@@ -4,26 +4,29 @@ import { useApp } from '../../store'
 // Reusable chat loop (design D4): the streaming conversation surface shared
 // by the debug ChatView drawer and the learning/jira working areas. When
 // mounted with a taskId, the main process grounds replies in that task's
-// context (inputs, pre-process outputs, current note). The conversation is
-// per-surface — mounting a panel for a different surface starts fresh.
+// context (inputs, pre-process outputs, current note).
+//
+// The transcript is per-surface and lives in the store keyed by owner, not by
+// which panel is mounted: this panel reads and writes only its own task's
+// conversation, so switching tasks keeps each conversation intact and a reply
+// still streaming for one task never appears in another's.
 export function ChatPanel({ taskId, label = 'Ask the agent anything' }: { taskId?: string; label?: string }) {
-  const { chatMessages, chatStreaming, chatRunning, chatError, sendChat, notify } = useApp()
+  const { chatFor, sendChat } = useApp()
+  const { messages, streaming: chatStreaming, running: chatRunning, error: chatError } = chatFor(taskId)
   const [draft, setDraft] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages, chatStreaming])
+    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [messages, chatStreaming])
 
   const submit = async () => {
     const text = draft.trim()
     if (!text || chatRunning) return
     setDraft('')
-    try {
-      await sendChat(text, taskId)
-    } catch {
-      notify('Failed to reach the model — see the error above')
-    }
+    // sendChat records its own failure in the surface's state (shown below),
+    // so nothing here needs to report it.
+    await sendChat(text, taskId)
   }
 
   const streaming = chatStreaming ?? ''
@@ -31,8 +34,8 @@ export function ChatPanel({ taskId, label = 'Ask the agent anything' }: { taskId
   return (
     <div className="chat-panel">
       <div className="chat-messages">
-        {label && chatMessages.length === 0 && !chatStreaming && <div className="empty-hint">{label}</div>}
-        {chatMessages.map((m, i) => (
+        {label && messages.length === 0 && !chatStreaming && <div className="empty-hint">{label}</div>}
+        {messages.map((m, i) => (
           <div key={i} className={`chat-msg ${m.role}`}>
             {m.content}
           </div>
