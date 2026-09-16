@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import type { Task } from '../../../../shared/types'
 import { useApp } from '../../store'
 import { useDialog } from '../ui/Dialog'
-import { effectiveType } from '../../lib/typeCatalog'
-import { useT } from '../../lib/useT'
+import { displayTypeLabel, effectiveType } from '../../lib/typeCatalog'
+import { useLanguage, useLocale, useT } from '../../lib/useT'
 import { statusChip } from '../board/status'
 import { hasPreprocess } from '../../../../core/domain/preprocess'
 
@@ -18,6 +18,8 @@ import { hasPreprocess } from '../../../../core/domain/preprocess'
 export function TaskBand({ task }: { task: Task }) {
   const { snapshot, types, toggleTask, setMyDay, deleteTask, updateTask, finishTask, runPreprocess, setAlarm, notify, cancelJob, liveJobs } = useApp()
   const t = useT()
+  const language = useLanguage()
+  const locale = useLocale()
   const def = effectiveType(task, types)
   const preprocess = snapshot?.preprocess[task.id]
   const notes = snapshot?.notes[task.id]
@@ -137,12 +139,12 @@ export function TaskBand({ task }: { task: Task }) {
           </h3>
         )}
         <div className="f-meta">
-          <span className="type-tag">{def.label}</span>
+          <span className="type-tag">{displayTypeLabel(def, language)}</span>
           <code className="type-key">{def.key}</code>
           {chip}
           {task.alarmAt && (
             <span className="badge" title={t('task.alarm.isSet')}>
-              ⏰ {new Date(task.alarmAt).toLocaleString()}
+              ⏰ {new Date(task.alarmAt).toLocaleString(locale)}
             </span>
           )}
         </div>
@@ -155,7 +157,7 @@ export function TaskBand({ task }: { task: Task }) {
           >
             {types.map((option) => (
               <option key={option.key} value={option.key}>
-                {option.emoji} {option.label}{option.isBuiltin ? '' : t('type.customSuffix')}
+                {option.emoji} {displayTypeLabel(option, language)}{option.isBuiltin ? '' : t('type.customSuffix')}
               </option>
             ))}
           </select>
@@ -176,7 +178,7 @@ export function TaskBand({ task }: { task: Task }) {
             onClick={() => setEditingAlarm((v) => !v)}
             title={
               task.alarmAt
-                ? t('task.alarm.setFor', { when: new Date(task.alarmAt).toLocaleString() })
+                ? t('task.alarm.setFor', { when: new Date(task.alarmAt).toLocaleString(locale) })
                 : t('task.alarm.setHint')
             }
           >
@@ -218,7 +220,7 @@ export function TaskBand({ task }: { task: Task }) {
 
       {task.completed && (
         <div className="completed-banner">
-          {t('task.completedBanner', { when: task.completedAt ? new Date(task.completedAt).toLocaleString() : '' })}
+          {t('task.completedBanner', { when: task.completedAt ? new Date(task.completedAt).toLocaleString(locale) : '' })}
         </div>
       )}
 

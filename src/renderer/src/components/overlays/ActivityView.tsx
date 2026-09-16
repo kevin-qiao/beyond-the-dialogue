@@ -1,5 +1,5 @@
 import { useApp } from '../../store'
-import { useT } from '../../lib/useT'
+import { useLocale, useT } from '../../lib/useT'
 import type { JobProgressEvent } from '../../../../shared/ipc'
 import type { IngestRecord } from '../../../../shared/types'
 import type { MessageKey, Translate } from '../../../../core/i18n'
@@ -55,6 +55,7 @@ function JobRow({ job }: { job: JobProgressEvent }) {
 function IngestRow({ rec, step }: { rec: IngestRecord; step: string | null }) {
   const { retryIngest } = useApp()
   const t = useT()
+  const locale = useLocale()
   // A degraded finish (done, but the assistant step failed) is reported as a
   // warning rather than a failure: the user's content WAS filed, and saying
   // otherwise would be wrong. It is still never presented as a clean success.
@@ -67,7 +68,7 @@ function IngestRow({ rec, step }: { rec: IngestRecord; step: string | null }) {
           {degraded ? t('job.state.unpolished') : stateText(t, rec.state)}
         </span>
       </div>
-      <div className="muted">{rec.createdAt ? new Date(rec.createdAt).toLocaleString() : ''}</div>
+      <div className="muted">{rec.createdAt ? new Date(rec.createdAt).toLocaleString(locale) : ''}</div>
       {rec.state === 'running' && step && <div className="muted">{t('job.step', { label: step })}</div>}
       {rec.state === 'queued' && rec.error && (
         <div className="muted">{t('job.autoRetryAttempt', { n: rec.attempts })}</div>

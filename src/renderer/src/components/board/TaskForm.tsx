@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import type { Task } from '../../../../shared/types'
 import { useApp } from '../../store'
-import { useT } from '../../lib/useT'
-import { allTypeConfigs, effectiveType } from '../../lib/typeCatalog'
+import { useLanguage, useT } from '../../lib/useT'
+import { allTypeConfigs, displayTypeLabel, effectiveType, localizeTypeDef } from '../../lib/typeCatalog'
 import { TaskInputsForm } from './TaskInputsForm'
 
 // Task form (modal) used for both creating a new task and editing an existing
@@ -13,6 +13,7 @@ import { TaskInputsForm } from './TaskInputsForm'
 export function TaskForm({ listId, task, onClose }: { listId: string; task?: Task; onClose: () => void }) {
   const { snapshot, types, createTask, updateTask, setActiveView } = useApp()
   const t = useT()
+  const language = useLanguage()
   const isEdit = !!task
   const [title, setTitle] = useState(task?.title ?? '')
   const [notes, setNotes] = useState(task?.notes ?? '')
@@ -86,13 +87,20 @@ export function TaskForm({ listId, task, onClose }: { listId: string; task?: Tas
             >
               {configs.map((c) => (
                 <option key={c.key} value={c.key}>
-                  {c.emoji} {c.label}{c.isBuiltin ? '' : t('type.customSuffix')}
+                  {c.emoji} {displayTypeLabel(c, language)}{c.isBuiltin ? '' : t('type.customSuffix')}
                 </option>
               ))}
             </select>
           </label>
           {def.inputSchema.length > 0 && (
-            <TaskInputsForm def={def} values={inputs} onChange={setInputs} settings={snapshot?.settings} />
+            // The declared fields render their seeded labels in the active
+            // language; the form itself needs to know nothing about it.
+            <TaskInputsForm
+              def={localizeTypeDef(def, language)}
+              values={inputs}
+              onChange={setInputs}
+              settings={snapshot?.settings}
+            />
           )}
           {error && <div className="error-text">{error}</div>}
         </div>

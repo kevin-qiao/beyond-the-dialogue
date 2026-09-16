@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useT } from '../../lib/useT'
+import { useLocale, useT } from '../../lib/useT'
 import { EditorView, basicSetup } from 'codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import MarkdownIt from 'markdown-it'
@@ -30,6 +30,12 @@ export function NotesEditor({
   chat?: ReactNode
 }) {
   const t = useT()
+  const locale = useLocale()
+  // Read through a ref inside flushSave: the editor effect must not depend on
+  // the locale, or switching language would rebuild the CodeMirror view and
+  // discard the cursor, the undo history and the scroll position.
+  const localeRef = useRef(locale)
+  localeRef.current = locale
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -50,7 +56,7 @@ export function NotesEditor({
     const { taskId: tid, content } = pendingRef.current
     dirtyRef.current = false
     void onSave(tid, content)
-    setSavedAt(new Date().toLocaleTimeString())
+    setSavedAt(new Date().toLocaleTimeString(localeRef.current))
   }
 
   useEffect(() => {

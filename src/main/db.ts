@@ -21,6 +21,7 @@ import type {
 } from '../shared/types'
 import { NO_GRANT } from '../shared/types'
 import { DEFAULT_LANGUAGE, isLanguage } from '../core/i18n/language'
+import { en } from '../core/i18n/en'
 import { dbPathIn, defaultMeetingMinutesPath, userDataDir } from './paths'
 
 export interface DB {
@@ -156,29 +157,78 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 // these into task_types (INSERT OR IGNORE so later user edits to
 // presentation survive re-migration); custom types of a kind inherit that
 // kind's inputSchema unless they declare their own subset.
+//
+// The human-readable strings come from the English catalog rather than being
+// written here. One home for each string, and — because a stored label is
+// recognised as still-default by comparing it against that catalog — the
+// comparison cannot drift from what was actually seeded.
 export const LEARNING_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
-  { key: 'target', label: 'Target', type: 'text', required: true, placeholder: 'The concept or question to learn' },
-  { key: 'filePath', label: 'File', type: 'file', placeholder: 'Optional markdown (.md) attachment' },
-  { key: 'purpose', label: 'Prompt', type: 'textarea', placeholder: 'What you want the learning note to cover (injected into the learning prompt)' },
-  { key: 'learningNotePath', label: 'Learning-note path', type: 'text', placeholder: 'Defaults inside the wiki' }
+  {
+    key: 'target',
+    label: en['type.learning.field.target.label'],
+    type: 'text',
+    required: true,
+    placeholder: en['type.learning.field.target.placeholder']
+  },
+  {
+    key: 'filePath',
+    label: en['type.learning.field.filePath.label'],
+    type: 'file',
+    placeholder: en['type.learning.field.filePath.placeholder']
+  },
+  {
+    key: 'purpose',
+    label: en['type.learning.field.purpose.label'],
+    type: 'textarea',
+    placeholder: en['type.learning.field.purpose.placeholder']
+  },
+  {
+    key: 'learningNotePath',
+    label: en['type.learning.field.learningNotePath.label'],
+    type: 'text',
+    placeholder: en['type.learning.field.learningNotePath.placeholder']
+  }
 ]
 
 export const JIRA_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
   {
     key: 'sourceKind',
-    label: 'Source kind',
+    label: en['type.jira.field.sourceKind.label'],
     type: 'select',
     required: true,
     immutable: true,
     options: [
-      { value: 'issue', label: 'JIRA issue' },
-      { value: 'page', label: 'Confluence page' }
+      { value: 'issue', label: en['type.jira.field.sourceKind.option.issue'] },
+      { value: 'page', label: en['type.jira.field.sourceKind.option.page'] }
     ]
   },
-  { key: 'sourceLink', label: 'Link', type: 'url', placeholder: 'Ticket/page URL (reference only in v0.8)' },
-  { key: 'sourceText', label: 'Source content', type: 'textarea', required: true, placeholder: 'Paste the issue/page content' },
-  { key: 'target', label: 'Target / Purpose', type: 'textarea', required: true, placeholder: 'What you want done with it' },
-  { key: 'comments', label: 'Comment drafts', type: 'textarea', hidden: true, placeholder: 'Draft comments for the issue/page (local only)' }
+  {
+    key: 'sourceLink',
+    label: en['type.jira.field.sourceLink.label'],
+    type: 'url',
+    placeholder: en['type.jira.field.sourceLink.placeholder']
+  },
+  {
+    key: 'sourceText',
+    label: en['type.jira.field.sourceText.label'],
+    type: 'textarea',
+    required: true,
+    placeholder: en['type.jira.field.sourceText.placeholder']
+  },
+  {
+    key: 'target',
+    label: en['type.jira.field.target.label'],
+    type: 'textarea',
+    required: true,
+    placeholder: en['type.jira.field.target.placeholder']
+  },
+  {
+    key: 'comments',
+    label: en['type.jira.field.comments.label'],
+    type: 'textarea',
+    hidden: true,
+    placeholder: en['type.jira.field.comments.placeholder']
+  }
 ]
 
 // Meeting minutes: the objective drives the agenda, the attachment is
@@ -188,17 +238,22 @@ export const JIRA_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
 export const MEETING_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
   {
     key: 'target',
-    label: 'Objective',
+    label: en['type.meeting.field.target.label'],
     type: 'text',
     required: true,
-    placeholder: 'What the meeting is about and what it should achieve'
+    placeholder: en['type.meeting.field.target.placeholder']
   },
-  { key: 'filePath', label: 'File', type: 'file', placeholder: 'Optional markdown (.md) attachment' },
+  {
+    key: 'filePath',
+    label: en['type.meeting.field.filePath.label'],
+    type: 'file',
+    placeholder: en['type.meeting.field.filePath.placeholder']
+  },
   {
     key: 'purpose',
-    label: 'Prompt',
+    label: en['type.meeting.field.purpose.label'],
     type: 'textarea',
-    placeholder: 'What the agenda and core topics should focus on'
+    placeholder: en['type.meeting.field.purpose.placeholder']
   }
 ]
 
@@ -216,9 +271,9 @@ export function builtinTypeSeeds(): TaskTypeDef[] {
     {
       key: 'plain',
       kind: 'plain',
-      label: 'Plain task',
+      label: en['type.plain.label'],
       emoji: '📝',
-      description: 'A plain task — notes and suggestions only, no AI pre-process',
+      description: en['type.plain.description'],
       inputSchema: [],
       isBuiltin: true,
       finishBehaviour: 'complete-only',
@@ -227,9 +282,9 @@ export function builtinTypeSeeds(): TaskTypeDef[] {
     {
       key: 'learning',
       kind: 'learning',
-      label: 'Learning',
+      label: en['type.learning.label'],
       emoji: '🎓',
-      description: 'Learn a concept: AI prompt + summary, markdown note, Finish ingests to the wiki',
+      description: en['type.learning.description'],
       inputSchema: LEARNING_INPUT_SCHEMA,
       isBuiltin: true,
       // The existing Learning flow, declared: deposit the raw material first,
@@ -241,9 +296,9 @@ export function builtinTypeSeeds(): TaskTypeDef[] {
     {
       key: 'jira',
       kind: 'jira',
-      label: 'JIRA / Confluence',
+      label: en['type.jira.label'],
       emoji: '🎫',
-      description: 'Work an issue or page from pasted content: summaries, chat, comment drafts',
+      description: en['type.jira.description'],
       inputSchema: JIRA_INPUT_SCHEMA,
       isBuiltin: true,
       finishBehaviour: 'complete-only',
@@ -252,9 +307,9 @@ export function builtinTypeSeeds(): TaskTypeDef[] {
     {
       key: 'meeting',
       kind: 'meeting',
-      label: 'Meeting',
+      label: en['type.meeting.label'],
       emoji: '🗓',
-      description: 'Prepare for a meeting: AI agenda + core topics, minutes in the working area, polished into a folder you own',
+      description: en['type.meeting.description'],
       inputSchema: MEETING_INPUT_SCHEMA,
       isBuiltin: true,
       finishBehaviour: 'polish-then-file',

@@ -5,8 +5,8 @@ import { SETTINGS_KEYS } from '../../../../shared/types'
 import { FINISH_BEHAVIOURS } from '../../../../core/domain/categories'
 import { describeDestination } from '../../../../core/domain/destination'
 import { LANGUAGES, LANGUAGE_NAMES, isLanguage, type MessageKey } from '../../../../core/i18n'
-import { useT } from '../../lib/useT'
-import { allTypeConfigs } from '../../lib/typeCatalog'
+import { useLanguage, useT } from '../../lib/useT'
+import { allTypeConfigs, displayTypeDescription, displayTypeLabel, localizeTypeDef } from '../../lib/typeCatalog'
 import { useDialog } from '../ui/Dialog'
 
 const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
@@ -35,6 +35,7 @@ type Tab = 'general' | 'types' | 'plugins' | 'ai'
 export function SettingsView() {
   const { snapshot, types, saveSettings, saveType, deleteType } = useApp()
   const t = useT()
+  const language = useLanguage()
   const [tab, setTab] = useState<Tab>('general')
 
   const [draft, setDraft] = useState<Settings | null>(snapshot?.settings ?? null)
@@ -241,9 +242,9 @@ export function SettingsView() {
                 <div key={c.key} className="type-card builtin">
                   <div className="tc-emoji">{c.emoji}</div>
                   <div className="tc-main">
-                    <div className="tc-label">{c.label}</div>
+                    <div className="tc-label">{displayTypeLabel(c, language)}</div>
                     <code className="tc-key">{c.key} · {c.kind}</code>
-                    {c.description && <div className="tc-desc">{c.description}</div>}
+                    {c.description && <div className="tc-desc">{displayTypeDescription(c, language)}</div>}
                   </div>
                   <div className="tc-actions">
                     <button className="icon-btn tiny" title={t('settings.types.editPresentation')} onClick={() => setTypeEditor({ mode: 'edit', existing: c })}>
@@ -275,9 +276,9 @@ export function SettingsView() {
                   <div key={c.key} className="type-card">
                     <div className="tc-emoji">{c.emoji}</div>
                     <div className="tc-main">
-                      <div className="tc-label">{c.label}</div>
+                      <div className="tc-label">{displayTypeLabel(c, language)}</div>
                       <code className="tc-key">{c.key} · {c.kind}</code>
-                      {c.description && <div className="tc-desc">{c.description}</div>}
+                      {c.description && <div className="tc-desc">{displayTypeDescription(c, language)}</div>}
                     </div>
                     <div className="tc-actions">
                       <button className="icon-btn tiny" title={t('common.edit')} onClick={() => setTypeEditor({ mode: 'edit', existing: c })}>
@@ -603,8 +604,9 @@ function TypeEditorModal({
   onSave: (cfg: TaskTypeDef) => Promise<void>
   onClose: () => void
 }) {
-  const { snapshot } = useApp()
+  const { snapshot, types } = useApp()
   const t = useT()
+  const language = useLanguage()
   const isBuiltinEdit = mode === 'edit' && !!existing?.isBuiltin
   const [key, setKey] = useState(existing?.key ?? '')
   const [kind, setKind] = useState<TaskKind>(existing?.kind ?? 'learning')
@@ -622,7 +624,11 @@ function TypeEditorModal({
   const [destSubdir, setDestSubdir] = useState(existing?.destination?.subdir ?? '')
   const [grantSkills, setGrantSkills] = useState<Set<string>>(new Set(existing?.grants?.skills ?? []))
   const [grantServers, setGrantServers] = useState<Set<string>>(new Set(existing?.grants?.toolServers ?? []))
-  const supported = kindSchema(kind)
+  // The fields offered come from the kind's built-in type, and their labels are
+  // seeded strings — shown in the active language through the same rule as
+  // everywhere else.
+  const kindDef = allTypeConfigs(types).find((c) => c.key === kind)
+  const supported = kindDef ? localizeTypeDef(kindDef, language).inputSchema : kindSchema(kind)
   const behaviourWrites = (existing?.isBuiltin ? existing.finishBehaviour : finishBehaviour) !== 'complete-only'
   const skillsForGrants = snapshot?.settings.skills ?? []
   const serversForGrants = snapshot?.settings.mcpServers ?? []

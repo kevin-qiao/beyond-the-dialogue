@@ -1,8 +1,8 @@
 import type { Task } from '../../../../shared/types'
 import { useApp } from '../../store'
-import { useT } from '../../lib/useT'
+import { useLanguage, useLocale, useT } from '../../lib/useT'
 import { statusChip } from './status'
-import { effectiveType } from '../../lib/typeCatalog'
+import { displayTypeLabel, effectiveType } from '../../lib/typeCatalog'
 
 interface Props {
   task: Task
@@ -24,6 +24,8 @@ interface Props {
 export function TaskRow({ task, jobStep, selected, onSelect, onContextMenu }: Props) {
   const { types, toggleTask, setMyDay, cancelJob, liveJobs } = useApp()
   const t = useT()
+  const language = useLanguage()
+  const locale = useLocale()
   const activeJob = liveJobs.find((j) => j.taskId === task.id && (j.state === 'running' || j.state === 'queued'))
   const def = effectiveType(task, types)
   const chip = statusChip(t, task, types, jobStep)
@@ -33,10 +35,10 @@ export function TaskRow({ task, jobStep, selected, onSelect, onContextMenu }: Pr
       <div className="task-main">
         <div className="task-title">{task.title}</div>
         <div className="task-meta">
-          <span className="type-tag">{def.label}</span>
+          <span className="type-tag">{displayTypeLabel(def, language)}</span>
           {chip}
           {task.alarmAt && (
-            <span className="badge" title={t('task.alarm.title', { when: new Date(task.alarmAt).toLocaleString() })}>
+            <span className="badge" title={t('task.alarm.title', { when: new Date(task.alarmAt).toLocaleString(locale) })}>
               ⏰
             </span>
           )}

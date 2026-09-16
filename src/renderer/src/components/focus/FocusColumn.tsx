@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useApp } from '../../store'
-import { useT } from '../../lib/useT'
+import { useLanguage, useT } from '../../lib/useT'
+import { displayTypeLabel } from '../../lib/typeCatalog'
 import { TaskBand } from './TaskBand'
 import { TaskNotes } from './TaskNotes'
 import { JiraArea } from './JiraArea'
@@ -31,6 +32,7 @@ interface Props {
 export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
   const { selectedTaskId, taskById, snapshot } = useApp()
   const t = useT()
+  const language = useLanguage()
   const task = selectedTaskId ? taskById(selectedTaskId) : undefined
   const [bandCollapsed, setBandCollapsed] = useState(false)
 
@@ -68,7 +70,7 @@ export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
             <span className="f-breadcrumb">
               <span className="crumb">{listName}</span>
               <span className="sep">›</span>
-              <span className="crumb">{meta.label}</span>
+              <span className="crumb">{displayTypeLabel(meta, language)}</span>
               <span className="sep">›</span>
               <span className="crumb" style={{ fontFamily: 'var(--font-mono)' }}>#{task.id.slice(0, 6)}</span>
             </span>

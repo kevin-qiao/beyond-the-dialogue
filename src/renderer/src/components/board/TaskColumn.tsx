@@ -6,9 +6,9 @@ import { QuickAdd } from './QuickAdd'
 import { TaskForm } from './TaskForm'
 import { TaskContextMenu } from './TaskContextMenu'
 import { useDialog } from '../ui/Dialog'
-import { useT } from '../../lib/useT'
+import { useLanguage, useLocale, useT } from '../../lib/useT'
 import { IconInbox, IconPlus } from '../ui/icons'
-import { allTypeConfigs, typeFilterKey } from '../../lib/typeCatalog'
+import { allTypeConfigs, displayTypeLabel, typeFilterKey } from '../../lib/typeCatalog'
 
 interface Scope {
   header: string
@@ -26,6 +26,8 @@ interface Scope {
 export function TaskColumn() {
   const { snapshot, activeView, selectedTaskId, selectTask, jobSteps, query, searchTasks, myDayTasks, deleteTask } = useApp()
   const t = useT()
+  const language = useLanguage()
+  const locale = useLocale()
   const [showNewTask, setShowNewTask] = useState(false)
   const [typeFilter, setTypeFilter] = useState<string | null>(null)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; task: Task } | null>(null)
@@ -53,7 +55,7 @@ export function TaskColumn() {
     scope = { header: t('nav.search', { count: tasks.length }), tasks, captureListId: null }
   } else if (activeView === 'my-day') {
     const tasks = searchTasks(myDayTasks)
-    const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+    const today = new Date().toLocaleDateString(locale, { weekday: 'long', month: 'long', day: 'numeric' })
     scope = {
       header: t('nav.myDay'),
       dateSub: today,
@@ -151,10 +153,10 @@ export function TaskColumn() {
                 key={ty}
                 className={`type-chip ${typeFilter === ty ? 'on' : ''}`}
                 onClick={() => setTypeFilter((cur) => (cur === ty ? null : ty))}
-                title={t('nav.filterBy', { label: cfg?.label ?? ty })}
+                title={t('nav.filterBy', { label: cfg ? displayTypeLabel(cfg, language) : ty })}
               >
                 <span className="tc-emoji" aria-hidden>{cfg?.emoji ?? '📌'}</span>
-                <span className="tc-label">{cfg?.label ?? ty}</span>
+                <span className="tc-label">{cfg ? displayTypeLabel(cfg, language) : ty}</span>
                 <span className="count-mini">{n}</span>
               </button>
             )

@@ -276,6 +276,48 @@ export const en = {
   // The suffix a custom type's name carries wherever types are listed.
   'type.customSuffix': '（custom）',
 
+  // The seeded presentation of the four built-in types. `src/main/db.ts` seeds
+  // rows FROM these strings, and the renderer decides whether a stored label is
+  // still the default by comparing it against them — so their text is the
+  // contract, not just the display. Changing one changes what counts as
+  // "untouched", and a type already renamed by the user stays theirs in every
+  // language either way.
+  'type.plain.label': 'Plain task',
+  'type.plain.description': 'A plain task — notes and suggestions only, no AI pre-process',
+  'type.learning.label': 'Learning',
+  'type.learning.description': 'Learn a concept: AI prompt + summary, markdown note, Finish ingests to the wiki',
+  'type.learning.field.target.label': 'Target',
+  'type.learning.field.target.placeholder': 'The concept or question to learn',
+  'type.learning.field.filePath.label': 'File',
+  'type.learning.field.filePath.placeholder': 'Optional markdown (.md) attachment',
+  'type.learning.field.purpose.label': 'Prompt',
+  'type.learning.field.purpose.placeholder':
+    'What you want the learning note to cover (injected into the learning prompt)',
+  'type.learning.field.learningNotePath.label': 'Learning-note path',
+  'type.learning.field.learningNotePath.placeholder': 'Defaults inside the wiki',
+  'type.jira.label': 'JIRA / Confluence',
+  'type.jira.description': 'Work an issue or page from pasted content: summaries, chat, comment drafts',
+  'type.jira.field.sourceKind.label': 'Source kind',
+  'type.jira.field.sourceKind.option.issue': 'JIRA issue',
+  'type.jira.field.sourceKind.option.page': 'Confluence page',
+  'type.jira.field.sourceLink.label': 'Link',
+  'type.jira.field.sourceLink.placeholder': 'Ticket/page URL (reference only in v0.8)',
+  'type.jira.field.sourceText.label': 'Source content',
+  'type.jira.field.sourceText.placeholder': 'Paste the issue/page content',
+  'type.jira.field.target.label': 'Target / Purpose',
+  'type.jira.field.target.placeholder': 'What you want done with it',
+  'type.jira.field.comments.label': 'Comment drafts',
+  'type.jira.field.comments.placeholder': 'Draft comments for the issue/page (local only)',
+  'type.meeting.label': 'Meeting',
+  'type.meeting.description':
+    'Prepare for a meeting: AI agenda + core topics, minutes in the working area, polished into a folder you own',
+  'type.meeting.field.target.label': 'Objective',
+  'type.meeting.field.target.placeholder': 'What the meeting is about and what it should achieve',
+  'type.meeting.field.filePath.label': 'File',
+  'type.meeting.field.filePath.placeholder': 'Optional markdown (.md) attachment',
+  'type.meeting.field.purpose.label': 'Prompt',
+  'type.meeting.field.purpose.placeholder': 'What the agenda and core topics should focus on',
+
   // ---- settings ----
   'settings.sections': 'Settings sections',
   'settings.tab.general': 'General',

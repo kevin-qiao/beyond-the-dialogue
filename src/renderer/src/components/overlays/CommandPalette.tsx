@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useApp } from '../../store'
 import { useT } from '../../lib/useT'
 import type { Task, TaskTypeDef } from '../../../../shared/types'
-import type { Translate } from '../../../../core/i18n'
-import { allTypeConfigs, typeEmoji, typeLabel } from '../../lib/typeCatalog'
+import type { Language, Translate } from '../../../../core/i18n'
+import { allTypeConfigs, displayTypeLabel, typeEmoji, typeLabel } from '../../lib/typeCatalog'
+import { useLanguage } from '../../lib/useT'
 
 // CommandPalette (⌘K) — spec app-layout v2: a global palette that fuses quick
 // actions, task jumping, and type filtering into one keyboard-first surface.
@@ -42,6 +43,7 @@ type PaletteItem = ActionItem | TaskItem | TypeItem
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { snapshot, setActiveView, selectTask, openDrawer, saveSettings, notify } = useApp()
   const t = useT()
+  const language = useLanguage()
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -131,7 +133,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       const open = snapshot.tasks.filter((task) => !task.completed && !task.deletedAt).slice(0, 50)
       const done = snapshot.tasks.filter((task) => task.completed && !task.deletedAt).slice(0, 20)
       for (const task of [...open, ...done]) {
-        out.push(taskToItem(t, task, snapshot.lists, selectTask, snapshot.taskTypes))
+        out.push(taskToItem(t, language, task, snapshot.lists, selectTask, snapshot.taskTypes))
       }
     }
 
@@ -140,17 +142,21 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       out.push({
         kind: 'type',
         id: 'type-' + c.key,
-        title: c.label,
+        title: displayTypeLabel(c, language),
         sub: `${c.key} · ${t(c.isBuiltin ? 'palette.type.builtin' : 'palette.type.custom')}`,
         ico: c.emoji,
         run: () => {
-          notify(t(c.isBuiltin ? 'palette.type.notifyBuiltin' : 'palette.type.notifyCustom', { label: c.label }))
+          notify(
+            t(c.isBuiltin ? 'palette.type.notifyBuiltin' : 'palette.type.notifyCustom', {
+              label: displayTypeLabel(c, language)
+            })
+          )
         }
       })
     }
 
     return out
-  }, [snapshot, setActiveView, openDrawer, saveSettings, selectTask, notify, t])
+  }, [snapshot, setActiveView, openDrawer, saveSettings, selectTask, notify, t, language])
 
   // Filter — empty query shows the curated top set; otherwise substring match.
   const filtered = useMemo(() => {
@@ -269,13 +275,14 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
 function taskToItem(
   t: Translate,
+  language: Language,
   task: Task,
   lists: { id: string; name: string }[],
   selectTask: (id: string | null) => void,
   types?: TaskTypeDef[] | null
 ): TaskItem {
   const list = lists.find((l) => l.id === task.listId)
-  const label = typeLabel(task, types)
+  const label = typeLabel(task, types, language)
   const ico = typeEmoji(task, types)
   return {
     kind: 'task',

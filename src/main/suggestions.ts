@@ -29,6 +29,9 @@ export async function runSuggestionJob(ctx: JobContext): Promise<void> {
     }[]
   ).map((r) => r.title)
 
+  // Deliberately fixed: this string goes INTO A PROMPT, so it must not follow
+  // the interface language. The agent's output language is the agent's own;
+  // `uiLanguage` is a presentation setting and never reaches model input.
   const localTime = new Date().toLocaleString('en-US', {
     weekday: 'long',
     hour: 'numeric',
