@@ -1,5 +1,6 @@
 import type { Task } from '../../../../shared/types'
 import { useApp } from '../../store'
+import { useT } from '../../lib/useT'
 import { statusChip } from './status'
 import { effectiveType } from '../../lib/typeCatalog'
 
@@ -22,9 +23,10 @@ interface Props {
 // the other row actions.
 export function TaskRow({ task, jobStep, selected, onSelect, onContextMenu }: Props) {
   const { types, toggleTask, setMyDay, cancelJob, liveJobs } = useApp()
+  const t = useT()
   const activeJob = liveJobs.find((j) => j.taskId === task.id && (j.state === 'running' || j.state === 'queued'))
   const def = effectiveType(task, types)
-  const chip = statusChip(task, types, jobStep)
+  const chip = statusChip(t, task, types, jobStep)
 
   return (
     <div className={`task-row ${task.completed ? 'done' : ''} ${selected ? 'selected' : ''}`} onClick={onSelect} onContextMenu={(e) => onContextMenu(e, task)}>
@@ -33,7 +35,11 @@ export function TaskRow({ task, jobStep, selected, onSelect, onContextMenu }: Pr
         <div className="task-meta">
           <span className="type-tag">{def.label}</span>
           {chip}
-          {task.alarmAt && <span className="badge" title={`Alarm ${new Date(task.alarmAt).toLocaleString()}`}>⏰</span>}
+          {task.alarmAt && (
+            <span className="badge" title={t('task.alarm.title', { when: new Date(task.alarmAt).toLocaleString() })}>
+              ⏰
+            </span>
+          )}
         </div>
       </div>
       <div className="task-actions">
@@ -44,9 +50,9 @@ export function TaskRow({ task, jobStep, selected, onSelect, onContextMenu }: Pr
               e.stopPropagation()
               void cancelJob(activeJob.jobId)
             }}
-            title="Stop the running job"
+            title={t('task.cancelJob')}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         )}
         <button
@@ -55,7 +61,7 @@ export function TaskRow({ task, jobStep, selected, onSelect, onContextMenu }: Pr
             e.stopPropagation()
             void setMyDay(task.id, !task.inMyDay)
           }}
-          title={task.inMyDay ? 'Remove from My Day' : 'Add to My Day'}
+          title={task.inMyDay ? t('task.myDay.remove') : t('task.myDay.add')}
         >
           {task.inMyDay ? '★' : '☆'}
         </button>
@@ -65,7 +71,7 @@ export function TaskRow({ task, jobStep, selected, onSelect, onContextMenu }: Pr
             e.stopPropagation()
             void toggleTask(task.id)
           }}
-          title={task.completed ? 'Mark incomplete' : 'Mark complete'}
+          title={task.completed ? t('task.toggle.incomplete') : t('task.toggle.complete')}
         />
       </div>
     </div>

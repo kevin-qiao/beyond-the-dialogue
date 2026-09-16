@@ -5,7 +5,7 @@ import { PLURAL_FORMS, localeOf, isLanguage } from '../src/core/i18n/language'
 import type { MessageKey } from '../src/core/i18n'
 import { censusTree, readBaseline, type FileCounts } from './helpers/i18nBaseline'
 import { ALLOWED_LITERALS } from './i18n-allowlist'
-import { walk, ROOT, readSource } from './helpers/sourceScan'
+import { walk, ROOT, readSource, rendererSources } from './helpers/sourceScan'
 import * as path from 'node:path'
 
 // The catalogs, and the guard that keeps them current.
@@ -172,10 +172,14 @@ test('no file gained untranslated text', () => {
 })
 
 test('the baseline describes files that still exist', () => {
-  // A stale entry is an allowance nobody is using, and it hides the file
-  // having been renamed into a fresh one with a full allowance.
-  const baseline = readBaseline()
-  const missing = Object.keys(baseline).filter((file) => !censusTree()[file])
+  // A stale entry is an allowance nobody is using, and it would hide the file
+  // having been renamed into a fresh one that starts with a full allowance.
+  // Checked against the tree rather than the census: a file that has been
+  // fully translated leaves the census, which is the goal, not a staleness.
+  const sources = new Set(
+    rendererSources().map((f) => path.relative(ROOT, f).split(path.sep).join('/'))
+  )
+  const missing = Object.keys(readBaseline()).filter((file) => !sources.has(file))
   assert.deepEqual(missing, [], `baseline entries with no file (regenerate it):\n${missing.join('\n')}`)
 })
 

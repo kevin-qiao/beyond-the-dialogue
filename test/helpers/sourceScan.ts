@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { isMessageKey } from '../../src/core/i18n'
 
 // Reading the tree as text, for the guards that enforce a property of the
 // source rather than of a running system (test/layering.test.ts and
@@ -108,7 +109,11 @@ export function censusSource(src: string): Census {
     if (!CODE_LIKE.test(text)) texts.push(text)
   }
   for (const block of code.matchAll(LABEL_BLOCK)) {
-    for (const value of block[1]!.matchAll(STRING_VALUE)) labels.push(value[1]!)
+    for (const value of block[1]!.matchAll(STRING_VALUE)) {
+      // A map from a closed set to catalog KEYS is the translated form of the
+      // thing this census is looking for, not an instance of it.
+      if (!isMessageKey(value[1]!)) labels.push(value[1]!)
+    }
   }
   return { attributes, texts, labels }
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useApp } from '../../store'
+import { useT } from '../../lib/useT'
 import { IconPlus } from '../ui/icons'
 
 // Inline quick capture (spec task-capture): Enter creates the task in the
@@ -12,6 +13,7 @@ import { IconPlus } from '../ui/icons'
 // out of the capture box keeps it a one-line, always-ready input.
 export function QuickAdd({ listId, onCreated }: { listId: string; onCreated?: () => void }) {
   const { createTask } = useApp()
+  const t = useT()
   const [value, setValue] = useState('')
 
   const submit = async () => {
@@ -37,8 +39,8 @@ export function QuickAdd({ listId, onCreated }: { listId: string; onCreated?: ()
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="What needs doing?"
-        aria-label="Quick add task"
+        placeholder={t('task.capture.placeholder')}
+        aria-label={t('task.capture.ariaLabel')}
         autoComplete="off"
       />
     </form>
