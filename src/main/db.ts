@@ -20,6 +20,7 @@ import type {
   TaskTypeDef
 } from '../shared/types'
 import { NO_GRANT } from '../shared/types'
+import { DEFAULT_LANGUAGE, isLanguage } from '../core/i18n/language'
 import { dbPathIn, defaultMeetingMinutesPath, userDataDir } from './paths'
 
 export interface DB {
@@ -895,6 +896,7 @@ const DEFAULT_SETTINGS: Settings = {
   maxConcurrentJobs: 2,
   showWelcome: true,
   theme: 'light',
+  uiLanguage: DEFAULT_LANGUAGE,
   skills: [],
   mcpServers: []
 }
@@ -942,6 +944,9 @@ export function loadSettings(db: DatabaseSync): Settings {
     else if (r.key === 'maxConcurrentJobs') out.maxConcurrentJobs = parseInt(r.value, 10) || 2
     else if (r.key === 'showWelcome') out.showWelcome = r.value !== '0'
     else if (r.key === 'theme') out.theme = r.value === 'dark' ? 'dark' : 'light'
+    // Clamped rather than trusted: a value written by a newer version, or
+    // hand-edited, must leave the app in a language it can actually render.
+    else if (r.key === 'uiLanguage') out.uiLanguage = isLanguage(r.value) ? r.value : DEFAULT_LANGUAGE
     else if (r.key === 'skills') out.skills = parseSkills(r.value)
     else if (r.key === 'mcpServers') out.mcpServers = parseMcpServers(r.value)
   }
@@ -958,6 +963,7 @@ export function saveSettings(db: DatabaseSync, s: Settings): void {
   upsert.run('maxConcurrentJobs', String(s.maxConcurrentJobs))
   upsert.run('showWelcome', s.showWelcome ? '1' : '0')
   upsert.run('theme', s.theme === 'dark' ? 'dark' : 'light')
+  upsert.run('uiLanguage', isLanguage(s.uiLanguage) ? s.uiLanguage : DEFAULT_LANGUAGE)
   upsert.run('skills', JSON.stringify(s.skills ?? []))
   upsert.run('mcpServers', JSON.stringify(s.mcpServers ?? []))
 }

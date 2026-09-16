@@ -6,6 +6,7 @@
 // `TaskType` and `TaskKind` are retained as the names the rest of the code
 // already uses; they denote the same set.
 import type { TaskCategory, FinishBehaviour, DestinationStore } from '../core/domain/categories'
+import type { Language } from '../core/i18n/language'
 
 export type { TaskCategory, FinishBehaviour, DestinationStore }
 
@@ -185,11 +186,44 @@ export interface Settings {
   maxConcurrentJobs: number
   showWelcome: boolean
   theme: 'light' | 'dark'
+  // The language the app's OWN text is shown in (labels, buttons, dialogs,
+  // messages) — named `uiLanguage` rather than `language` to say so: it is a
+  // presentation choice and must never reach a prompt or shape model output.
+  uiLanguage: Language
   // Managed plugin entries (config-only in v0.8; nothing on the agent path
   // reads them). Custom task types moved to the task_types table.
   skills: SkillEntry[]
   mcpServers: McpServerEntry[]
 }
+
+/**
+ * Every field of `Settings`, declared once.
+ *
+ * Two places need to enumerate the settings: the persistence layer (which reads
+ * and writes them one key at a time) and the Settings form's dirty check, which
+ * is hand-written field by field — and silently stops enabling Save when a new
+ * field is not listed. Both read this instead. The check under the list is what
+ * makes that guarantee real: adding a field to `Settings` without naming it here
+ * is a compile error.
+ */
+export const SETTINGS_KEYS = [
+  'provider',
+  'model',
+  'apiKey',
+  'wikiPath',
+  'defaultListId',
+  'maxConcurrentJobs',
+  'showWelcome',
+  'theme',
+  'uiLanguage',
+  'skills',
+  'mcpServers'
+] as const satisfies readonly (keyof Settings)[]
+
+type UnlistedSettingKey = Exclude<keyof Settings, (typeof SETTINGS_KEYS)[number]>
+// `never` when every field is listed; naming the bare type below is the error.
+const _everySettingIsListed: UnlistedSettingKey[] = []
+void _everySettingIsListed
 
 // ---- Jobs ----
 

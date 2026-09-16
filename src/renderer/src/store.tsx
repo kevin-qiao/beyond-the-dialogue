@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { CreateTaskArgs, JobProgressEvent, RemoteOutcomeView, RemoteProposalView, ToastPayload, UpdateTaskArgs } from '../../shared/ipc'
 import type { AppSnapshot, ChatMessage, IngestRecord, List, Settings, Suggestion, Task, TaskTypeDef } from '../../shared/types'
+import { DEFAULT_LANGUAGE, localeOf, translator, type Language, type Translate } from '../../core/i18n'
 
 interface AppState {
   snapshot: AppSnapshot | null
@@ -18,6 +19,12 @@ export type View = 'my-day' | 'todo'
 export type DrawerView = 'activity' | 'settings' | 'chat'
 
 interface AppContextValue extends AppState {
+  /** The language the app's own text is shown in (Settings → Appearance). */
+  language: Language
+  /** The BCP-47 tag dates are formatted with, derived from `language`. */
+  locale: string
+  /** `message(language, …)`, bound. Stable per language, so it is safe in deps. */
+  t: Translate
   setActiveView: (v: View) => void
   drawer: DrawerView | null
   openDrawer: (d: DrawerView) => void
@@ -248,10 +255,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [mutateTask, refresh, patchChat])
 
+  // The language rides the snapshot, so it arrives with every settings change
+  // and needs no context of its own. Derived here rather than inside the value
+  // memo so `t` keeps one identity per language: a component that memoises on
+  // `t` should recompute when the language changes, not on every task update.
+  //
+  // Note for anyone tempted to call `useT()` in this component: AppProvider IS
+  // the provider, so `useApp()` would throw. It reads `t` from here directly.
+  const language = snapshot?.settings.uiLanguage ?? DEFAULT_LANGUAGE
+  const t = useMemo(() => translator(language), [language])
+  const locale = localeOf(language)
+
   const value = useMemo<AppContextValue>(() => {
     const snap = snapshot
     return {
       snapshot: snap,
+      language,
+      locale,
+      t,
       loading,
       activeView,
       drawer,
@@ -409,6 +430,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [
     snapshot,
+    language,
+    locale,
+    t,
     loading,
     activeView,
     drawer,

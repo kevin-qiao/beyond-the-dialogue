@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../../store'
 import type { Destination, DestinationStore, FinishBehaviour, McpServerEntry, Settings, SkillEntry, TaskKind, TaskTypeDef } from '../../../../shared/types'
+import { SETTINGS_KEYS } from '../../../../shared/types'
 import { FINISH_BEHAVIOURS } from '../../../../core/domain/categories'
 import { describeDestination } from '../../../../core/domain/destination'
+import { LANGUAGES, LANGUAGE_NAMES, isLanguage } from '../../../../core/i18n'
+import { useT } from '../../lib/useT'
 import { allTypeConfigs } from '../../lib/typeCatalog'
 import { useDialog } from '../ui/Dialog'
 
@@ -31,6 +34,7 @@ type Tab = 'general' | 'types' | 'plugins' | 'ai'
 // with the Save button.
 export function SettingsView() {
   const { snapshot, types, saveSettings, saveType, deleteType } = useApp()
+  const t = useT()
   const [tab, setTab] = useState<Tab>('general')
 
   const [draft, setDraft] = useState<Settings | null>(snapshot?.settings ?? null)
@@ -94,16 +98,23 @@ export function SettingsView() {
   // user knows what'll fall back to plain.
   const referenceCount = (key: string) => (snapshot?.tasks ?? []).filter((t) => !t.deletedAt && t.customTypeKey === key).length
 
+  // Does the draft differ from what is saved? Driven by SETTINGS_KEYS rather
+  // than a hand-written list of comparisons: a setting missing from the list
+  // fails silently — the field edits fine and Save simply never enables — so
+  // the list is read from the one declaration of the field set instead.
   const dirty = useMemo(() => {
-    if (!draft) return false
-    if (draft.theme !== snapshot?.settings.theme) return true
-    if (draft.provider !== snapshot?.settings.provider) return true
-    if (draft.model !== snapshot?.settings.model) return true
-    if ((draft.apiKey ?? '') !== (snapshot?.settings.apiKey ?? '')) return true
-    if (draft.wikiPath !== snapshot?.settings.wikiPath) return true
-    if (JSON.stringify(draft.skills ?? []) !== JSON.stringify(snapshot?.settings.skills ?? [])) return true
-    if (JSON.stringify(draft.mcpServers ?? []) !== JSON.stringify(snapshot?.settings.mcpServers ?? [])) return true
-    return false
+    if (!draft || !snapshot?.settings) return false
+    const saved = snapshot.settings
+    return SETTINGS_KEYS.some((key) => {
+      const a = draft[key]
+      const b = saved[key]
+      // The two object-valued settings (skills, mcpServers) are edited in
+      // place, so identity comparison would always report a change.
+      if (typeof a === 'object' || typeof b === 'object') {
+        return JSON.stringify(a ?? null) !== JSON.stringify(b ?? null)
+      }
+      return a !== b
+    })
   }, [draft, snapshot?.settings])
 
   // The seed input schema a kind supports — taken from its built-in type.
@@ -173,6 +184,26 @@ export function SettingsView() {
               <select value={draft.theme} onChange={(e) => update({ theme: e.target.value as 'light' | 'dark' })}>
                 <option value="light">Light</option>
                 <option value="dark">Dark</option>
+              </select>
+            </label>
+            <label>
+              {t('settings.appearance.language')} <span className="muted">{t('settings.appearance.language.hint')}</span>
+              <select
+                value={draft.uiLanguage}
+                onChange={(e) => {
+                  // The language the app's own text is shown in. It never
+                  // reaches a prompt: the agent's output language is its own.
+                  const next = e.target.value
+                  if (isLanguage(next)) update({ uiLanguage: next })
+                }}
+              >
+                {/* Each language is named in its own script, so a user who
+                    cannot read the current interface can still find theirs. */}
+                {LANGUAGES.map((l) => (
+                  <option key={l} value={l}>
+                    {LANGUAGE_NAMES[l]}
+                  </option>
+                ))}
               </select>
             </label>
           </section>
