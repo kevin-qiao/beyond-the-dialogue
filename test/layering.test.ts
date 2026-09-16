@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { ROOT, stripComments, walk } from './helpers/sourceScan'
 
 // Layering guard (contracts/app-client.md §2, constitution Principle III).
 //
@@ -13,26 +14,8 @@ import * as path from 'node:path'
 // Mechanical by design: no allowlist, no exceptions. If a core module needs
 // I/O, it takes a port (src/core/ports) and the adapter lives in src/main.
 
-const ROOT = path.resolve(import.meta.dirname, '..')
 const CORE = path.join(ROOT, 'src', 'core')
 const RENDERER = path.join(ROOT, 'src', 'renderer')
-
-function walk(dir: string, filter: (f: string) => boolean): string[] {
-  if (!fs.existsSync(dir)) return []
-  const out: string[] = []
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) out.push(...walk(full, filter))
-    else if (filter(full)) out.push(full)
-  }
-  return out
-}
-
-// Comments are stripped before matching so a rule may be *named* in prose
-// (e.g. "MUST NOT import node:fs") without tripping itself.
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
-}
 
 const coreFiles = () => walk(CORE, (f) => f.endsWith('.ts'))
 

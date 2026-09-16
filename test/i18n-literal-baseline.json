@@ -1,0 +1,112 @@
+{
+  "src/renderer/src/App.tsx": {
+    "attributes": 5,
+    "texts": 4,
+    "labels": 0
+  },
+  "src/renderer/src/components/board/ListsRail.tsx": {
+    "attributes": 1,
+    "texts": 2,
+    "labels": 0
+  },
+  "src/renderer/src/components/board/QuickAdd.tsx": {
+    "attributes": 2,
+    "texts": 0,
+    "labels": 0
+  },
+  "src/renderer/src/components/board/status.tsx": {
+    "attributes": 0,
+    "texts": 0,
+    "labels": 4
+  },
+  "src/renderer/src/components/board/TaskColumn.tsx": {
+    "attributes": 2,
+    "texts": 4,
+    "labels": 0
+  },
+  "src/renderer/src/components/board/TaskForm.tsx": {
+    "attributes": 2,
+    "texts": 1,
+    "labels": 0
+  },
+  "src/renderer/src/components/board/TaskInputsForm.tsx": {
+    "attributes": 0,
+    "texts": 1,
+    "labels": 0
+  },
+  "src/renderer/src/components/board/TaskRow.tsx": {
+    "attributes": 1,
+    "texts": 1,
+    "labels": 0
+  },
+  "src/renderer/src/components/focus/ChatPanel.tsx": {
+    "attributes": 0,
+    "texts": 1,
+    "labels": 0
+  },
+  "src/renderer/src/components/focus/FocusColumn.tsx": {
+    "attributes": 2,
+    "texts": 1,
+    "labels": 0
+  },
+  "src/renderer/src/components/focus/JiraArea.tsx": {
+    "attributes": 1,
+    "texts": 4,
+    "labels": 0
+  },
+  "src/renderer/src/components/focus/NotesEditor.tsx": {
+    "attributes": 0,
+    "texts": 4,
+    "labels": 0
+  },
+  "src/renderer/src/components/focus/RemoteProposalBar.tsx": {
+    "attributes": 1,
+    "texts": 4,
+    "labels": 0
+  },
+  "src/renderer/src/components/focus/TaskBand.tsx": {
+    "attributes": 8,
+    "texts": 12,
+    "labels": 0
+  },
+  "src/renderer/src/components/focus/TaskNotes.tsx": {
+    "attributes": 1,
+    "texts": 0,
+    "labels": 0
+  },
+  "src/renderer/src/components/overlays/ActivityView.tsx": {
+    "attributes": 0,
+    "texts": 11,
+    "labels": 0
+  },
+  "src/renderer/src/components/overlays/ChatView.tsx": {
+    "attributes": 0,
+    "texts": 3,
+    "labels": 0
+  },
+  "src/renderer/src/components/overlays/CommandPalette.tsx": {
+    "attributes": 2,
+    "texts": 0,
+    "labels": 0
+  },
+  "src/renderer/src/components/overlays/DrawerHost.tsx": {
+    "attributes": 0,
+    "texts": 0,
+    "labels": 6
+  },
+  "src/renderer/src/components/overlays/SettingsView.tsx": {
+    "attributes": 18,
+    "texts": 47,
+    "labels": 8
+  },
+  "src/renderer/src/components/overlays/WelcomeView.tsx": {
+    "attributes": 1,
+    "texts": 6,
+    "labels": 0
+  },
+  "src/renderer/src/components/ui/Dialog.tsx": {
+    "attributes": 0,
+    "texts": 1,
+    "labels": 0
+  }
+}
