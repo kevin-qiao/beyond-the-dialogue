@@ -79,7 +79,9 @@ const CODE_LIKE = /[=;]|\($|\)\s*$|\bvoid\b|&&|\|\||=>|\bconst\b|\breturn\b/
 
 /** A `Record<…>` of labels, e.g. `const FINISH_BEHAVIOUR_LABELS: Record<X, string> = {…}`. */
 const LABEL_BLOCK = /:\s*Record<[^>]*>\s*=\s*\{([\s\S]*?)\n\}/g
-const STRING_VALUE = /'([^'\\]*)'/g
+// Only the VALUES of the map: a key is an identifier from a closed set (a
+// behaviour name, a state name), never something a user reads.
+const STRING_VALUE = /:\s*'([^'\\]*)'/g
 
 export interface Census {
   /** Literal values of user-facing attributes. */

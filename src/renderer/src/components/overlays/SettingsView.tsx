@@ -4,7 +4,7 @@ import type { Destination, DestinationStore, FinishBehaviour, McpServerEntry, Se
 import { SETTINGS_KEYS } from '../../../../shared/types'
 import { FINISH_BEHAVIOURS } from '../../../../core/domain/categories'
 import { describeDestination } from '../../../../core/domain/destination'
-import { LANGUAGES, LANGUAGE_NAMES, isLanguage } from '../../../../core/i18n'
+import { LANGUAGES, LANGUAGE_NAMES, isLanguage, type MessageKey } from '../../../../core/i18n'
 import { useT } from '../../lib/useT'
 import { allTypeConfigs } from '../../lib/typeCatalog'
 import { useDialog } from '../ui/Dialog'
@@ -18,11 +18,11 @@ const DEFAULT_FINISH_BEHAVIOUR: FinishBehaviour = 'complete-only'
 // Plain-language descriptions of the closed set of four (FR-014). A user
 // choosing a behaviour is choosing what happens to their work, so the list
 // says what each one does rather than naming it and stopping.
-const FINISH_BEHAVIOUR_LABELS: Record<FinishBehaviour, string> = {
-  'complete-only': 'Complete only — writes nothing',
-  'file-as-is': 'File as-is — saves your content unchanged',
-  'polish-then-file': 'Polish then file — the assistant rewrites it, then saves',
-  'deposit-then-curate': 'Deposit then curate — raw material preserved first, then the assistant authors the artifact'
+const FINISH_BEHAVIOUR_LABELS: Record<FinishBehaviour, MessageKey> = {
+  'complete-only': 'finishBehaviour.completeOnly',
+  'file-as-is': 'finishBehaviour.fileAsIs',
+  'polish-then-file': 'finishBehaviour.polishThenFile',
+  'deposit-then-curate': 'finishBehaviour.depositThenCurate'
 }
 
 type Tab = 'general' | 'types' | 'plugins' | 'ai'
@@ -124,18 +124,18 @@ export function SettingsView() {
   const builtinTypes = allTypeConfigs(types).filter((t) => t.isBuiltin)
   const customTypes = allTypeConfigs(types).filter((t) => !t.isBuiltin)
 
-  if (!draft) return <div className="view">Loading…</div>
+  if (!draft) return <div className="view">{t('app.loading')}</div>
 
   return (
     <div className="view settings-view">
       <div className="view-head">
-        <h2>Settings</h2>
+        <h2>{t('drawer.settings.title')}</h2>
         <button className="primary-btn" disabled={!dirty} onClick={() => void save()}>
           {saved ? '✓ Saved' : 'Save'}
         </button>
       </div>
 
-      <div className="settings-tabs" role="tablist" aria-label="Settings sections">
+      <div className="settings-tabs" role="tablist" aria-label={t('settings.sections')}>
         <button
           role="tab"
           aria-selected={tab === 'general'}
@@ -143,7 +143,7 @@ export function SettingsView() {
           onClick={() => setTab('general')}
         >
           <span className="tab-ico">⚙</span>
-          General
+          {t('settings.tab.general')}
         </button>
         <button
           role="tab"
@@ -152,7 +152,7 @@ export function SettingsView() {
           onClick={() => setTab('types')}
         >
           <span className="tab-ico">▤</span>
-          Types
+          {t('settings.tab.types')}
           {customTypes.length > 0 && <span className="tab-count">{customTypes.length}</span>}
         </button>
         <button
@@ -162,7 +162,7 @@ export function SettingsView() {
           onClick={() => setTab('plugins')}
         >
           <span className="tab-ico">🔌</span>
-          Plugins
+          {t('settings.tab.plugins')}
         </button>
         <button
           role="tab"
@@ -171,19 +171,19 @@ export function SettingsView() {
           onClick={() => setTab('ai')}
         >
           <span className="tab-ico">✦</span>
-          AI
+          {t('settings.tab.ai')}
         </button>
       </div>
 
       {tab === 'general' && (
         <>
           <section className="settings-section">
-            <h4>Appearance</h4>
+            <h4>{t('settings.appearance.title')}</h4>
             <label>
-              Theme <span className="muted">(applies immediately, saved on Save)</span>
+              {t('settings.theme')} <span className="muted">{t('settings.appearance.language.hint')}</span>
               <select value={draft.theme} onChange={(e) => update({ theme: e.target.value as 'light' | 'dark' })}>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
+                <option value="light">{t('settings.theme.light')}</option>
+                <option value="dark">{t('settings.theme.dark')}</option>
               </select>
             </label>
             <label>
@@ -209,18 +209,20 @@ export function SettingsView() {
           </section>
 
           <section className="settings-section">
-            <h4>Learning space (wiki)</h4>
+            <h4>{t('settings.wiki.title')}</h4>
             <label>
-              Wiki directory <span className="muted">(created automatically on first use)</span>
+              {t('settings.wiki.dir')} <span className="muted">{t('settings.wiki.hint')}</span>
               <input value={draft.wikiPath} onChange={(e) => update({ wikiPath: e.target.value })} placeholder="~/Documents/WorkBoard-Wiki" />
             </label>
           </section>
 
           <div className="ai-status-card">
             {snapshot?.aiConfigured ? (
-              <span className="ai-on">AI is configured · {draft.provider} / {draft.model || 'no model'}</span>
+              <span className="ai-on">
+                {t('settings.ai.configured', { provider: draft.provider, model: draft.model || t('settings.ai.noModel') })}
+              </span>
             ) : (
-              <span className="ai-off">AI not configured — non-AI features still work. Configure in the AI tab.</span>
+              <span className="ai-off">{t('settings.ai.notConfigured')}</span>
             )}
           </div>
         </>
@@ -231,8 +233,8 @@ export function SettingsView() {
           {typeError && <div className="warning-box"><p>{typeError}</p><button className="mini-btn" onClick={() => setTypeError(null)}>×</button></div>}
           <section className="settings-section">
             <div className="section-head">
-              <h4>Built-in types</h4>
-              <span className="muted">Presentation is editable; behavior is fixed</span>
+              <h4>{t('settings.types.builtin.title')}</h4>
+              <span className="muted">{t('settings.types.builtin.hint')}</span>
             </div>
             <div className="type-card-grid">
               {builtinTypes.map((c) => (
@@ -244,10 +246,10 @@ export function SettingsView() {
                     {c.description && <div className="tc-desc">{c.description}</div>}
                   </div>
                   <div className="tc-actions">
-                    <button className="icon-btn tiny" title="Edit presentation" onClick={() => setTypeEditor({ mode: 'edit', existing: c })}>
+                    <button className="icon-btn tiny" title={t('settings.types.editPresentation')} onClick={() => setTypeEditor({ mode: 'edit', existing: c })}>
                       ✎
                     </button>
-                    <span className="tc-badge">built-in</span>
+                    <span className="tc-badge">{t('palette.type.builtin')}</span>
                   </div>
                 </div>
               ))}
@@ -256,16 +258,16 @@ export function SettingsView() {
 
           <section className="settings-section">
             <div className="section-head">
-              <h4>Custom types</h4>
+              <h4>{t('settings.types.custom.title')}</h4>
               <button className="mini-btn primary" onClick={() => setTypeEditor({ mode: 'add' })}>
-                ＋ New type
+                ＋ {t('settings.types.new')}
               </button>
             </div>
             {customTypes.length === 0 ? (
               <div className="type-empty">
                 <div className="te-emoji">📦</div>
-                <div className="te-msg">No custom types yet</div>
-                <div className="te-sub">Click “＋ New type” to wrap a built-in behavior kind with your own label, emoji, and input fields.</div>
+                <div className="te-msg">{t('settings.types.empty.title')}</div>
+                <div className="te-sub">{t('settings.types.empty.body')}</div>
               </div>
             ) : (
               <div className="type-card-grid">
@@ -278,10 +280,10 @@ export function SettingsView() {
                       {c.description && <div className="tc-desc">{c.description}</div>}
                     </div>
                     <div className="tc-actions">
-                      <button className="icon-btn tiny" title="Edit" onClick={() => setTypeEditor({ mode: 'edit', existing: c })}>
+                      <button className="icon-btn tiny" title={t('common.edit')} onClick={() => setTypeEditor({ mode: 'edit', existing: c })}>
                         ✎
                       </button>
-                      <button className="icon-btn tiny danger" title="Delete" onClick={() => setPendingDelete(c)}>
+                      <button className="icon-btn tiny danger" title={t('common.delete')} onClick={() => setPendingDelete(c)}>
                         🗑
                       </button>
                     </div>
@@ -297,23 +299,35 @@ export function SettingsView() {
         <>
           {saveError && (
             <div className="warning-box">
-              <p>Could not save: {saveError}</p>
+              <p>{t('settings.plugins.saveFailed', { error: saveError })}</p>
               <button className="mini-btn" onClick={() => setSaveError(null)}>×</button>
             </div>
           )}
-          <div className="inert-banner muted">
-            Skills are imported into the app's skill folder but not yet loaded by the agent; MCP servers are configuration-only for now.
-          </div>
+          <div className="inert-banner muted">{t('settings.plugins.inert')}</div>
 
           <SkillsSection
             skills={draft.skills ?? []}
             onChange={(skills) => update({ skills })}
-            confirmRemove={async (name) => confirm({ title: 'Remove skill', message: `Remove skill “${name}”?`, confirmLabel: 'Remove', danger: true })}
+            confirmRemove={async (name) =>
+              confirm({
+                title: t('settings.plugins.removeSkill.title'),
+                message: t('settings.plugins.removeSkill.message', { name }),
+                confirmLabel: t('common.remove'),
+                danger: true
+              })
+            }
           />
           <McpSection
             servers={draft.mcpServers ?? []}
             onChange={(mcpServers) => update({ mcpServers })}
-            confirmRemove={async (name) => confirm({ title: 'Remove MCP server', message: `Remove MCP server “${name}”?`, confirmLabel: 'Remove', danger: true })}
+            confirmRemove={async (name) =>
+              confirm({
+                title: t('settings.plugins.removeServer.title'),
+                message: t('settings.plugins.removeServer.message', { name }),
+                confirmLabel: t('common.remove'),
+                danger: true
+              })
+            }
           />
         </>
       )}
@@ -321,9 +335,9 @@ export function SettingsView() {
       {tab === 'ai' && (
         <>
           <section className="settings-section">
-            <h4>AI provider</h4>
+            <h4>{t('settings.ai.title')}</h4>
             <label>
-              Provider
+              {t('settings.ai.provider')}
               <select value={draft.provider} onChange={(e) => update({ provider: e.target.value })}>
                 {providers.map((p) => (
                   <option key={p} value={p}>
@@ -333,7 +347,7 @@ export function SettingsView() {
               </select>
             </label>
             <label>
-              Model
+              {t('settings.ai.model')}
               <input
                 list="model-options"
                 value={draft.model}
@@ -347,7 +361,7 @@ export function SettingsView() {
               </datalist>
             </label>
             <label>
-              API key <span className="muted">(stored in the app's private data dir)</span>
+              {t('settings.ai.apiKey')} <span className="muted">{t('settings.ai.apiKey.hint')}</span>
               <input
                 type="password"
                 value={draft.apiKey ?? ''}
@@ -357,11 +371,13 @@ export function SettingsView() {
             </label>
             <div className="row">
               <button className="mini-btn" disabled={testing} onClick={() => void runTest()}>
-                {testing ? 'Testing…' : 'Test connection'}
+                {testing ? t('settings.ai.testing') : t('settings.ai.test')}
               </button>
               {testResult && (
                 <span className={testResult.ok ? 'ai-on' : 'error-text'}>
-                  {testResult.ok ? `Connected — model replied: ${testResult.text ?? 'OK'}` : `Failed: ${testResult.error ?? 'unknown error'}`}
+                  {testResult.ok
+                    ? t('settings.ai.connected', { text: testResult.text || t('common.ok') })
+                    : t('settings.ai.failed', { error: testResult.error ?? t('task.preprocess.unknownError') })}
                 </span>
               )}
             </div>
@@ -421,6 +437,7 @@ function SkillsSection({
   onChange: (next: SkillEntry[]) => void
   confirmRemove: (name: string) => Promise<boolean>
 }) {
+  const t = useT()
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -431,12 +448,12 @@ function SkillsSection({
       const entry = await window.api.importSkill()
       if (!entry) return
       if (skills.some((s) => s.name === entry.name)) {
-        setError(`Skill "${entry.name}" already exists — names must be unique`)
+        setError(t('settings.skills.exists', { name: entry.name }))
         return
       }
       onChange([...skills, entry])
     } catch (e: any) {
-      setError(e?.message ?? 'Could not import the skill folder')
+      setError(e?.message ?? t('settings.skills.importFailed'))
     } finally {
       setImporting(false)
     }
@@ -445,16 +462,16 @@ function SkillsSection({
   return (
     <section className="settings-section">
       <div className="section-head">
-        <h4>Skills</h4>
-        <span className="muted">imported · not yet loaded by the agent</span>
+        <h4>{t('settings.skills.title')}</h4>
+        <span className="muted">{t('settings.skills.hint')}</span>
       </div>
       {skills.map((s) => (
         <div key={s.name} className="plugin-row">
-          <input value={s.name} disabled title="Name is the key" className="plugin-name" />
-          <input value={s.description} disabled placeholder="no description" />
+          <input value={s.name} disabled title={t('settings.skills.nameKey')} className="plugin-name" />
+          <input value={s.description} disabled placeholder={t('settings.skills.noDescription')} />
           <button
             className="icon-btn tiny danger"
-            title="Remove"
+            title={t('common.remove')}
             onClick={() =>
               void confirmRemove(s.name).then((ok) => {
                 if (ok) onChange(skills.filter((x) => x.name !== s.name))
@@ -467,13 +484,13 @@ function SkillsSection({
       ))}
       {skills.length === 0 && (
         <div className="type-empty">
-          <div className="te-msg">No skills yet</div>
-          <div className="te-sub">Import a folder containing SKILL.md to add a skill.</div>
+          <div className="te-msg">{t('settings.skills.empty')}</div>
+          <div className="te-sub">{t('settings.skills.emptyBody')}</div>
         </div>
       )}
       <div className="plugin-row">
         <button className="mini-btn primary" disabled={importing} onClick={() => void handleImport()}>
-          {importing ? 'Importing…' : '＋ Import skill folder'}
+          {importing ? t('settings.skills.importing') : `＋ ${t('settings.skills.import')}`}
         </button>
       </div>
       {error && <div className="error-text">{error}</div>}
@@ -493,6 +510,7 @@ function McpSection({
   onChange: (next: McpServerEntry[]) => void
   confirmRemove: (name: string) => Promise<boolean>
 }) {
+  const t = useT()
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
   const [args, setArgs] = useState('')
@@ -500,9 +518,9 @@ function McpSection({
 
   const add = () => {
     const n = name.trim()
-    if (!n) return setError('Name is required')
-    if (servers.some((s) => s.name === n)) return setError(`MCP server "${n}" already exists — names must be unique`)
-    if (!command.trim()) return setError('A command is required for the stdio transport')
+    if (!n) return setError(t('settings.mcp.nameRequired'))
+    if (servers.some((s) => s.name === n)) return setError(t('settings.mcp.exists', { name: n }))
+    if (!command.trim()) return setError(t('settings.mcp.commandRequired'))
     onChange([
       ...servers,
       { name: n, transport: { type: 'stdio', command: command.trim(), args: args.trim() ? args.trim().split(/\s+/) : undefined } }
@@ -516,22 +534,22 @@ function McpSection({
   return (
     <section className="settings-section">
       <div className="section-head">
-        <h4>MCP servers</h4>
-        <span className="muted">not yet active — configuration only</span>
+        <h4>{t('settings.mcp.title')}</h4>
+        <span className="muted">{t('settings.mcp.hint')}</span>
       </div>
       {servers.map((s, i) => (
         <div key={s.name} className="plugin-row">
-          <input value={s.name} disabled title="Name is the key" className="plugin-name" />
+          <input value={s.name} disabled title={t('settings.skills.nameKey')} className="plugin-name" />
           <input
             value={s.transport.command}
-            placeholder="command"
+            placeholder={t('settings.mcp.commandPlaceholder')}
             onChange={(e) =>
               onChange(servers.map((x, xi) => (xi === i ? { ...x, transport: { ...x.transport, command: e.target.value } } : x)))
             }
           />
           <input
             value={(s.transport.args ?? []).join(' ')}
-            placeholder="args (space-separated)"
+            placeholder={t('settings.mcp.argsPlaceholder')}
             onChange={(e) =>
               onChange(
                 servers.map((x, xi) =>
@@ -542,7 +560,7 @@ function McpSection({
           />
           <button
             className="icon-btn tiny danger"
-            title="Remove"
+            title={t('common.remove')}
             onClick={() =>
               void confirmRemove(s.name).then((ok) => {
                 if (ok) onChange(servers.filter((x) => x.name !== s.name))
@@ -553,13 +571,13 @@ function McpSection({
           </button>
         </div>
       ))}
-      {servers.length === 0 && <div className="type-empty"><div className="te-msg">No MCP servers yet</div></div>}
+      {servers.length === 0 && <div className="type-empty"><div className="te-msg">{t('settings.mcp.empty')}</div></div>}
       <div className="plugin-row">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
-        <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="command (e.g. npx)" />
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('settings.mcp.namePlaceholder')} />
+        <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder={t('settings.mcp.commandExample')} />
         <input value={args} onChange={(e) => setArgs(e.target.value)} placeholder="-y some-mcp-server" />
         <button className="mini-btn primary" onClick={add}>
-          ＋ Add
+          ＋ {t('settings.mcp.add')}
         </button>
       </div>
       {error && <div className="error-text">{error}</div>}
@@ -586,6 +604,7 @@ function TypeEditorModal({
   onClose: () => void
 }) {
   const { snapshot } = useApp()
+  const t = useT()
   const isBuiltinEdit = mode === 'edit' && !!existing?.isBuiltin
   const [key, setKey] = useState(existing?.key ?? '')
   const [kind, setKind] = useState<TaskKind>(existing?.kind ?? 'learning')
@@ -615,12 +634,12 @@ function TypeEditorModal({
   const submit = () => {
     const k = key.trim().replace(/\s+/g, '_').toLowerCase()
     if (!existing) {
-      if (!k) return setError('Key is required')
-      if (!/^[a-z0-9_]{2,32}$/.test(k)) return setError('Key must be lowercase letters, digits, underscore (2–32 chars)')
-      if (takenKeys.has(k)) return setError(`Key "${k}" is already used`)
+      if (!k) return setError(t('typeEditor.keyRequired'))
+      if (!/^[a-z0-9_]{2,32}$/.test(k)) return setError(t('typeEditor.keyFormat'))
+      if (takenKeys.has(k)) return setError(t('typeEditor.keyTaken', { key: k }))
     }
-    if (!label.trim()) return setError('Label is required')
-    if (!emoji.trim()) return setError('Emoji is required')
+    if (!label.trim()) return setError(t('typeEditor.labelRequired'))
+    if (!emoji.trim()) return setError(t('typeEditor.emojiRequired'))
     const inputSchema = existing?.isBuiltin ? existing.inputSchema : supported.filter((f) => fieldKeys.has(f.key))
 
     // A built-in's behaviour is fixed; its destination is a setting the user
@@ -628,10 +647,10 @@ function TypeEditorModal({
     const behaviour = existing?.isBuiltin ? existing.finishBehaviour : finishBehaviour
     const writes = behaviour !== 'complete-only'
     if (writes && destStore === 'folder' && !destRoot.trim()) {
-      return setError('This behaviour writes a file, so it needs a destination folder')
+      return setError(t('typeEditor.needsFolder'))
     }
     if (writes && destStore === 'folder' && destSubdir.trim().split(/[\\/]/).includes('..')) {
-      return setError('The subfolder must be relative and must not contain ".."')
+      return setError(t('typeEditor.subfolderRelative'))
     }
     const destination: Destination | undefined = writes
       ? { store: destStore, rootPath: destStore === 'folder' ? destRoot.trim() : null, subdir: destSubdir.trim() }
@@ -677,86 +696,86 @@ function TypeEditorModal({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <span className="modal-tag">{mode === 'add' ? '＋ NEW' : '✎ EDIT'}</span>
-          <h3>{mode === 'add' ? 'New type' : existing?.isBuiltin ? 'Edit built-in presentation' : 'Edit type'}</h3>
+          <span className="modal-tag">{mode === 'add' ? `＋ ${t('typeEditor.newTag')}` : `✎ ${t('typeEditor.editTag')}`}</span>
+          <h3>{mode === 'add' ? t('typeEditor.newTitle') : existing?.isBuiltin ? t('typeEditor.editBuiltin') : t('typeEditor.editTitle')}</h3>
         </div>
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="row" style={{ gap: 8, alignItems: 'flex-end' }}>
             <label style={{ flex: 1 }}>
-              Key
-              <input value={key} disabled={mode === 'edit'} onChange={(e) => setKey(e.target.value)} placeholder="e.g. code_review" spellCheck={false} />
+              {t('typeEditor.key')}
+              <input value={key} disabled={mode === 'edit'} onChange={(e) => setKey(e.target.value)} placeholder={t('typeEditor.keyPlaceholder')} spellCheck={false} />
             </label>
             <label style={{ width: 80 }}>
-              Emoji
+              {t('typeEditor.emoji')}
               <input value={emoji} onChange={(e) => setEmoji(e.target.value)} maxLength={4} />
             </label>
           </div>
           <label>
-            Label
-            <input autoFocus={mode === 'add'} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Code review" />
+            {t('typeEditor.label')}
+            <input autoFocus={mode === 'add'} value={label} onChange={(e) => setLabel(e.target.value)} placeholder={t('typeEditor.labelPlaceholder')} />
           </label>
           <label>
-            Description
-            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this type is for" />
+            {t('typeEditor.description')}
+            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('typeEditor.descriptionPlaceholder')} />
           </label>
           {!isBuiltinEdit && (
             <>
               <label>
-                Behavior kind
+                {t('typeEditor.kind')}
                 <select value={kind} disabled={mode === 'edit'} onChange={(e) => setKind(e.target.value as TaskKind)}>
-                  <option value="plain">plain — notes &amp; suggestion chips only</option>
-                  <option value="learning">learning — prompt/summary, note editor, curated on Finish</option>
-                  <option value="jira">jira — pasted source, chat, comment drafts</option>
-                  <option value="meeting">meeting — agenda/core topics, minutes editor</option>
+                  <option value="plain">{t('typeEditor.kind.plain')}</option>
+                  <option value="learning">{t('typeEditor.kind.learning')}</option>
+                  <option value="jira">{t('typeEditor.kind.jira')}</option>
+                  <option value="meeting">{t('typeEditor.kind.meeting')}</option>
                 </select>
               </label>
               {mode === 'add' && (
                 <div className="tif-fields">
-                  <span className="tif-label">Input fields (from this kind)</span>
+                  <span className="tif-label">{t('typeEditor.fields')}</span>
                   {supported.map((f) => (
                     <label key={f.key} className="tif-check">
                       <input type="checkbox" checked={fieldKeys.has(f.key)} onChange={() => toggleField(f.key)} />
                       {f.label}
                       {f.required && <span className="tif-required"> *</span>}
-                      {f.inert && <span className="muted"> (not yet active)</span>}
+                      {f.inert && <span className="muted"> {t('task.inputs.notYetActive')}</span>}
                     </label>
                   ))}
                 </div>
               )}
               <label>
-                AI guidance <span className="muted">(optional — appended to this type's pre-process prompt)</span>
-                <textarea value={aiGuidance} onChange={(e) => setAiGuidance(e.target.value)} rows={3} placeholder="e.g. Focus on security review angles." />
+                {t('typeEditor.aiGuidance')} <span className="muted">{t('typeEditor.aiGuidanceHint')}</span>
+                <textarea value={aiGuidance} onChange={(e) => setAiGuidance(e.target.value)} rows={3} placeholder={t('typeEditor.aiGuidancePlaceholder')} />
               </label>
             </>
           )}
 
           {/* ---- Declared finish behaviour and destination (FR-002, FR-014) ---- */}
           <div className="tif-fields">
-            <span className="tif-label">Finish behaviour</span>
+            <span className="tif-label">{t('typeEditor.finishBehaviour')}</span>
             {existing?.isBuiltin ? (
               <div className="muted">
-                {FINISH_BEHAVIOUR_LABELS[existing.finishBehaviour]} — fixed for a built-in type
+                {t(FINISH_BEHAVIOUR_LABELS[existing.finishBehaviour])} — {t('typeEditor.finishFixed')}
               </div>
             ) : (
               <>
                 <select value={finishBehaviour} onChange={(e) => setFinishBehaviour(e.target.value as FinishBehaviour)}>
                   {FINISH_BEHAVIOURS.map((b) => (
                     <option key={b} value={b}>
-                      {FINISH_BEHAVIOUR_LABELS[b]}
+                      {t(FINISH_BEHAVIOUR_LABELS[b])}
                     </option>
                   ))}
                 </select>
-                <span className="muted">What happens to your work when you press Finish on a task of this type.</span>
+                <span className="muted">{t('typeEditor.finishHint')}</span>
               </>
             )}
           </div>
 
           {behaviourWrites && (
             <div className="tif-fields">
-              <span className="tif-label">Output destination</span>
+              <span className="tif-label">{t('typeEditor.destination')}</span>
               <select value={destStore} onChange={(e) => setDestStore(e.target.value as DestinationStore)}>
-                <option value="folder">A folder I own</option>
-                <option value="wiki">The wiki</option>
+                <option value="folder">{t('typeEditor.dest.folder')}</option>
+                <option value="wiki">{t('typeEditor.dest.wiki')}</option>
               </select>
               {destStore === 'folder' ? (
                 <>
@@ -769,19 +788,20 @@ function TypeEditorModal({
                       spellCheck={false}
                     />
                     <button type="button" className="secondary-btn" onClick={() => void chooseDestFolder()}>
-                      Choose…
+                      {t('common.choose')}
                     </button>
                   </div>
                   <label>
-                    Subfolder <span className="muted">(optional, relative)</span>
+                    {t('typeEditor.subfolder')} <span className="muted">{t('typeEditor.subfolderHint')}</span>
                     <input value={destSubdir} onChange={(e) => setDestSubdir(e.target.value)} placeholder="e.g. minutes/2026" spellCheck={false} />
                   </label>
-                  <span className="muted">Plain markdown files land here. Nothing else is written, and an existing file is never overwritten.</span>
+                  <span className="muted">{t('typeEditor.folderHint')}</span>
                 </>
               ) : (
                 <span className="muted">
-                  Resolved as {describeDestination({ store: 'wiki', rootPath: null, subdir: destSubdir })} — set the wiki
-                  directory on the General tab.
+                  {t('typeEditor.wikiResolved', {
+                    dest: describeDestination({ store: 'wiki', rootPath: null, subdir: destSubdir })
+                  })}
                 </span>
               )}
             </div>
@@ -789,14 +809,11 @@ function TypeEditorModal({
 
           {/* ---- Grants (FR-019; contracts/plugin-grants.md §6) ---- */}
           <div className="tif-fields">
-            <span className="tif-label">Assistant capabilities</span>
-            <span className="muted">
-              Skills and tool servers let the assistant do more on a task of this type. Granting external reach means the
-              assistant can act on that system — and that sessions for this type will no longer see your notes and minutes.
-            </span>
+            <span className="tif-label">{t('typeEditor.capabilities')}</span>
+            <span className="muted">{t('typeEditor.capabilitiesHint')}</span>
             <div className="tif-check-group">
-              <span className="muted">Skills — capabilities the assistant can load:</span>
-              {(skillsForGrants.length === 0 && <span className="muted">none imported yet</span>) || null}
+              <span className="muted">{t('typeEditor.skillsLabel')}</span>
+              {(skillsForGrants.length === 0 && <span className="muted">{t('typeEditor.noneImported')}</span>) || null}
               {skillsForGrants.map((sk: SkillEntry) => (
                 <label key={`skill-${sk.name}`} className="tif-check">
                   <input type="checkbox" checked={grantSkills.has(sk.name)} onChange={() => toggleGrant(setGrantSkills)(sk.name)} />
@@ -805,30 +822,27 @@ function TypeEditorModal({
               ))}
             </div>
             <div className="tif-check-group">
-              <span className="muted">Tool servers — external systems the assistant can read from and act on:</span>
-              {(serversForGrants.length === 0 && <span className="muted">none registered yet</span>) || null}
+              <span className="muted">{t('typeEditor.serversLabel')}</span>
+              {(serversForGrants.length === 0 && <span className="muted">{t('typeEditor.noneRegistered')}</span>) || null}
               {serversForGrants.map((sv: McpServerEntry) => (
                 <label key={`server-${sv.name}`} className="tif-check">
                   <input type="checkbox" checked={grantServers.has(sv.name)} onChange={() => toggleGrant(setGrantServers)(sv.name)} />
-                  {sv.name}
-                  <span className="muted"> — grants external reach</span>
+                  {sv.name} <span className="muted">{t('typeEditor.grantReach')}</span>
                 </label>
               ))}
             </div>
             {(grantServers.size > 0 || grantSkills.size > 0) && (
-              <span className="muted">
-                A change here takes effect on the next session; existing tasks do not need recreating.
-              </span>
+              <span className="muted">{t('typeEditor.grantHint')}</span>
             )}
           </div>
           {error && <div className="error-text">{error}</div>}
         </div>
         <div className="modal-actions">
           <button className="secondary-btn" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button className="primary-btn" onClick={submit}>
-            {mode === 'add' ? 'Create' : 'Save'}
+            {mode === 'add' ? t('common.create') : t('common.save')}
           </button>
         </div>
       </div>
@@ -847,27 +861,24 @@ function ConfirmDeleteTypeModal({
   onConfirm: () => void
   onClose: () => void
 }) {
+  const t = useT()
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <span className="modal-tag danger">🗑 DELETE</span>
-          <h3>Delete type “{config.label}”?</h3>
+          <span className="modal-tag danger">🗑 {t('typeEditor.deleteTag')}</span>
+          <h3>{t('typeEditor.deleteTitle', { label: config.label })}</h3>
         </div>
         <div className="modal-body">
-          <p>
-            {refCount > 0
-              ? `${refCount} task(s) use this type. They will fall back to plain; their titles, notes, lists, and completion state are kept.`
-              : 'No tasks currently use this type.'}
-          </p>
-          <p className="muted">The type itself is removed from pickers and this Settings list.</p>
+          <p>{refCount > 0 ? t('typeEditor.deleteInUse', { count: refCount }) : t('typeEditor.deleteUnused')}</p>
+          <p className="muted">{t('typeEditor.deleteHint')}</p>
         </div>
         <div className="modal-actions">
           <button className="secondary-btn" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button className="danger-btn" onClick={onConfirm}>
-            Delete type
+            {t('typeEditor.deleteConfirm')}
           </button>
         </div>
       </div>

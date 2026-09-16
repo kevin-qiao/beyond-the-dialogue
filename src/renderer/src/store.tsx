@@ -312,7 +312,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             running: false,
             streaming: null,
             messages: cur.messages.slice(0, -1),
-            error: e?.message ?? 'Could not reach the main process'
+            error: e?.message ?? t('error.mainUnreachable')
           }))
         }
       },

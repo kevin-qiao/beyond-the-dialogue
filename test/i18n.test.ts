@@ -4,6 +4,7 @@ import { CATALOGS, DEFAULT_LANGUAGE, LANGUAGES, LANGUAGES as LANGS, LANGUAGE_NAM
 import { PLURAL_FORMS, localeOf, isLanguage } from '../src/core/i18n/language'
 import type { MessageKey } from '../src/core/i18n'
 import { censusTree, readBaseline, type FileCounts } from './helpers/i18nBaseline'
+import { censusSource } from './helpers/sourceScan'
 import { ALLOWED_LITERALS } from './i18n-allowlist'
 import { walk, ROOT, readSource, rendererSources } from './helpers/sourceScan'
 import * as path from 'node:path'
@@ -183,13 +184,16 @@ test('the baseline describes files that still exist', () => {
   assert.deepEqual(missing, [], `baseline entries with no file (regenerate it):\n${missing.join('\n')}`)
 })
 
-test('the guard is looking at a real tree', () => {
-  // Guards against the guard silently passing because the renderer was renamed
-  // away or the census stopped matching anything.
+test('the census can still see user-visible text', () => {
+  // Guards against the guard. An empty census used to mean "the matcher is
+  // broken"; now that the tree is translated it means "the sweep is done", and
+  // the two are indistinguishable from the count alone. So the census is
+  // checked against a planted literal instead.
+  const planted = censusSource(`export const X = () => <div title="Planted title">Planted text</div>`)
+  assert.deepEqual(planted.texts, ['Planted text'])
+  assert.deepEqual(planted.attributes, ['Planted title'])
   const files = walk(path.join(ROOT, 'src', 'renderer'), (f) => /\.tsx$/.test(f))
   assert.ok(files.length >= 10, `expected renderer components, found ${files.length} .tsx file(s)`)
-  const total = Object.values(censusTree()).reduce((n, c) => n + c.attributes + c.texts + c.labels, 0)
-  assert.ok(total > 0, 'the census matched nothing at all, so the guard cannot be trusted')
 })
 
 test('the allowlist is a list of literals, not a set of patterns', () => {

@@ -19,6 +19,7 @@ import { useDialog } from '../ui/Dialog'
  *  body, plus Finish and any proposed remote change. */
 function MarkdownArea({ task }: { task: Task }) {
   const { snapshot, saveNote, finishTask, notify } = useApp()
+  const t = useT()
   const notes = snapshot?.notes[task.id]
   const def = effectiveType(task, snapshot?.taskTypes)
   const { confirm } = useDialog()
@@ -28,9 +29,9 @@ function MarkdownArea({ task }: { task: Task }) {
     const warning = emptyContentWarning(def)
     if (!hasContent && warning) {
       const ok = await confirm({
-        title: 'Finish with nothing written?',
+        title: t('task.finishEmpty.title'),
         message: warning,
-        confirmLabel: 'Finish anyway',
+        confirmLabel: t('task.finishEmpty.confirm'),
         danger: true
       })
       if (!ok) return
@@ -38,7 +39,7 @@ function MarkdownArea({ task }: { task: Task }) {
     try {
       await finishTask(task.id)
     } catch (e: any) {
-      notify(e?.message ?? 'Finish failed')
+      notify(e?.message ?? t('task.finish.failed'))
     }
   }
 

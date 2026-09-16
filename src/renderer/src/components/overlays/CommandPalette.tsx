@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useApp } from '../../store'
+import { useT } from '../../lib/useT'
 import type { Task, TaskTypeDef } from '../../../../shared/types'
+import type { Translate } from '../../../../core/i18n'
 import { allTypeConfigs, typeEmoji, typeLabel } from '../../lib/typeCatalog'
 
 // CommandPalette (⌘K) — spec app-layout v2: a global palette that fuses quick
@@ -39,6 +41,7 @@ type PaletteItem = ActionItem | TaskItem | TypeItem
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { snapshot, setActiveView, selectTask, openDrawer, saveSettings, notify } = useApp()
+  const t = useT()
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -50,8 +53,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       setQ('')
       setSel(0)
       // Defer focus so the overlay's show transition has time to apply.
-      const t = window.setTimeout(() => inputRef.current?.focus(), 30)
-      return () => window.clearTimeout(t)
+      const timer = window.setTimeout(() => inputRef.current?.focus(), 30)
+      return () => window.clearTimeout(timer)
     }
   }, [open])
 
@@ -65,8 +68,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     out.push({
       kind: 'action',
       id: 'new-task',
-      title: 'New task',
-      sub: '聚焦快速添加输入框',
+      title: t('nav.newTask'),
+      sub: t('palette.action.newTask.sub'),
       ico: '✚',
       kbd: 'N',
       run: () => {
@@ -78,8 +81,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     out.push({
       kind: 'action',
       id: 'open-settings',
-      title: 'Open settings',
-      sub: '类型、AI、主题',
+      title: t('palette.action.settings'),
+      sub: t('palette.action.settings.sub'),
       ico: '⚙',
       kbd: '⌘,',
       run: () => openDrawer('settings')
@@ -87,47 +90,48 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     out.push({
       kind: 'action',
       id: 'open-activity',
-      title: 'Open activity',
-      sub: 'agent job 进度',
+      title: t('palette.action.activity'),
+      sub: t('palette.action.activity.sub'),
       ico: '▤',
       run: () => openDrawer('activity')
     })
     out.push({
       kind: 'action',
       id: 'open-chat',
-      title: 'Open debug chat',
-      sub: '直接和模型对话',
+      title: t('palette.action.chat'),
+      sub: t('palette.action.chat.sub'),
       ico: '💬',
       run: () => openDrawer('chat')
     })
     out.push({
       kind: 'action',
       id: 'go-today',
-      title: 'Go to My Day',
-      sub: '切换到今日视图',
+      title: t('palette.action.today'),
+      sub: t('palette.action.today.sub'),
       ico: '☀',
       kbd: '⌘1',
       run: () => setActiveView('my-day')
     })
+    const toDark = theme === 'light'
     out.push({
       kind: 'action',
       id: 'toggle-theme',
-      title: 'Toggle theme',
-      sub: theme === 'light' ? '当前浅色 → 深色' : '当前深色 → 浅色',
-      ico: theme === 'light' ? '☾' : '☀',
+      title: t('palette.action.theme'),
+      sub: t(toDark ? 'palette.action.theme.toDark' : 'palette.action.theme.toLight'),
+      ico: toDark ? '☾' : '☀',
       run: () => {
         if (!snapshot) return
-        void saveSettings({ ...snapshot.settings, theme: theme === 'light' ? 'dark' : 'light' })
-        notify(`已切换到${theme === 'light' ? '深色' : '浅色'}主题`)
+        void saveSettings({ ...snapshot.settings, theme: toDark ? 'dark' : 'light' })
+        notify(t('palette.theme.notified', { theme: t(toDark ? 'palette.theme.dark' : 'palette.theme.light') }))
       }
     })
 
     // -- Tasks (live snapshot, completed last so open tasks float up) --
     if (snapshot) {
-      const open = snapshot.tasks.filter((t) => !t.completed && !t.deletedAt).slice(0, 50)
-      const done = snapshot.tasks.filter((t) => t.completed && !t.deletedAt).slice(0, 20)
-      for (const t of [...open, ...done]) {
-        out.push(taskToItem(t, snapshot.lists, selectTask, snapshot.taskTypes))
+      const open = snapshot.tasks.filter((task) => !task.completed && !task.deletedAt).slice(0, 50)
+      const done = snapshot.tasks.filter((task) => task.completed && !task.deletedAt).slice(0, 20)
+      for (const task of [...open, ...done]) {
+        out.push(taskToItem(t, task, snapshot.lists, selectTask, snapshot.taskTypes))
       }
     }
 
@@ -137,16 +141,16 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         kind: 'type',
         id: 'type-' + c.key,
         title: c.label,
-        sub: c.key + (c.isBuiltin ? ' · 内置' : ' · 自定义'),
+        sub: `${c.key} · ${t(c.isBuiltin ? 'palette.type.builtin' : 'palette.type.custom')}`,
         ico: c.emoji,
         run: () => {
-          notify(c.isBuiltin ? `内置类型「${c.label}」` : `类型「${c.label}」已存在`)
+          notify(t(c.isBuiltin ? 'palette.type.notifyBuiltin' : 'palette.type.notifyCustom', { label: c.label }))
         }
       })
     }
 
     return out
-  }, [snapshot, setActiveView, openDrawer, saveSettings, selectTask, notify])
+  }, [snapshot, setActiveView, openDrawer, saveSettings, selectTask, notify, t])
 
   // Filter — empty query shows the curated top set; otherwise substring match.
   const filtered = useMemo(() => {
@@ -207,19 +211,19 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     const sub = filtered.filter((i) => i.kind === k)
     if (sub.length) groups.push({ label, items: sub })
   }
-  pushGroup('动作', 'action')
-  pushGroup('任务', 'task')
-  pushGroup('类型', 'type')
+  pushGroup(t('palette.group.actions'), 'action')
+  pushGroup(t('palette.group.tasks'), 'task')
+  pushGroup(t('palette.group.types'), 'type')
 
   return (
     <div className={`cmd-overlay ${open ? 'show' : ''}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="cmd-palette" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div className="cmd-palette" role="dialog" aria-modal="true" aria-label={t('palette.ariaLabel')}>
         <div className="cmd-input">
           <span className="cmd-ico-search" aria-hidden>⌕</span>
           <input
             ref={inputRef}
             className="cmd-search-input"
-            placeholder="输入以搜索任务、类型或动作…"
+            placeholder={t('palette.placeholder')}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={onKey}
@@ -229,7 +233,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           <span className="cmd-kbd-hint">esc</span>
         </div>
         <div className="cmd-results" ref={listRef}>
-          {groups.length === 0 && <div className="cmd-empty">没有匹配「{q}」的结果</div>}
+          {groups.length === 0 && <div className="cmd-empty">{t('palette.empty', { q })}</div>}
           {(() => {
             // Flatten with a running idx so .sel matches filtered[] not the slice.
             let running = 0
@@ -264,20 +268,21 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 }
 
 function taskToItem(
-  t: Task,
+  t: Translate,
+  task: Task,
   lists: { id: string; name: string }[],
   selectTask: (id: string | null) => void,
   types?: TaskTypeDef[] | null
 ): TaskItem {
-  const list = lists.find((l) => l.id === t.listId)
-  const label = typeLabel(t, types)
-  const ico = typeEmoji(t, types)
+  const list = lists.find((l) => l.id === task.listId)
+  const label = typeLabel(task, types)
+  const ico = typeEmoji(task, types)
   return {
     kind: 'task',
-    id: 'task-' + t.id,
-    title: t.title || '(untitled)',
-    sub: `${label}${list ? ' · ' + list.name : ''}${t.completed ? ' · ✓' : ''}`,
+    id: 'task-' + task.id,
+    title: task.title || t('palette.untitled'),
+    sub: `${label}${list ? ' · ' + list.name : ''}${task.completed ? ' · ✓' : ''}`,
     ico,
-    run: () => selectTask(t.id)
+    run: () => selectTask(task.id)
   }
 }
