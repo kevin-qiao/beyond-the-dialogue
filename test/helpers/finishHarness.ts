@@ -78,6 +78,9 @@ export async function finishWith(conn: DB, destDir: string, taskId: string, _beh
     destination: { store: 'folder', rootPath: destDir, subdir: '' }
   })
   const deps: FinishDeps = {
+    // Tests render English; the language is explicit rather than absent so a
+    // missing one cannot hide as a silent fallback.
+    language: 'en',
     paths: nodePathPort,
     storage: createSqliteStorage(conn.db),
     storeFor: () => folderArtifactStore,

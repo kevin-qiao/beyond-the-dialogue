@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { issueKeysOf, issueParamsOf } from './helpers/issues'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -63,6 +64,9 @@ function harness() {
 
 function depsFor(conn: DB, session: AgentSessionPort, wikiRoot: string): FinishDeps {
   return {
+    // Tests render English; the language is explicit rather than absent so a
+    // missing one cannot hide as a silent fallback.
+    language: 'en',
     paths: nodePathPort,
     storage: createSqliteStorage(conn.db),
     storeFor: () => folderArtifactStore,
@@ -126,7 +130,11 @@ test('the destination is validated BEFORE the task is marked complete', async ()
       } as TaskTypeDef
     ]
 
-  await assert.rejects(() => finishTask(deps, task.id), /does not exist/)
+  // The destination's own refusal, passed through with its code intact.
+  await assert.rejects(() => finishTask(deps, task.id), (e: unknown) => {
+    assert.deepEqual(issueKeysOf(e), ['artifact.folderMissing'])
+    return true
+  })
 
   // Not completed, so the user can fix the destination and try again (FR-027).
   assert.equal(getTask(conn.db, task.id)!.completed, false)
@@ -190,7 +198,11 @@ test('missing required inputs refuse the finish before anything else happens', a
       } as TaskTypeDef
     ]
 
-  await assert.rejects(() => finishTask(deps, task.id), /missing required input\(s\): Objective/)
+  await assert.rejects(() => finishTask(deps, task.id), (e: unknown) => {
+    assert.deepEqual(issueKeysOf(e), ['finish.missingInputs'])
+    assert.deepEqual(issueParamsOf(e).fields, 'Objective')
+    return true
+  })
   assert.equal(getTask(conn.db, task.id)!.completed, false)
   assert.deepEqual(fs.readdirSync(destDir), [])
   conn.close()

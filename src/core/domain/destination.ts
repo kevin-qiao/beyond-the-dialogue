@@ -1,7 +1,8 @@
 import type { Destination, ResolvedDestination } from '../../shared/types'
 import type { PathPort } from '../ports/paths'
 import { slugify } from './slug'
-import { isDestinationStore } from './categories'
+import { DESTINATION_STORES, isDestinationStore } from './categories'
+import type { IssueList } from '../i18n/issues'
 
 // Output destinations: where a type's finished artifacts are written
 // (contracts/destination.md).
@@ -115,33 +116,33 @@ export function confineOverride(
 
 /**
  * Configuration-time validation (contracts/destination.md §5, first four
- * rows). Returns human-readable errors; an empty array means valid.
+ * rows). Returns codes for the caller to phrase; an empty array means valid.
  *
  * The last two rows of that table — the path resolves inside the root, and
  * the root is writable — are runtime conditions checked when a finish runs,
  * because a folder can disappear after the type was saved.
  */
-export function validateDestination(paths: PathPort, dest: Destination | undefined | null): string[] {
+export function validateDestination(paths: PathPort, dest: Destination | undefined | null): IssueList {
   if (!dest) return []
-  const errors: string[] = []
+  const errors: IssueList = []
   if (!isDestinationStore(dest.store)) {
-    errors.push(`destination store must be one of: wiki, folder`)
+    errors.push({ key: 'destination.storeUnknown', params: { stores: DESTINATION_STORES.join(', ') } })
     return errors
   }
   if (dest.store === 'folder') {
     if (!isAbsolutePath(paths, dest.rootPath)) {
-      errors.push('a folder destination requires an absolute rootPath')
+      errors.push({ key: 'destination.folderNeedsAbsoluteRoot' })
     }
   } else if (dest.rootPath !== null && dest.rootPath !== undefined) {
-    errors.push('a wiki destination must not declare a rootPath (the configured wiki location is used)')
+    errors.push({ key: 'destination.wikiTakesNoRoot' })
   }
   const subdir = dest.subdir ?? ''
   if (typeof subdir !== 'string') {
-    errors.push('destination subdir must be a string')
+    errors.push({ key: 'destination.subdirNotString' })
   } else if (paths.isAbsolute(subdir)) {
-    errors.push('destination subdir must be relative, not absolute')
+    errors.push({ key: 'destination.subdirAbsolute' })
   } else if (subdir.split(/[\\/]/).some((seg) => seg === '..')) {
-    errors.push('destination subdir must not contain a ".." segment')
+    errors.push({ key: 'destination.subdirTraversal' })
   }
   return errors
 }

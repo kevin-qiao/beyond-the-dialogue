@@ -43,9 +43,13 @@ function settings(partial: Partial<Settings>): Settings {
 
 test('skills validation: unique names, path required (description optional)', () => {
   assert.deepEqual(validatePluginEntries(settings({ skills: [{ name: 'a', description: 'does a', path: '/skills/a' }] })), [])
-  assert.ok(validatePluginEntries(settings({ skills: [{ name: 'a', description: '', path: '' }] })).some((e) => /source path is required/.test(e)))
+  assert.deepEqual(validatePluginEntries(settings({ skills: [{ name: 'a', description: '', path: '' }] })), [
+    { key: 'plugin.skill.pathRequired', params: { name: 'a' } }
+  ])
   assert.ok(
-    validatePluginEntries(settings({ skills: [{ name: 'a', description: 'x', path: '/s/a' }, { name: 'a', description: 'y', path: '/s/b' }] })).some((e) => /unique/.test(e))
+    validatePluginEntries(
+      settings({ skills: [{ name: 'a', description: 'x', path: '/s/a' }, { name: 'a', description: 'y', path: '/s/b' }] })
+    ).some((e) => e.key === 'plugin.skill.nameUnique')
   )
 })
 
@@ -54,10 +58,18 @@ test('MCP validation: unique names, complete stdio transport', () => {
     validatePluginEntries(settings({ mcpServers: [{ name: 'jira', transport: { type: 'stdio', command: 'npx', args: ['-y', 'atlassian-mcp'] } }] })),
     []
   )
-  assert.ok(validatePluginEntries(settings({ mcpServers: [{ name: 'jira', transport: { type: 'stdio', command: '' } }] })).some((e) => /command is required/.test(e)))
-  assert.ok(validatePluginEntries(settings({ mcpServers: [{ name: 'a', transport: { type: 'stdio', command: 'x' } }, { name: 'a', transport: { type: 'stdio', command: 'y' } }] })).some((e) => /unique/.test(e)))
+  assert.deepEqual(validatePluginEntries(settings({ mcpServers: [{ name: 'jira', transport: { type: 'stdio', command: '' } }] })), [
+    { key: 'plugin.mcp.commandRequired', params: { name: 'jira' } }
+  ])
   assert.ok(
-    validatePluginEntries(settings({ mcpServers: [{ name: 'remote', transport: { type: 'http', command: '' } as never }] })).some((e) => /unsupported transport/.test(e))
+    validatePluginEntries(
+      settings({ mcpServers: [{ name: 'a', transport: { type: 'stdio', command: 'x' } }, { name: 'a', transport: { type: 'stdio', command: 'y' } }] })
+    ).some((e) => e.key === 'plugin.mcp.nameUnique')
+  )
+  assert.ok(
+    validatePluginEntries(
+      settings({ mcpServers: [{ name: 'remote', transport: { type: 'http', command: '' } as never }] })
+    ).some((e) => e.key === 'plugin.mcp.unsupportedTransport')
   )
 })
 

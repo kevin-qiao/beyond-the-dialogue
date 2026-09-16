@@ -163,8 +163,102 @@ export const en = {
   'editor.saved': 'saved {when}',
   'task.notes.placeholder': 'Add details…',
 
+  // ---- progress the main process and the domain emit ----
+  // Written to `jobs.step_label` and shown in the Activity drawer. Produced
+  // already-localised rather than translated on display: the column holds what
+  // happened, and a key stored in it would render as a key on every old row.
+  'job.step.complete': 'Complete',
+  'finish.step.filingUnpolished': 'Filing unpolished',
+  'finish.step.noAi': 'AI not configured',
+  'finish.step.polishing': 'Polishing',
+  'finish.step.polishingDetail': 'Re-organizing the minutes',
+  'finish.step.depositing': 'Depositing',
+  'finish.step.depositingDetail': 'Preserving the raw material',
+  'finish.step.snapshotting': 'Snapshotting',
+  'finish.step.snapshottingDetail': 'Backing up files before changes',
+  'finish.step.curating': 'Curating',
+  'finish.step.curatingDetail': 'The assistant is writing the finished note',
+  'preprocess.step.running': 'Pre-processing',
+  'preprocess.step.learning': 'Generating learning summary',
+  'preprocess.step.jira': 'Summarizing pasted content',
+  'preprocess.step.meeting': 'Proposing an agenda',
+  'preprocess.done': 'Pre-process complete',
+  'suggest.step.running': 'Suggesting',
+  'suggest.step.detail': 'Generating suggestions',
+  'suggest.done.one': '{count} suggestion generated',
+  'suggest.done.other': '{count} suggestions generated',
+  'ingest.done': 'Wiki ingestion complete',
+
+  // ---- toasts the domain raises ----
+  'toast.finishDeferred': 'Task finished — the assistant is writing it up',
+  'toast.filedTo': 'Finished — filed to {path}',
+  'toast.filedUnpolished': 'Filed as written — the assistant step failed: {error}',
+
+  // ---- refusals the domain states as codes ----
+  // Validated in src/core (which has no language) and phrased where the
+  // language is known — the renderer, or the main process before it crosses
+  // the IPC boundary. The English text is what these messages have always read.
+  'validation.unknownInput': 'unknown input "{input}" for type "{type}"',
+  'validation.inputNotString': 'input "{input}" must be a string',
+  'validation.inputNotAnOption': 'input "{input}" must be one of: {options}',
+  'validation.inputImmutable': 'input "{input}" cannot be changed after creation',
+  'validation.keyFormat': 'key must be 2–32 chars of lowercase letters, digits, underscore',
+  'validation.kindUnknown': 'kind must be one of: {kinds}',
+  'validation.labelRequired': 'label is required',
+  'validation.emojiRequired': 'emoji is required',
+  'validation.inputSchemaNotArray': 'inputSchema must be an array',
+  'validation.fieldKeyInvalid': 'duplicate or empty input field key "{key}"',
+  'validation.fieldNeedsLabel': 'input "{key}" needs a label',
+  'validation.mustDeclareBehaviour': 'a "{kind}" type must declare a finishBehaviour',
+  'validation.behaviourUnknown': 'finishBehaviour must be one of: {behaviours}',
+  'validation.completeOnlyNoDestination': 'a complete-only type must not declare a destination',
+  'validation.needsDestination': 'a "{behaviour}" type must declare a destination',
+  'validation.grantsNotArrays': 'grant entries must be arrays of names',
+  'validation.grantNamesEmpty': 'grant names must be non-empty strings',
+  'validation.keyIsBuiltin': '"{key}" is a built-in type key',
+  'validation.keyExists': 'a type with key "{key}" already exists',
+  'validation.typeNotFound': 'type "{key}" not found',
+  'validation.builtinKindFixed': 'built-in types cannot change kind',
+  'validation.builtinBehaviourFixed': 'built-in types cannot change finishBehaviour',
+
+  'destination.storeUnknown': 'destination store must be one of: {stores}',
+  'destination.folderNeedsAbsoluteRoot': 'a folder destination requires an absolute rootPath',
+  'destination.wikiTakesNoRoot': 'a wiki destination must not declare a rootPath (the configured wiki location is used)',
+  'destination.subdirNotString': 'destination subdir must be a string',
+  'destination.subdirAbsolute': 'destination subdir must be relative, not absolute',
+  'destination.subdirTraversal': 'destination subdir must not contain a ".." segment',
+
+  'plugin.skill.nameRequired': 'skill #{n}: name is required',
+  'plugin.skill.nameUnique': 'skill "{name}": name must be unique',
+  'plugin.skill.pathRequired': 'skill "{name}": a source path is required',
+  'plugin.mcp.nameRequired': 'MCP server #{n}: name is required',
+  'plugin.mcp.nameUnique': 'MCP server "{name}": name must be unique',
+  'plugin.mcp.transportRequired': 'MCP server "{name}": transport definition is required',
+  'plugin.mcp.unsupportedTransport':
+    'MCP server "{name}": unsupported transport type "{type}" (only stdio in this version)',
+  'plugin.mcp.commandRequired': 'MCP server "{name}": a command is required for the stdio transport',
+  'plugin.mcp.argsNotList': 'MCP server "{name}": args must be a list',
+  'plugin.mcp.envNotMap': 'MCP server "{name}": env must be a name→value map',
+
+  'artifact.destinationUnset': 'destination is not configured',
+  'artifact.folderMissing': 'destination folder does not exist: {path} — create it or choose another in Settings',
+  'artifact.folderNotWritable': 'destination folder is not writable: {path}',
+  'artifact.wikiUnusable': 'wiki destination is not usable: {error}',
+  'artifact.wikiNotWritable': 'wiki destination is not writable: {path}',
+  'ingest.typeNotDestined': 'type "{type}" is not destined for the wiki',
+  'ingest.notePathOutside': 'learning-note path "{path}" is outside the current wiki — re-point it in the task inputs',
+  'preprocess.noPreprocess': 'this task type has no pre-process',
+  'finish.noTypeDefinition': 'no type definition resolves for task "{title}"',
+  'finish.missingInputs': 'cannot finish: missing required input(s): {fields}',
+  'finish.outsideDestination': 'refusing to finish: the artifact would be written outside the destination root ({root}) — re-point the destination in Settings',
+  "finish.overrideOutside": "\"{path}\" is outside the destination ({root}) — re-point it in the task's inputs",
+  'finish.noBehaviour': 'type "{type}" does not declare a finish behaviour — set one in Settings before finishing',
+  'finish.noDestination': 'type "{type}" writes an artifact but declares no destination — set one in Settings',
+  'finish.artifactFailed': 'Filing failed: {error}',
+
   // ---- errors the renderer raises itself ----
   'error.mainUnreachable': 'Could not reach the main process',
+  'error.aiNotConfigured': 'AI not configured: open Settings to configure a provider, model and API key',
 
   // ---- the chat ----
   'chat.title': 'Chat',

@@ -9,6 +9,7 @@ import type {
   SnapshotHandle
 } from '../../../core/ports/artifactStore'
 import { distinctName } from '../../../core/domain/slug'
+import { LocalizedError } from '../../../core/i18n/issues'
 import { depositInto } from './deposit'
 import {
   diffTouchedFiles,
@@ -38,7 +39,7 @@ export class WikiArtifactStore implements ArtifactStorePort {
       // Create-only: an existing wiki is reused, never restructured.
       ensureWikiDir(this.wikiRoot)
     } catch (e: any) {
-      throw new Error(`wiki destination is not usable: ${e?.message ?? String(e)}`)
+      throw new LocalizedError([{ key: 'artifact.wikiUnusable', params: { error: e?.message ?? String(e) } }])
     }
     if (!fs.existsSync(target.absRoot)) {
       fs.mkdirSync(target.absRoot, { recursive: true })
@@ -46,7 +47,7 @@ export class WikiArtifactStore implements ArtifactStorePort {
     try {
       fs.accessSync(target.absRoot, fs.constants.W_OK)
     } catch {
-      throw new Error(`wiki destination is not writable: ${target.absRoot}`)
+      throw new LocalizedError([{ key: 'artifact.wikiNotWritable', params: { path: target.absRoot } }])
     }
   }
 

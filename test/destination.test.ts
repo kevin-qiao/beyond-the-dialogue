@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { issueKeysOf } from './helpers/issues'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import {
@@ -29,19 +30,19 @@ test('a folder destination requires an absolute rootPath', () => {
   assert.deepEqual(validateDestination(nodePathPort, folderDest), [])
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, rootPath: 'relative/minutes' }),
-    ['a folder destination requires an absolute rootPath']
+    [{ key: 'destination.folderNeedsAbsoluteRoot' }]
   )
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, rootPath: '' }),
-    ['a folder destination requires an absolute rootPath']
+    [{ key: 'destination.folderNeedsAbsoluteRoot' }]
   )
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, rootPath: '   ' }),
-    ['a folder destination requires an absolute rootPath']
+    [{ key: 'destination.folderNeedsAbsoluteRoot' }]
   )
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, rootPath: null }),
-    ['a folder destination requires an absolute rootPath']
+    [{ key: 'destination.folderNeedsAbsoluteRoot' }]
   )
 })
 
@@ -49,7 +50,7 @@ test('a wiki destination requires rootPath to be null', () => {
   assert.deepEqual(validateDestination(nodePathPort, wikiDest), [])
   assert.deepEqual(
     validateDestination(nodePathPort, { ...wikiDest, rootPath: '/somewhere/else' }),
-    ['a wiki destination must not declare a rootPath (the configured wiki location is used)']
+    [{ key: 'destination.wikiTakesNoRoot' }]
   )
 })
 
@@ -58,30 +59,30 @@ test('subdir containing a ".." segment is rejected', () => {
   assert.deepEqual(validateDestination(nodePathPort, { ...folderDest, subdir: '' }), [])
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, subdir: '../escape' }),
-    ['destination subdir must not contain a ".." segment']
+    [{ key: 'destination.subdirTraversal' }]
   )
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, subdir: 'minutes/../../escape' }),
-    ['destination subdir must not contain a ".." segment']
+    [{ key: 'destination.subdirTraversal' }]
   )
   // Windows-shaped traversal is caught by the same rule.
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, subdir: '..\\escape' }),
-    ['destination subdir must not contain a ".." segment']
+    [{ key: 'destination.subdirTraversal' }]
   )
 })
 
 test('an absolute subdir is rejected', () => {
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, subdir: '/etc' }),
-    ['destination subdir must be relative, not absolute']
+    [{ key: 'destination.subdirAbsolute' }]
   )
 })
 
 test('an unrecognised store is rejected rather than ignored', () => {
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, store: 'cloud' as never }),
-    ['destination store must be one of: wiki, folder']
+    [{ key: 'destination.storeUnknown', params: { stores: 'wiki, folder' } }]
   )
 })
 
@@ -197,8 +198,14 @@ test('a target override that escapes the destination refuses the finish rather t
 
   await assert.rejects(
     () => finishWith(conn, firstDir, task.id, 'file-as-is'),
-    /outside the destination/,
-    'a path that no longer resolves must be surfaced, never silently defaulted'
+    (e: unknown) => {
+      assert.deepEqual(
+        issueKeysOf(e),
+        ['finish.overrideOutside'],
+        'a path that no longer resolves must be surfaced, never silently defaulted'
+      )
+      return true
+    }
   )
   assert.deepEqual(fs.readdirSync(firstDir), [], 'nothing was written')
   conn.close()

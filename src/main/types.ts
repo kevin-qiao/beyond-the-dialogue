@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { deleteType, getType, listTypes, reassignTasksFromType, reconcileInputsForType, upsertType } from './db'
+import { deleteType, getType, listTypes, loadSettings, reassignTasksFromType, reconcileInputsForType, upsertType } from './db'
+import { issuesToText } from './errors'
 import type { Task, TaskKind, TaskTypeDef } from '../shared/types'
 import { effectiveCategory as coreEffectiveCategory, effectiveType, legacyWorkflow } from '../core/domain/taskType'
 import {
@@ -60,7 +61,9 @@ export function createTypeDef(db: DatabaseSync, def: TaskTypeDef): TaskTypeDef {
   const existing = getType(db, def.key)
   const normalized = normalizeTypeDef(def, existing)
   const v = validateTypeDefinition(normalized, { paths: nodePathPort, existing, mode: 'create' })
-  if (!v.ok) throw new Error(v.errors.join('; '))
+  // This module holds the db, so it can phrase its own refusals — which keeps
+  // the wording these messages have always had.
+  if (!v.ok) throw new Error(issuesToText(v.errors, loadSettings(db).uiLanguage))
   return upsertType(db, { ...normalized, isBuiltin: false })
 }
 
@@ -73,7 +76,9 @@ export function updateTypeDef(db: DatabaseSync, def: TaskTypeDef): TaskTypeDef {
   if (!existing) throw new Error(`type "${def.key}" not found`)
   const normalized = normalizeTypeDef(def, existing)
   const v = validateTypeDefinition(normalized, { paths: nodePathPort, existing, mode: 'update' })
-  if (!v.ok) throw new Error(v.errors.join('; '))
+  // This module holds the db, so it can phrase its own refusals — which keeps
+  // the wording these messages have always had.
+  if (!v.ok) throw new Error(issuesToText(v.errors, loadSettings(db).uiLanguage))
   const merged: TaskTypeDef = existing.isBuiltin
     ? {
         ...existing,

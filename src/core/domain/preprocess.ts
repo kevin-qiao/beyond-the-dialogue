@@ -1,4 +1,5 @@
 import type { Task } from '../../shared/types'
+import type { MessageKey } from '../i18n'
 import type { TaskCategory } from './categories'
 
 // Per-category pre-processing.
@@ -109,8 +110,9 @@ export interface PreprocessPromptArgs {
  * actually differ between categories.
  */
 interface PreprocessDeclaration {
-  /** Progress label shown while the run is in flight. */
-  step: string
+  /** Progress label shown while the run is in flight. A key, because the job
+   *  that emits it knows the language; this module does not. */
+  step: MessageKey
   /** Who the assistant is, and the one JSON object it must produce. */
   role: (args: PreprocessPromptArgs) => string
   /** This category's description of each output field. */
@@ -128,7 +130,7 @@ interface PreprocessDeclaration {
 
 export interface PreprocessInstruction {
   /** Progress label shown while the run is in flight. */
-  step: string
+  step: MessageKey
   buildContext: PreprocessDeclaration['buildContext']
   buildPrompt: (args: PreprocessPromptArgs) => string
 }
@@ -166,7 +168,7 @@ function toInstruction(decl: PreprocessDeclaration): PreprocessInstruction {
 // ---- the categories ----
 
 const learning: PreprocessDeclaration = {
-  step: 'Generating learning summary',
+  step: 'preprocess.step.learning',
   role: () =>
     `You are a learning coach who is good at building study plans and agendas. A user wants to learn something and needs your help with concrete study suggestions: core concepts, a learning sequence, a study schedule, easily overlooked issues, and learning methods.
 
@@ -192,7 +194,7 @@ Produce exactly one JSON object:`,
 }
 
 const jira: PreprocessDeclaration = {
-  step: 'Summarizing pasted content',
+  step: 'preprocess.step.jira',
   role: ({ inputs }) =>
     `You are a work-assistance agent embedded in a to-do app. The user pasted content from ${isIssue(inputs) ? 'a JIRA issue' : 'a Confluence page'}. Analyze the pasted content below and produce exactly one JSON object:`,
   // Two sub-shapes with genuinely different deliverables, so the contract is
@@ -239,7 +241,7 @@ ${accessRule}
 }
 
 const meeting: PreprocessDeclaration = {
-  step: 'Proposing an agenda',
+  step: 'preprocess.step.meeting',
   role: () =>
     `You are a meeting preparation assistant embedded in a to-do app. From the meeting's own objective and description below, produce exactly one JSON object:`,
   outputContract: () => ({

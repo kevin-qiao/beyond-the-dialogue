@@ -9,6 +9,7 @@ import type {
   SnapshotHandle
 } from '../../../core/ports/artifactStore'
 import { distinctName } from '../../../core/domain/slug'
+import { LocalizedError } from '../../../core/i18n/issues'
 
 // The plain-folder artifact store: a destination the user owns and reads in any
 // editor. No wiki workspace, no schema, no indexing (FR-010).
@@ -53,13 +54,13 @@ export function ensureDestination(root: string): void {
 export class FolderArtifactStore implements ArtifactStorePort {
   async prepare(target: DestinationRef): Promise<void> {
     if (!target.absRoot) {
-      throw new Error('destination is not configured')
+      throw new LocalizedError([{ key: 'artifact.destinationUnset' }])
     }
     if (!fs.existsSync(target.absRoot)) {
-      throw new Error(`destination folder does not exist: ${target.absRoot} — create it or choose another in Settings`)
+      throw new LocalizedError([{ key: 'artifact.folderMissing', params: { path: target.absRoot } }])
     }
     if (!isWritableDir(target.absRoot)) {
-      throw new Error(`destination folder is not writable: ${target.absRoot}`)
+      throw new LocalizedError([{ key: 'artifact.folderNotWritable', params: { path: target.absRoot } }])
     }
   }
 

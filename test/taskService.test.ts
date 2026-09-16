@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { assertRefusedWith } from './helpers/issues'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -41,11 +42,13 @@ function harness(configured = true): { conn: DB; storage: StoragePort; settings:
 
 test('createTask validates inputs against the effective type before persisting', () => {
   const { conn, storage, listId } = harness()
-  assert.throws(
+  // The refusal carries a code: the sentence is applied where the language is
+  // known, so the code is what a caller at this layer can rely on.
+  assertRefusedWith(
     () => createTask(storage, { listId, title: 'x', type: 'jira', inputs: { sourceKind: 'slack-message' } }),
-    /must be one of/
+    'validation.inputNotAnOption'
   )
-  assert.throws(() => createTask(storage, { listId, title: 'x', type: 'learning', inputs: { nope: '1' } }), /unknown input/)
+  assertRefusedWith(() => createTask(storage, { listId, title: 'x', type: 'learning', inputs: { nope: '1' } }), 'validation.unknownInput')
   const ok = createTask(storage, { listId, title: 'x', type: 'learning', inputs: { target: 'eigenvalues' } })
   assert.equal(ok.inputs.target, 'eigenvalues')
   conn.close()
@@ -167,13 +170,13 @@ test('saveSettings applies the plugin rules and the first-run rule, then persist
   const { saveSettings: save } = await import('../src/core/services/settingsService')
   const base = storage.loadSettings()
 
-  assert.throws(
+  assertRefusedWith(
     () => save(storage, { ...base, skills: [{ name: 'dup', description: '', path: '/a' }, { name: 'dup', description: '', path: '/b' }] }),
-    /name must be unique/
+    'plugin.skill.nameUnique'
   )
-  assert.throws(
+  assertRefusedWith(
     () => save(storage, { ...base, mcpServers: [{ name: 's', transport: { type: 'stdio', command: '' } }] }),
-    /a command is required/
+    'plugin.mcp.commandRequired'
   )
   // A refused save persists nothing.
   assert.deepEqual(storage.loadSettings().skills, [])

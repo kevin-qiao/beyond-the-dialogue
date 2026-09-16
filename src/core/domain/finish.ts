@@ -3,6 +3,7 @@ import type { ArtifactStorePort } from '../ports/artifactStore'
 import type { AgentSessionPort } from '../ports/agent'
 import type { ClockPort } from '../ports/clock'
 import type { FinishBehaviour } from './categories'
+import { message, type Language } from '../i18n'
 
 // The four finish behaviours (contracts/finish-behaviours.md). Exactly four
 // exist; adding a fifth is meant to be a deliberate act with a known shape
@@ -28,6 +29,9 @@ export interface FinishDestinationRef {
 }
 
 export interface FinishContext {
+  /** The language the step labels are produced in. A parameter, never ambient:
+   *  core is compiled into both hosts and has no locale of its own. */
+  language: Language
   task: Task
   typeDef: TaskTypeDef
   /** null only for 'complete-only'. */
@@ -121,10 +125,10 @@ export const polishThenFile: FinishStrategy = async (ctx) => {
   if (!ctx.session.isAvailable()) {
     assistantStep = 'failed'
     assistantError = 'no AI provider is configured — the minutes were filed as written'
-    ctx.onStep?.('Filing unpolished', 'AI not configured')
+    ctx.onStep?.(message(ctx.language, 'finish.step.filingUnpolished'), message(ctx.language, 'finish.step.noAi'))
   } else {
     try {
-      ctx.onStep?.('Polishing', 'Re-organizing the minutes')
+      ctx.onStep?.(message(ctx.language, 'finish.step.polishing'), message(ctx.language, 'finish.step.polishingDetail'))
       const raw = await ctx.session.run({
         purpose: 'confined',
         cwd: dest.root,
@@ -142,7 +146,7 @@ export const polishThenFile: FinishStrategy = async (ctx) => {
     } catch (e: any) {
       assistantStep = 'failed'
       assistantError = e?.message ?? String(e)
-      ctx.onStep?.('Filing unpolished', assistantError)
+      ctx.onStep?.(message(ctx.language, 'finish.step.filingUnpolished'), assistantError)
     }
   }
 
@@ -165,7 +169,7 @@ export const polishThenFile: FinishStrategy = async (ctx) => {
 export const depositThenCurate: FinishStrategy = async (ctx) => {
   const dest = requireDestination(ctx)
 
-  ctx.onStep?.('Depositing', 'Preserving the raw material')
+  ctx.onStep?.(message(ctx.language, 'finish.step.depositing'), message(ctx.language, 'finish.step.depositingDetail'))
   const deposit = await ctx.store.deposit(dest, {
     taskId: ctx.task.id,
     title: ctx.task.title,
@@ -180,7 +184,7 @@ export const depositThenCurate: FinishStrategy = async (ctx) => {
     throw new Error('nothing to ingest: task has no notes or AI summary')
   }
 
-  ctx.onStep?.('Snapshotting', 'Backing up files before changes')
+  ctx.onStep?.(message(ctx.language, 'finish.step.snapshotting'), message(ctx.language, 'finish.step.snapshottingDetail'))
   const handle = await ctx.store.snapshot(dest)
   ctx.onDetail?.({ protectedFiles: handle.files })
 
@@ -188,7 +192,7 @@ export const depositThenCurate: FinishStrategy = async (ctx) => {
     throw new Error('AI not configured: no API key')
   }
 
-  ctx.onStep?.('Curating', 'The assistant is writing the finished note')
+  ctx.onStep?.(message(ctx.language, 'finish.step.curating'), message(ctx.language, 'finish.step.curatingDetail'))
   await ctx.session.run({
     purpose: 'confined',
     // Bound to the destination ROOT, not the artifact subdir: the curating

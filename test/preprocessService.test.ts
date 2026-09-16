@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { assertRefusedWith } from './helpers/issues'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -63,7 +64,7 @@ test('an unconfigured provider is refused with an actionable message', () => {
   const task = createTask(storage, { listId, title: 'learn', type: 'learning', inputs: { target: 'x' } })
   // The message must tell the user what to do, because this refusal is the
   // only thing they see.
-  assert.throws(() => runPreprocess(storage, task.id, settings), /open Settings to configure a provider/)
+  assertRefusedWith(() => runPreprocess(storage, task.id, settings), 'error.aiNotConfigured')
   assert.equal(storage.getTask(task.id)!.preprocessStatus, 'none')
   conn.close()
 })

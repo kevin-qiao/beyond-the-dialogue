@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { issueKeysOf, issueParamsOf } from './helpers/issues'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -26,7 +27,11 @@ const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
 test('prepare rejects a missing destination', async () => {
   const dir = tmpdir()
   const missing = path.join(dir, 'does-not-exist')
-  await assert.rejects(() => store.prepare(ref(missing)), /does not exist/)
+  await assert.rejects(() => store.prepare(ref(missing)), (e: unknown) => {
+    assert.deepEqual(issueKeysOf(e), ['artifact.folderMissing'])
+    assert.equal(issueParamsOf(e).path, missing)
+    return true
+  })
   // ...and does not create it as a side effect: a finish must not invent a
   // directory the user never declared.
   assert.equal(fs.existsSync(missing), false, 'prepare must not create the folder')
@@ -36,7 +41,10 @@ test('prepare rejects a destination that is not a directory', async () => {
   const dir = tmpdir()
   const filePath = path.join(dir, 'im-a-file')
   fs.writeFileSync(filePath, 'not a folder')
-  await assert.rejects(() => store.prepare(ref(filePath)), /not writable|does not exist/)
+  await assert.rejects(() => store.prepare(ref(filePath)), (e: unknown) => {
+    assert.deepEqual(issueKeysOf(e), ['artifact.folderNotWritable'])
+    return true
+  })
 })
 
 test('prepare rejects a read-only destination', async () => {
@@ -52,7 +60,10 @@ test('prepare rejects a read-only destination', async () => {
       await store.prepare(ref(dest))
       assert.ok(true, 'running as root: permission bits do not restrict writes')
     } else {
-      await assert.rejects(() => store.prepare(ref(dest)), /not writable/)
+      await assert.rejects(() => store.prepare(ref(dest)), (e: unknown) => {
+        assert.deepEqual(issueKeysOf(e), ['artifact.folderNotWritable'])
+        return true
+      })
     }
   } finally {
     fs.chmodSync(dest, 0o755)

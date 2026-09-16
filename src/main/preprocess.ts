@@ -1,5 +1,6 @@
 import type { JobContext } from './job-queue'
 import { getTask, updateTask, savePreprocess, addSuggestion, clearSuggestions, loadSettings } from './db'
+import { message } from '../core/i18n'
 import { createJobSession } from './ai/session-factory'
 import { effectiveTypeDef, preprocessInputHash } from './types'
 import {
@@ -54,7 +55,8 @@ export async function runPreprocessJob(ctx: JobContext): Promise<void> {
   }
 
   const inputsHash = preprocessInputHash(task, def)
-  ctx.setStep('Pre-processing', instruction.step)
+  const lang = settings.uiLanguage
+  ctx.setStep(message(lang, 'preprocess.step.running'), message(lang, instruction.step))
 
   const prompt = instruction.buildPrompt({
     context: instruction.buildContext(task, task.inputs),
@@ -106,7 +108,7 @@ export async function runPreprocessJob(ctx: JobContext): Promise<void> {
     clearSuggestions(db, taskId)
     for (const s of out.suggestions) addSuggestion(db, taskId, s)
     updateTask(db, taskId, { preprocessStatus: 'ready', preprocessError: null })
-    ctx.setStep('Complete', 'Pre-process complete')
+    ctx.setStep(message(lang, 'job.step.complete'), message(lang, 'preprocess.done'))
   } catch (e: any) {
     // Do not mark the task failed here: transient errors are re-queued by the
     // job queue (status stays 'queued'), and the terminal 'failed' marker is

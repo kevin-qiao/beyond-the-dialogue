@@ -1,6 +1,8 @@
 import type { JobContext } from '../job-queue'
 import type { IngestRecord, TaskPreprocess } from '../../shared/types'
 import { getTask, listTypes, loadSettings, updateIngest } from '../db'
+import { message } from '../../core/i18n'
+import { LocalizedError } from '../../core/i18n/issues'
 import { effectiveType } from '../../core/domain/taskType'
 import { declaredWorkflow } from '../../core/domain/taskType'
 import { depositThenCurate } from '../../core/domain/finish'
@@ -34,7 +36,7 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   const workflow = declaredWorkflow(def)
   const dest = workflow.destination
   if (!dest || dest.store !== 'wiki') {
-    throw new Error(`type "${def.label}" is not destined for the wiki`)
+    throw new LocalizedError([{ key: 'ingest.typeNotDestined', params: { type: def.label } }])
   }
 
   const storage = createSqliteStorage(db)
@@ -53,12 +55,15 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   // escapes is refused rather than quietly replaced by the default.
   const confined = override ? confineOverride(nodePathPort, dest, wikiRoot, override) : null
   if (override && !confined) {
-    throw new Error(`learning-note path "${override}" is outside the current wiki — re-point it in the task inputs`)
+    throw new LocalizedError([{ key: 'ingest.notePathOutside', params: { path: override } }])
   }
   const noteTargetRel = confined?.rootRel
 
   const result = await depositThenCurate({
     task,
+    // The curating step's labels are produced here, so this is where the
+    // language is known — the strategy is handed the answer, not the question.
+    language: settings.uiLanguage,
     typeDef: def,
     destination: target,
     workingContent: (storage.getNotes(taskId)?.content ?? '').trim(),
@@ -79,7 +84,7 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
 
   // What the agent actually created or modified.
   record({ touchedFiles: result.touchedFiles })
-  ctx.setStep('Complete', 'Wiki ingestion complete')
+  ctx.setStep(message(settings.uiLanguage, 'job.step.complete'), message(settings.uiLanguage, 'ingest.done'))
 }
 
 function renderSummary(taskId: string, p: TaskPreprocess | null): string | undefined {

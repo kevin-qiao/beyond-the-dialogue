@@ -4,6 +4,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { openDB, migrate, saveSettings, loadSettings, getTask, getPreprocess, getNotes, listIngest, listSuggestions, getJob, saveNotes, updateTask, type DB } from '../src/main/db'
+import { message, isMessageKey } from '../src/core/i18n'
 import { JobQueue } from '../src/main/job-queue'
 import { runPreprocessJob } from '../src/main/preprocess'
 import { runSuggestionJob } from '../src/main/suggestions'
@@ -91,6 +92,9 @@ async function finishMeeting(conn: DB, minutesDir: string, taskId: string) {
     destination: { store: 'folder', rootPath: minutesDir, subdir: '' }
   })
   const deps: FinishDeps = {
+    // Tests render English; the language is explicit rather than absent so a
+    // missing one cannot hide as a silent fallback.
+    language: 'en',
     paths: nodePathPort,
     storage: createSqliteStorage(conn.db),
     storeFor: () => folderArtifactStore,
@@ -442,7 +446,12 @@ test('8.1e a meeting task routes to the meeting surface and meeting pre-process,
   assert.equal(hasPreprocess('meeting'), true)
   assert.equal(preprocessInstruction('meeting'), PREPROCESS_INSTRUCTIONS.meeting)
   assert.notEqual(preprocessInstruction('meeting'), PREPROCESS_INSTRUCTIONS.jira)
-  assert.ok(preprocessInstruction('meeting')!.step.includes('agenda'))
+  // The declaration holds a message KEY now, since the job that emits it is
+  // what knows the language — so the assertion is on the label it resolves to.
+  const meetingStep = preprocessInstruction('meeting')!.step
+  assert.ok(isMessageKey(meetingStep), 'the step label must be a catalog key')
+  assert.equal(message('en', meetingStep), 'Proposing an agenda')
+  assert.notEqual(message('en', meetingStep), message('en', preprocessInstruction('jira')!.step))
 
   // plain genuinely has none — the fallback would be indistinguishable from a
   // correct answer if the registry ever lost its meeting entry.

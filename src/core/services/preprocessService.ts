@@ -3,6 +3,7 @@ import type { StoragePort } from '../ports/storage'
 import type { BackgroundWork } from './taskService'
 import { effectiveCategory } from '../domain/taskType'
 import { hasPreprocess } from '../domain/preprocess'
+import { LocalizedError, type IssueList } from '../i18n/issues'
 import { isConfigured } from '../domain/config'
 
 // Pre-process use case: decide whether a task can be pre-processed, and say
@@ -17,9 +18,10 @@ import { isConfigured } from '../domain/config'
  * user asked for something the task's own configuration cannot do, so it is
  * reported immediately rather than queued and failed later.
  */
-export class PreprocessRefused extends Error {
-  constructor(message: string) {
-    super(message)
+/** A refusal the user must read. Carries codes; the transport phrases them. */
+export class PreprocessRefused extends LocalizedError {
+  constructor(issues: IssueList) {
+    super(issues)
     this.name = 'PreprocessRefused'
   }
 }
@@ -43,12 +45,10 @@ export function runPreprocess(storage: StoragePort, id: string, settings: Settin
 
   const category = effectiveCategory(storage.listTypes(), task)
   if (!hasPreprocess(category)) {
-    throw new PreprocessRefused('this task type has no pre-process')
+    throw new PreprocessRefused([{ key: 'preprocess.noPreprocess' }])
   }
   if (!isConfigured(settings)) {
-    throw new PreprocessRefused(
-      'AI not configured: open Settings to configure a provider, model and API key'
-    )
+    throw new PreprocessRefused([{ key: 'error.aiNotConfigured' }])
   }
 
   const queued = storage.updateTask(task.id, { preprocessStatus: 'queued', preprocessError: null })

@@ -1,5 +1,6 @@
 import type { ChatMessage, Settings } from '../../shared/types'
 import { isConfigured } from './ai-config'
+import { message } from '../../core/i18n'
 
 export type ChatStreamFn = (settings: Settings, history: ChatMessage[], onDelta: (delta: string) => void) => Promise<string>
 
@@ -33,7 +34,7 @@ export class ChatSession {
   async send(userText: string, settings: Settings, onDelta: (delta: string) => void, context?: string): Promise<string> {
     if (this.busy) throw new Error('a reply is already streaming')
     if (!isConfigured(settings)) {
-      throw new Error('AI not configured: open Settings to configure a provider, model and API key')
+      throw new Error(message(settings.uiLanguage, 'error.aiNotConfigured'))
     }
     const trimmed = userText.trim()
     if (!trimmed) throw new Error('empty message')

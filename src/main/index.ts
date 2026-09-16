@@ -30,7 +30,7 @@ import { notePathFor } from './wiki/vault'
 import { resolveWikiPath } from './wiki/wiki'
 import { createTypeDef, deleteTypeDef, effectiveKind, effectiveTypeDef, getTypeDef, listTypeDefs, updateTypeDef } from './types'
 import { importSkillFolder } from './skills'
-import { IPC, type AppEvents } from '../shared/ipc'
+import { IPC, type AppCommands, type AppEvents } from '../shared/ipc'
 import type { AppSnapshot, Settings, Task, TaskTypeDef } from '../shared/types'
 import type { RemoteProposalView } from '../shared/ipc'
 import { finishTask as runFinishTask, type FinishDeps } from '../core/services/finishService'
@@ -39,6 +39,8 @@ import { saveSettings as saveSettingsService } from '../core/services/settingsSe
 import { runPreprocess as runPreprocessService } from '../core/services/preprocessService'
 import { buildSessionContext, createProposalQueue } from '../core/domain/grant'
 import { buildChatContext } from '../core/domain/chatContext'
+import { message } from '../core/i18n'
+import { localizeThrown } from './errors'
 import {
   createTask as createTaskService,
   setMyDay as setMyDayService,
@@ -294,21 +296,24 @@ function defFor(db: DatabaseSync, type: Task['type'] | undefined, customTypeKey:
 // wiki root always reflect the current settings.
 function finishDeps(): FinishDeps {
   const d = db!.db
+  const language = loadSettings(d).uiLanguage
   return {
+    language,
     paths: nodePathPort,
     storage: createSqliteStorage(d),
     storeFor: artifactStoreFor(resolveWikiPath(loadSettings(d).wikiPath)),
     session: createAgentSessionAdapter(() => loadSettings(d)),
     clock: systemClock,
     notifier: createNotifier({
-      toast: (message, opts) => broadcast(IPC.evToast, { message, view: opts?.view }),
+      toast: (text, opts) => broadcast(IPC.evToast, { message: text, view: opts?.view }),
       progress: (stepLabel, progress) =>
         broadcast(IPC.evJobProgress, {
           jobId: 'finish',
           kind: 'ingest',
           taskId: null,
           state: 'running',
-          stepLabel: progress ? `${stepLabel} — ${progress}` : stepLabel,
+          // The joiner is a message: its spacing and glyph differ by language.
+          stepLabel: progress ? `${stepLabel}${message(language, 'common.stepJoiner')}${progress}` : stepLabel,
           error: null
         })
     }),
@@ -321,6 +326,31 @@ function finishDeps(): FinishDeps {
       queue!.enqueueIngest(task.id, task.title, [])
     }
   }
+}
+
+// A handler that can refuse something the user did.
+//
+// The domain states its refusals as codes (src/core/i18n/issues.ts) because it
+// has no language of its own; this is where the language is known on the way
+// out, and where the code becomes a sentence. It has to happen before the
+// throw: an `ipcRenderer.invoke` rejection arrives in the renderer as Electron's
+// own wrapper around a string, and nothing structured survives that.
+//
+// Applied only to the handlers that can refuse user input. A handler left alone
+// still works — `localizeThrown` passes anything that is not a code-carrying
+// error through untouched — but a refusal from an unwrapped handler would reach
+// the user as its key.
+function handleCommand<C extends keyof AppCommands>(
+  channel: C,
+  fn: (args: AppCommands[C]['args']) => AppCommands[C]['result'] | Promise<AppCommands[C]['result']>
+): void {
+  ipcMain.handle(channel, async (_e, args) => {
+    try {
+      return await fn(args)
+    } catch (e) {
+      throw localizeThrown(e, loadSettings(db!.db).uiLanguage)
+    }
+  })
 }
 
 function registerIpc(): void {
@@ -342,7 +372,7 @@ function registerIpc(): void {
     broadcast(IPC.evListUpdated, null)
     return undefined
   })
-  ipcMain.handle(IPC.createTask, (_e, args) => {
+  handleCommand(IPC.createTask, (args) => {
     const task = createTaskService(createSqliteStorage(d()), {
       listId: args.listId,
       title: args.title,
@@ -354,7 +384,7 @@ function registerIpc(): void {
     broadcast(IPC.evTaskUpdated, task)
     return task
   })
-  ipcMain.handle(IPC.updateTask, (_e, args) => {
+  handleCommand(IPC.updateTask, (args) => {
     // The routing rules live in the service; this handler only reports the
     // result and performs the background work the service asked for.
     const outcome = updateTaskService(createSqliteStorage(d()), args, loadSettings(d()))
@@ -362,7 +392,7 @@ function registerIpc(): void {
     broadcast(IPC.evTaskUpdated, outcome.task)
     return outcome.task
   })
-  ipcMain.handle(IPC.runPreprocess, (_e, args) => {
+  handleCommand(IPC.runPreprocess, (args) => {
     // The guards live in the service; this handler only acts on its decision.
     const outcome = runPreprocessService(createSqliteStorage(d()), args.id, loadSettings(d()))
     for (const work of outcome.enqueue) queue!.enqueue(work, outcome.task.id)
@@ -414,7 +444,7 @@ function registerIpc(): void {
     broadcastTask(args.taskId)
     return notes
   })
-  ipcMain.handle(IPC.finishTask, async (_e, args) => {
+  handleCommand(IPC.finishTask, async (args) => {
     // Finish is dispatched on the type's DECLARED behaviour, not on a hardcoded
     // category comparison (contracts/finish-behaviours.md). The service
     // validates and confines before anything is marked complete, so a bad
@@ -467,13 +497,13 @@ function registerIpc(): void {
     return importSkillFolder(res.filePaths[0]!)
   })
   ipcMain.handle(IPC.listTypes, () => listTypeDefs(d()))
-  ipcMain.handle(IPC.saveType, (_e, args) => {
+  handleCommand(IPC.saveType, (args) => {
     const existing = args.type?.key ? getTypeDef(d(), args.type.key) : null
     const saved = existing ? updateTypeDef(d(), args.type) : createTypeDef(d(), args.type)
     broadcast(IPC.evTypesUpdated, listTypeDefs(d()))
     return saved
   })
-  ipcMain.handle(IPC.deleteType, (_e, args) => {
+  handleCommand(IPC.deleteType, (args) => {
     deleteTypeDef(d(), args.key)
     broadcast(IPC.evTypesUpdated, listTypeDefs(d()))
     return undefined
@@ -494,7 +524,7 @@ function registerIpc(): void {
     return undefined
   })
   ipcMain.handle(IPC.getSettings, () => loadSettings(d()))
-  ipcMain.handle(IPC.saveSettings, async (_e, args: { settings: Settings }) => {
+  handleCommand(IPC.saveSettings, async (args) => {
     // The validation and the first-run rule live in the service.
     const saved = saveSettingsService(createSqliteStorage(d()), args.settings)
     await configureRuntimeFromSettings(saved)
