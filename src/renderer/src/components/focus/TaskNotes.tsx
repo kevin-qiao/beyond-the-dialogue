@@ -1,4 +1,5 @@
 import { useApp } from '../../store'
+import { useT } from '../../lib/useT'
 import type { Task } from '../../../../shared/types'
 import { effectiveType } from '../../lib/typeCatalog'
 import { emptyContentWarning, finishActionLabel, workingAreaFor } from '../../../../core/domain/workingArea'
@@ -74,13 +75,14 @@ function MarkdownArea({ task }: { task: Task }) {
 /** The plain surface: a single textarea, no AI band content of its own. */
 function PlainArea({ task }: { task: Task }) {
   const { snapshot, saveNote } = useApp()
+  const t = useT()
   const notes = snapshot?.notes[task.id]
   return (
     <div className="plain-notes focus-notes">
       <textarea
         value={notes?.content ?? ''}
         onChange={(e) => void saveNote(task.id, e.target.value)}
-        placeholder="Add details…"
+        placeholder={t('task.notes.placeholder')}
         rows={12}
       />
     </div>

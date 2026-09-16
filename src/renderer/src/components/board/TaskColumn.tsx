@@ -6,6 +6,7 @@ import { QuickAdd } from './QuickAdd'
 import { TaskForm } from './TaskForm'
 import { TaskContextMenu } from './TaskContextMenu'
 import { useDialog } from '../ui/Dialog'
+import { useT } from '../../lib/useT'
 import { IconInbox, IconPlus } from '../ui/icons'
 import { allTypeConfigs, typeFilterKey } from '../../lib/typeCatalog'
 
@@ -24,6 +25,7 @@ interface Scope {
 // My Day mode) and are hidden while a search is active.
 export function TaskColumn() {
   const { snapshot, activeView, selectedTaskId, selectTask, jobSteps, query, searchTasks, myDayTasks, deleteTask } = useApp()
+  const t = useT()
   const [showNewTask, setShowNewTask] = useState(false)
   const [typeFilter, setTypeFilter] = useState<string | null>(null)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; task: Task } | null>(null)
@@ -33,9 +35,9 @@ export function TaskColumn() {
   const handleDelete = async (task: Task) => {
     setCtxMenu(null)
     const ok = await confirm({
-      title: 'Delete task',
-      message: `Delete "${task.title}"? This cannot be undone.`,
-      confirmLabel: 'Delete',
+      title: t('task.delete.title'),
+      message: t('task.delete.message', { title: task.title }),
+      confirmLabel: t('common.delete'),
       danger: true
     })
     if (ok) void deleteTask(task.id)
@@ -48,12 +50,12 @@ export function TaskColumn() {
   let scope: Scope
   if (q) {
     const tasks = searchTasks(snapshot?.tasks ?? [])
-    scope = { header: `Search (${tasks.length})`, tasks, captureListId: null }
+    scope = { header: t('nav.search', { count: tasks.length }), tasks, captureListId: null }
   } else if (activeView === 'my-day') {
     const tasks = searchTasks(myDayTasks)
     const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
     scope = {
-      header: 'My Day',
+      header: t('nav.myDay'),
       dateSub: today,
       rollover: true,
       tasks,
@@ -62,7 +64,7 @@ export function TaskColumn() {
   } else {
     // To Do: the backlog — all tasks across lists (open grouped above done).
     const tasks = searchTasks(snapshot?.tasks ?? [])
-    scope = { header: 'To Do', tasks, captureListId: defaultListId }
+    scope = { header: t('nav.todo'), tasks, captureListId: defaultListId }
   }
 
   const open = scope.tasks.filter((t) => !t.completed)
@@ -96,7 +98,7 @@ export function TaskColumn() {
           {scope.dateSub && (
             <span
               className="date-sub"
-              title={scope.rollover ? 'Completed tasks clear at the next day; open tasks stay in My Day' : undefined}
+              title={scope.rollover ? t('nav.rolloverHint') : undefined}
             >
               {scope.dateSub}
             </span>
@@ -105,8 +107,12 @@ export function TaskColumn() {
             <div className="col-progress" aria-hidden>
               <div className="bar" style={{ width: `${pct}%` }} />
               <div className="legend">
-                <span><span className="num">{completedCount}</span> done</span>
-                <span><span className="num">{totalCount}</span> total · {pct}%</span>
+                <span>
+                  <span className="num">{completedCount}</span> {t('nav.progress.done')}
+                </span>
+                <span>
+                  <span className="num">{totalCount}</span> {t('nav.progress.total', { pct })}
+                </span>
               </div>
             </div>
           )}
@@ -117,9 +123,9 @@ export function TaskColumn() {
             <button
               className="new-task-btn-col"
               onClick={() => setShowNewTask(true)}
-              title="New task"
+              title={t('nav.newTask')}
             >
-              <IconPlus /> New task
+              <IconPlus /> {t('nav.newTask')}
             </button>
           )}
         </div>
@@ -132,10 +138,10 @@ export function TaskColumn() {
           <button
             className={`type-chip ${!typeFilter ? 'on' : ''}`}
             onClick={() => setTypeFilter(null)}
-            title="All types"
+            title={t('nav.allTypes')}
           >
             <span className="tc-emoji" aria-hidden>·</span>
-            <span className="tc-label">All</span>
+            <span className="tc-label">{t('nav.all')}</span>
             <span className="count-mini">{open.length}</span>
           </button>
           {typeStats.map(([ty, n]) => {
@@ -145,7 +151,7 @@ export function TaskColumn() {
                 key={ty}
                 className={`type-chip ${typeFilter === ty ? 'on' : ''}`}
                 onClick={() => setTypeFilter((cur) => (cur === ty ? null : ty))}
-                title={`Filter by ${cfg?.label ?? ty}`}
+                title={t('nav.filterBy', { label: cfg?.label ?? ty })}
               >
                 <span className="tc-emoji" aria-hidden>{cfg?.emoji ?? '📌'}</span>
                 <span className="tc-label">{cfg?.label ?? ty}</span>
@@ -158,7 +164,7 @@ export function TaskColumn() {
 
       {scope.tasks.length === 0 && (
         <div className="empty-hint">
-          {q ? 'No tasks match your search.' : isMyDay ? 'Nothing planned for today. Add a task to My Day to get focused.' : 'To Do is empty. Add a task to get started.'}
+          {q ? t('nav.empty.search') : isMyDay ? t('nav.empty.myDay') : t('nav.empty.todo')}
         </div>
       )}
       <div className="task-list">

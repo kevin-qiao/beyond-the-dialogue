@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Task } from '../../../../shared/types'
 import { useApp } from '../../store'
+import { useT } from '../../lib/useT'
 import { allTypeConfigs, effectiveType } from '../../lib/typeCatalog'
 import { TaskInputsForm } from './TaskInputsForm'
 
@@ -11,6 +12,7 @@ import { TaskInputsForm } from './TaskInputsForm'
 // no longer surfaced (lists are hidden behind My Day / To Do).
 export function TaskForm({ listId, task, onClose }: { listId: string; task?: Task; onClose: () => void }) {
   const { snapshot, types, createTask, updateTask, setActiveView } = useApp()
+  const t = useT()
   const isEdit = !!task
   const [title, setTitle] = useState(task?.title ?? '')
   const [notes, setNotes] = useState(task?.notes ?? '')
@@ -24,7 +26,7 @@ export function TaskForm({ listId, task, onClose }: { listId: string; task?: Tas
   const submit = async () => {
     setError(null)
     if (!title.trim()) {
-      setError('Title is required.')
+      setError(t('task.field.titleRequired'))
       return
     }
     const patch = {
@@ -43,7 +45,7 @@ export function TaskForm({ listId, task, onClose }: { listId: string; task?: Tas
       }
       onClose()
     } catch (e: any) {
-      setError(e?.message ?? 'Could not save the task')
+      setError(e?.message ?? t('task.save.failed'))
     }
   }
 
@@ -51,20 +53,30 @@ export function TaskForm({ listId, task, onClose }: { listId: string; task?: Tas
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <span className="modal-tag">{isEdit ? '✎ Edit' : '＋ New'}</span>
-          <h3>{isEdit ? 'Edit task' : 'New task'}</h3>
+          <span className="modal-tag">{isEdit ? `✎ ${t('common.edit')}` : `＋ ${t('task.modal.new')}`}</span>
+          <h3>{isEdit ? t('task.modal.editTitle') : t('task.modal.newTitle')}</h3>
         </div>
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <label>
-            Title
-            <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What needs doing?" />
+            {t('task.field.title')}
+            <input
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={t('task.capture.placeholder')}
+            />
           </label>
           <label>
-            Notes
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional details" rows={3} />
+            {t('task.field.notes')}
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder={t('task.field.notesPlaceholder')}
+              rows={3}
+            />
           </label>
           <label>
-            Type
+            {t('task.field.type')}
             <select
               value={typeKey}
               onChange={(e) => {
@@ -74,7 +86,7 @@ export function TaskForm({ listId, task, onClose }: { listId: string; task?: Tas
             >
               {configs.map((c) => (
                 <option key={c.key} value={c.key}>
-                  {c.emoji} {c.label}{c.isBuiltin ? '' : '（custom）'}
+                  {c.emoji} {c.label}{c.isBuiltin ? '' : t('type.customSuffix')}
                 </option>
               ))}
             </select>
@@ -86,10 +98,10 @@ export function TaskForm({ listId, task, onClose }: { listId: string; task?: Tas
         </div>
         <div className="modal-actions">
           <button className="secondary-btn" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button className="primary-btn" onClick={() => void submit()}>
-            {isEdit ? 'Save' : 'Create'}
+            {isEdit ? t('common.save') : t('common.create')}
           </button>
         </div>
       </div>

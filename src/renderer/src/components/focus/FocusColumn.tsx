@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useApp } from '../../store'
+import { useT } from '../../lib/useT'
 import { TaskBand } from './TaskBand'
 import { TaskNotes } from './TaskNotes'
 import { JiraArea } from './JiraArea'
@@ -29,6 +30,7 @@ interface Props {
 // selection reopens it; band collapse is local (reset by remounting on task).
 export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
   const { selectedTaskId, taskById, snapshot } = useApp()
+  const t = useT()
   const task = selectedTaskId ? taskById(selectedTaskId) : undefined
   const [bandCollapsed, setBandCollapsed] = useState(false)
 
@@ -39,7 +41,7 @@ export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
       <aside className="focus-col">
         <div className="detail-empty focus-empty">
           <IconTarget />
-          <p>Select a task to open its AI band and working area.</p>
+          <p>{t('focus.empty')}</p>
         </div>
       </aside>
     )
@@ -48,7 +50,7 @@ export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
   if (collapsed) {
     return (
       <aside className="focus-col collapsed">
-        <button className="collapse-btn open" onClick={onExpand} title="Show task focus">
+        <button className="collapse-btn open" onClick={onExpand} title={t('focus.show')}>
           ▶
         </button>
       </aside>
@@ -72,10 +74,14 @@ export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
             </span>
           </span>
           <div className="row">
-            <button className="focus-ctrl-btn" onClick={() => setBandCollapsed((b) => !b)} title={bandCollapsed ? 'Show AI band' : 'Hide AI band'}>
-              {bandCollapsed ? '▾ show AI' : '▴ hide AI'}
+            <button
+              className="focus-ctrl-btn"
+              onClick={() => setBandCollapsed((b) => !b)}
+              title={bandCollapsed ? t('focus.ai.show') : t('focus.ai.hide')}
+            >
+              {bandCollapsed ? `▾ ${t('focus.ai.showLabel')}` : `▴ ${t('focus.ai.hideLabel')}`}
             </button>
-            <button className="collapse-btn" onClick={onCollapse} title="Hide focus column">
+            <button className="collapse-btn" onClick={onCollapse} title={t('focus.hide')}>
               ◀
             </button>
           </div>

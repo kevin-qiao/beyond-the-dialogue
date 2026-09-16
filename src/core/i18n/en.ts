@@ -31,6 +31,8 @@ export const en = {
   'common.set': 'Set',
   'common.clear': 'Clear',
   'common.retry': 'Retry',
+  'common.choose': 'Choose…',
+  'common.send': 'Send',
 
   // ---- dialogs ----
   'dialog.tag.confirm': 'Confirm',
@@ -112,6 +114,62 @@ export const en = {
   'task.preprocess.suggestions': 'Suggestions',
   'task.suggestions.dismiss': 'Dismiss this suggestion',
   'task.suggestions.allDismissed': 'All suggestions dismissed.',
+
+  // ---- the task column ----
+  'nav.search': 'Search ({count})',
+  'nav.rolloverHint': 'Completed tasks clear at the next day; open tasks stay in My Day',
+  'nav.progress.done': 'done',
+  'nav.progress.total': 'total · {pct}%',
+  'nav.newTask': 'New task',
+  'nav.allTypes': 'All types',
+  'nav.all': 'All',
+  'nav.filterBy': 'Filter by {label}',
+  'nav.empty.search': 'No tasks match your search.',
+  'nav.empty.myDay': 'Nothing planned for today. Add a task to My Day to get focused.',
+  'nav.empty.todo': 'To Do is empty. Add a task to get started.',
+
+  // ---- the task form ----
+  'task.field.title': 'Title',
+  'task.field.titleRequired': 'Title is required.',
+  'task.field.notes': 'Notes',
+  'task.field.notesPlaceholder': 'Optional details',
+  'task.field.type': 'Type',
+  'task.modal.new': 'New',
+  'task.modal.editTitle': 'Edit task',
+  'task.modal.newTitle': 'New task',
+  'task.save.failed': 'Could not save the task',
+  'task.inputs.notYetActive': 'not yet active',
+
+  // ---- a proposed remote change ----
+  'proposal.ariaLabel': 'Proposed remote changes',
+  'proposal.heading': 'Proposed change — nothing has been sent yet',
+  'proposal.exactly': 'Exactly what will be sent',
+  'proposal.confirm': 'Confirm and send',
+  'proposal.discard': 'Discard',
+
+  // ---- the focus column and its editor ----
+  'focus.empty': 'Select a task to open its AI band and working area.',
+  'focus.show': 'Show task focus',
+  'focus.hide': 'Hide focus column',
+  'focus.ai.show': 'Show AI band',
+  'focus.ai.hide': 'Hide AI band',
+  'focus.ai.showLabel': 'show AI',
+  'focus.ai.hideLabel': 'hide AI',
+  'editor.write': 'Write',
+  'editor.preview': 'Preview',
+  'editor.chat': 'Chat',
+  'editor.saved': 'saved {when}',
+  'task.notes.placeholder': 'Add details…',
+
+  // ---- the chat ----
+  'chat.title': 'Chat',
+  'chat.newConversation': 'New conversation',
+  'chat.debugIntro': 'Debug: talk to your configured model to verify the connection and model behavior.',
+  'chat.debugEmpty':
+    'No messages yet. Say hello, or ask the model to describe itself — anything that confirms the provider is reachable.',
+  'chat.emptyHint': 'Ask the agent anything',
+  'chat.replying': 'The model is replying…',
+  'chat.placeholder': 'Message the agent… (Enter to send)',
 
   // ---- task types ----
   // The suffix a custom type's name carries wherever types are listed.

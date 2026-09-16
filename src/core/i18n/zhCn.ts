@@ -28,6 +28,8 @@ export const zhCN: Catalog = {
   'common.set': '设定',
   'common.clear': '清除',
   'common.retry': '重试',
+  'common.choose': '选择…',
+  'common.send': '发送',
 
   // ---- dialogs ----
   'dialog.tag.confirm': '确认',
@@ -104,6 +106,61 @@ export const zhCN: Catalog = {
   'task.preprocess.suggestions': '建议',
   'task.suggestions.dismiss': '忽略这条建议',
   'task.suggestions.allDismissed': '所有建议都已忽略。',
+
+  // ---- the task column ----
+  'nav.search': '搜索（{count}）',
+  'nav.rolloverHint': '已完成的任务会在次日清空；未完成的任务继续留在 My Day',
+  'nav.progress.done': '项已完成',
+  'nav.progress.total': '项 · {pct}%',
+  'nav.newTask': '新建任务',
+  'nav.allTypes': '全部类型',
+  'nav.all': '全部',
+  'nav.filterBy': '按 {label} 筛选',
+  'nav.empty.search': '没有匹配的任务。',
+  'nav.empty.myDay': '今天还没有安排。把任务加入 My Day，开始专注。',
+  'nav.empty.todo': 'To Do 还是空的，添加一个任务开始吧。',
+
+  // ---- the task form ----
+  'task.field.title': '标题',
+  'task.field.titleRequired': '标题不能为空。',
+  'task.field.notes': '笔记',
+  'task.field.notesPlaceholder': '补充说明（可选）',
+  'task.field.type': '类型',
+  'task.modal.new': '新建',
+  'task.modal.editTitle': '编辑任务',
+  'task.modal.newTitle': '新建任务',
+  'task.save.failed': '无法保存任务',
+  'task.inputs.notYetActive': '尚未启用',
+
+  // ---- a proposed remote change ----
+  'proposal.ariaLabel': '待确认的远端变更',
+  'proposal.heading': '提议的变更 — 尚未发送任何内容',
+  'proposal.exactly': '将发送的确切内容',
+  'proposal.confirm': '确认并发送',
+  'proposal.discard': '放弃',
+
+  // ---- the focus column and its editor ----
+  'focus.empty': '选择一个任务，打开它的 AI 面板与工作区。',
+  'focus.show': '显示任务焦点',
+  'focus.hide': '隐藏焦点栏',
+  'focus.ai.show': '显示 AI 面板',
+  'focus.ai.hide': '隐藏 AI 面板',
+  'focus.ai.showLabel': '显示 AI',
+  'focus.ai.hideLabel': '隐藏 AI',
+  'editor.write': '编写',
+  'editor.preview': '预览',
+  'editor.chat': '对话',
+  'editor.saved': '已保存 {when}',
+  'task.notes.placeholder': '补充细节…',
+
+  // ---- the chat ----
+  'chat.title': '对话',
+  'chat.newConversation': '新对话',
+  'chat.debugIntro': '调试：与你配置的模型对话，确认连接与模型行为。',
+  'chat.debugEmpty': '还没有消息。打个招呼，或让模型做个自我介绍 — 任何能确认服务商可达的对话都可以。',
+  'chat.emptyHint': '问 Agent 任何问题',
+  'chat.replying': '模型正在回复…',
+  'chat.placeholder': '给 Agent 发消息…（回车发送）',
 
   // ---- task types ----
   'type.customSuffix': '（自定义）',

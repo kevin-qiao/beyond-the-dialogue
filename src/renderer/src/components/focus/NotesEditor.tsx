@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useT } from '../../lib/useT'
 import { EditorView, basicSetup } from 'codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import MarkdownIt from 'markdown-it'
@@ -28,6 +29,7 @@ export function NotesEditor({
   /** The Chat tab's body. Omitted leaves the tab bar as Write | Preview. */
   chat?: ReactNode
 }) {
+  const t = useT()
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -97,17 +99,17 @@ export function NotesEditor({
     <div className="notes-editor">
       <div className="editor-toolbar">
         <button className={`mini-btn ${tab === 'write' ? 'active' : ''}`} onClick={() => setTab('write')}>
-          Write
+          {t('editor.write')}
         </button>
         <button className={`mini-btn ${tab === 'preview' ? 'active' : ''}`} onClick={openPreview}>
-          Preview
+          {t('editor.preview')}
         </button>
         {chat && (
           <button className={`mini-btn ${tab === 'chat' ? 'active' : ''}`} onClick={() => setTab('chat')}>
-            Chat
+            {t('editor.chat')}
           </button>
         )}
-        {savedAt && <span className="muted">saved {savedAt}</span>}
+        {savedAt && <span className="muted">{t('editor.saved', { when: savedAt })}</span>}
       </div>
       {/* The editor host stays mounted (hidden via CSS) so the CodeMirror view
           survives Write→Preview→Chat→Write; the other tabs are siblings. */}

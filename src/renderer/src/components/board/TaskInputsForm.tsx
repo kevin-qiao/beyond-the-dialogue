@@ -1,4 +1,5 @@
 import type { Settings, TaskTypeDef, TypeInputField } from '../../../../shared/types'
+import { useT } from '../../lib/useT'
 
 // Generic per-type inputs form (design D1/D2): renders the fields declared by
 // a type's inputSchema and writes string values into `inputs`. The task form
@@ -28,6 +29,7 @@ export function TaskInputsForm({
   // sourceKind) once they carry a value.
   lockedKeys?: string[]
 }) {
+  const t = useT()
   const visible = def.inputSchema.filter((f) => !f.hidden)
   if (visible.length === 0) return null
 
@@ -44,7 +46,7 @@ export function TaskInputsForm({
             <span className="tif-label">
               {field.label}
               {field.required && <span className="tif-required"> *</span>}
-              {field.inert && <span className="tif-inert muted"> (not yet active)</span>}
+              {field.inert && <span className="tif-inert muted"> {t('task.inputs.notYetActive')}</span>}
             </span>
             {field.type === 'textarea' ? (
               <textarea
@@ -72,7 +74,7 @@ export function TaskInputsForm({
                   disabled={locked}
                   onClick={() => void window.api.chooseFile().then((p) => p && set(field.key, p))}
                 >
-                  Choose…
+                  {t('common.choose')}
                 </button>
               </span>
             ) : (

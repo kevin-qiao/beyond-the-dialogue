@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../../store'
+import { useT } from '../../lib/useT'
 
 // Reusable chat loop (design D4): the streaming conversation surface shared
 // by the debug ChatView drawer and the learning/jira working areas. When
@@ -10,11 +11,17 @@ import { useApp } from '../../store'
 // which panel is mounted: this panel reads and writes only its own task's
 // conversation, so switching tasks keeps each conversation intact and a reply
 // still streaming for one task never appears in another's.
-export function ChatPanel({ taskId, label = 'Ask the agent anything' }: { taskId?: string; label?: string }) {
+export function ChatPanel({ taskId, label }: { taskId?: string; label?: string }) {
   const { chatFor, sendChat } = useApp()
+  const t = useT()
   const { messages, streaming: chatStreaming, running: chatRunning, error: chatError } = chatFor(taskId)
   const [draft, setDraft] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
+
+  // A caller that passes an empty label means "show no hint"; one that passes
+  // nothing gets the default, translated. A default parameter could not do
+  // that — it cannot call a hook.
+  const hint = label === undefined ? t('chat.emptyHint') : label
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -34,7 +41,7 @@ export function ChatPanel({ taskId, label = 'Ask the agent anything' }: { taskId
   return (
     <div className="chat-panel">
       <div className="chat-messages">
-        {label && messages.length === 0 && !chatStreaming && <div className="empty-hint">{label}</div>}
+        {hint && messages.length === 0 && !chatStreaming && <div className="empty-hint">{hint}</div>}
         {messages.map((m, i) => (
           <div key={i} className={`chat-msg ${m.role}`}>
             {m.content}
@@ -60,12 +67,12 @@ export function ChatPanel({ taskId, label = 'Ask the agent anything' }: { taskId
           className="search-input"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder={chatRunning ? 'The model is replying…' : 'Message the agent… (Enter to send)'}
+          placeholder={chatRunning ? t('chat.replying') : t('chat.placeholder')}
           disabled={chatRunning}
           autoComplete="off"
         />
         <button className="primary-btn" type="submit" disabled={chatRunning || !draft.trim()}>
-          Send
+          {t('common.send')}
         </button>
       </form>
     </div>
