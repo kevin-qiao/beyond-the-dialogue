@@ -132,7 +132,7 @@ export function SettingsView() {
       <div className="view-head">
         <h2>{t('drawer.settings.title')}</h2>
         <button className="primary-btn" disabled={!dirty} onClick={() => void save()}>
-          {saved ? '✓ Saved' : 'Save'}
+          {saved ? `✓ ${t('common.saved')}` : t('common.save')}
         </button>
       </div>
 

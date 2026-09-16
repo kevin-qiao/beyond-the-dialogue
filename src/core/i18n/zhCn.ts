@@ -18,6 +18,7 @@ export const zhCN: Catalog = {
   'common.stepJoiner': ' — ',
   'common.ok': '确定',
   'common.save': '保存',
+  'common.saved': '已保存',
   'common.cancel': '取消',
   'common.close': '关闭',
   'common.confirm': '确认',

@@ -22,6 +22,7 @@ export const en = {
   'common.stepJoiner': ' — ',
   'common.ok': 'OK',
   'common.save': 'Save',
+  'common.saved': 'Saved',
   'common.cancel': 'Cancel',
   'common.close': 'Close',
   'common.confirm': 'Confirm',
