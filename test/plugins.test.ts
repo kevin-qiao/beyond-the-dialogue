@@ -30,7 +30,6 @@ function settings(partial: Partial<Settings>): Settings {
     provider: 'openai',
     model: '',
     apiKey: null,
-    wikiPath: '',
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,

@@ -12,7 +12,6 @@ import { wikiArtifactStoreFor } from '../adapters/artifacts/wikiStore'
 import { createAgentSessionAdapter } from '../adapters/agent/sessionAdapter'
 import { systemClock } from '../../core/ports/clock'
 import { nodePathPort } from '../adapters/paths'
-import { resolveWikiPath } from './wiki'
 
 // The background half of a `deposit-then-curate` finish.
 //
@@ -29,7 +28,6 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   if (!task) throw new Error('task not found')
 
   const settings = loadSettings(db)
-  const wikiRoot = resolveWikiPath(settings.wikiPath)
   const def = effectiveType(listTypes(db), task)
   if (!def) throw new Error('no type definition resolves for this task')
 
@@ -38,9 +36,16 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   if (!dest || dest.store !== 'wiki') {
     throw new LocalizedError([{ key: 'ingest.typeNotDestined', params: { type: def.label } }])
   }
+  // The wiki directory is declared on the type; there is no global location
+  // and no default, so a blank root is a refusal rather than a surprise
+  // scaffold in the working directory.
+  const wikiRoot = (dest.rootPath ?? '').trim()
+  if (!wikiRoot) {
+    throw new LocalizedError([{ key: 'wiki.notConfigured' }])
+  }
 
   const storage = createSqliteStorage(db)
-  const target = resolveArtifact(nodePathPort, dest, wikiRoot, task.title, task.id)
+  const target = resolveArtifact(nodePathPort, dest, task.title, task.id)
   const session = createAgentSessionAdapter(() => loadSettings(db))
   const preprocess = storage.getPreprocess(taskId)
 
@@ -53,7 +58,7 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   const override = typeof rawOverride === 'string' && rawOverride.trim() ? rawOverride.trim() : ''
   // Confined through the same check the destination uses; an override that
   // escapes is refused rather than quietly replaced by the default.
-  const confined = override ? confineOverride(nodePathPort, dest, wikiRoot, override) : null
+  const confined = override ? confineOverride(nodePathPort, dest, override) : null
   if (override && !confined) {
     throw new LocalizedError([{ key: 'ingest.notePathOutside', params: { path: override } }])
   }

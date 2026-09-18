@@ -22,7 +22,10 @@ export function legacyWorkflow(
   category: TaskCategory
 ): { finishBehaviour: FinishBehaviour; destination?: Destination } | null {
   if (category === 'learning') {
-    // Exactly today's Learning flow (FR-003).
+    // Exactly today's Learning flow (FR-003), minus its location: there is no
+    // global wiki directory and no built-in default, so this fallback declares
+    // WHERE-IN-the-wiki but not WHICH wiki. A learning type carrying a null
+    // root is refused at Finish until it names a directory.
     return {
       finishBehaviour: 'deposit-then-curate',
       destination: { store: 'wiki', rootPath: null, subdir: 'learning-notes' }

@@ -27,7 +27,6 @@ import { configureRuntimeFromSettings, isConfigured, listModelsForProvider, list
 import { ChatSession } from './ai/chat'
 import { getPreprocess, getNotes, listIngest, listSuggestions, listAllSuggestions, getTask, saveNotes, dismissSuggestion, getJob, updateTask } from './db'
 import { notePathFor } from './wiki/vault'
-import { resolveWikiPath } from './wiki/wiki'
 import { createTypeDef, deleteTypeDef, effectiveKind, effectiveTypeDef, getTypeDef, listTypeDefs, updateTypeDef } from './types'
 import { importSkillFolder } from './skills'
 import { IPC, type AppCommands, type AppEvents } from '../shared/ipc'
@@ -292,8 +291,8 @@ function defFor(db: DatabaseSync, type: Task['type'] | undefined, customTypeKey:
   return effectiveTypeDef(db, { type: type ?? 'plain', customTypeKey: customTypeKey ?? null })
 }
 
-// Adapters + services for a finish. Built per call so the store factory and the
-// wiki root always reflect the current settings.
+// Adapters + services for a finish. Built per call so the store factory and
+// the type-declared destinations always reflect the current state of the DB.
 function finishDeps(): FinishDeps {
   const d = db!.db
   const language = loadSettings(d).uiLanguage
@@ -301,7 +300,7 @@ function finishDeps(): FinishDeps {
     language,
     paths: nodePathPort,
     storage: createSqliteStorage(d),
-    storeFor: artifactStoreFor(resolveWikiPath(loadSettings(d).wikiPath)),
+    storeFor: artifactStoreFor(),
     session: createAgentSessionAdapter(() => loadSettings(d)),
     clock: systemClock,
     notifier: createNotifier({
@@ -317,7 +316,6 @@ function finishDeps(): FinishDeps {
           error: null
         })
     }),
-    wikiRoot: () => resolveWikiPath(loadSettings(d).wikiPath),
     taskTargetOverride: (task) =>
       typeof task.inputs.learningNotePath === 'string' ? task.inputs.learningNotePath : undefined,
     // deposit-then-curate hands the long-running curating agent to the queue,

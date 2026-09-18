@@ -1,7 +1,7 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { openDB, migrate, saveSettings, createTask, createList, saveNotes, loadSettings, type DB } from '../../src/main/db'
+import { openDB, migrate, saveSettings, createTask, createList, saveNotes, type DB } from '../../src/main/db'
 import { createTypeDef, updateTypeDef, getTypeDef } from '../../src/main/types'
 import { createSqliteStorage } from '../../src/main/adapters/sqlite/storageAdapter'
 import { folderArtifactStore, ensureDestination } from '../../src/main/adapters/artifacts/folderStore'
@@ -34,7 +34,6 @@ export function harness(): { conn: DB; dir: string; task: ReturnType<typeof crea
     provider: 'openai',
     model: 'gpt-4o',
     apiKey: 'sk-scripted',
-    wikiPath: path.join(dir, 'wiki'),
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,
@@ -87,7 +86,6 @@ export async function finishWith(conn: DB, destDir: string, taskId: string, _beh
     session: noSession,
     clock: systemClock,
     notifier: { toast: () => {}, progress: () => {} },
-    wikiRoot: () => loadSettings(conn.db).wikiPath,
     enqueueCurate: () => {},
     taskTargetOverride: (t) =>
       typeof t.inputs.learningNotePath === 'string' ? t.inputs.learningNotePath : undefined

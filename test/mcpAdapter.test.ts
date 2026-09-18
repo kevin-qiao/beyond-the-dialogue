@@ -111,7 +111,6 @@ test('an unconfigured run never constructs a session at all', async () => {
     provider: 'openai',
     model: '',
     apiKey: null,
-    wikiPath: '',
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,

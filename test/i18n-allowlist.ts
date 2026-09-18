@@ -60,7 +60,6 @@ export const ALLOWED_LITERALS: readonly string[] = [
   // the examples are the same in both languages.
   'sk-…',
   '/path/to/your/folder',
-  '~/Documents/WorkBoard-Wiki',
   'e.g. minutes/2026',
   '-y some-mcp-server',
   'e.g. gpt-4o, claude-sonnet-4-5',

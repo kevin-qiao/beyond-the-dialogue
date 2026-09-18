@@ -39,8 +39,6 @@ export interface FinishDeps {
   session: AgentSessionPort
   clock: ClockPort
   notifier: NotifierPort
-  /** The configured wiki location, for `store: wiki` destinations. */
-  wikiRoot: () => string
   /**
    * Hand a `deposit-then-curate` finish to the background: the deposit is the
    * part that must survive, and the curating agent is long-running work the
@@ -102,8 +100,15 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
 
   if (behaviour !== 'complete-only') {
     const declared = declaredDestination(def)
+    // A wiki-destined type carries its own directory (there is no global wiki
+    // location and no default); when it has none, refuse while the task is
+    // still actionable and point the user at the type, not at a phantom
+    // setting.
+    if (declared.store === 'wiki' && !(declared.rootPath ?? '').trim()) {
+      throw new FinishRefused([{ key: 'wiki.notConfigured' }])
+    }
     store = deps.storeFor(declared)
-    destination = resolveArtifact(deps.paths, declared, deps.wikiRoot(), task.title, task.id)
+    destination = resolveArtifact(deps.paths, declared, task.title, task.id)
     if (!destination.inside) {
       // Refuse rather than write to an unintended location (FR-006).
       throw new FinishRefused([
@@ -115,7 +120,7 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
     // stored path that no longer resolves — the wiki moved — must be surfaced
     // while the task is still actionable, never silently replaced.
     const override = deps.taskTargetOverride?.(task)
-    if (override && !confineOverride(deps.paths, declared, deps.wikiRoot(), override)) {
+    if (override && !confineOverride(deps.paths, declared, override)) {
       throw new FinishRefused([
         { key: 'finish.overrideOutside', params: { path: override, root: declared.rootPath ?? 'the wiki' } }
       ])

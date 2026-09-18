@@ -7,7 +7,6 @@ const SETTINGS_ON: Settings = {
   provider: 'deepseek',
   model: 'deepseek-v4-flash',
   apiKey: 'sk-test',
-  wikiPath: '',
   defaultListId: null,
   maxConcurrentJobs: 2,
   showWelcome: false

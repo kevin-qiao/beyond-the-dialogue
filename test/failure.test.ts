@@ -11,6 +11,7 @@ import { setSessionFactory, setSimplePromptOverride, type CreateJobSessionOption
 import { setUserDataRoot } from '../src/main/paths'
 import { ensureVault } from '../src/main/wiki/vault'
 import { serviceCreateList, serviceCreateTask } from '../src/main/tasks'
+import { getTypeDef, updateTypeDef } from '../src/main/types'
 
 function fresh() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-fail-'))
@@ -23,7 +24,12 @@ function fresh() {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 function configured(dir: string, conn: ReturnType<typeof openDB>) {
-  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', wikiPath: path.join(dir, 'wiki-space'), defaultListId: null, maxConcurrentJobs: 2, showWelcome: false, theme: 'light', skills: [], mcpServers: [] })
+  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', defaultListId: null, maxConcurrentJobs: 2, showWelcome: false, theme: 'light', skills: [], mcpServers: [] })
+  // The wiki location belongs to the learning TYPE now, not to settings.
+  updateTypeDef(conn.db, {
+    ...getTypeDef(conn.db, 'learning')!,
+    destination: { store: 'wiki', rootPath: path.join(dir, 'wiki-space'), subdir: 'learning-notes' }
+  })
 }
 
 before(() => {

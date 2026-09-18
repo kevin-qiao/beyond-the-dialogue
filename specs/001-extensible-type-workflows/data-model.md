@@ -55,7 +55,7 @@ confinement can be checked, rather than stored as a raw absolute path.
 | Field | Meaning |
 |---|---|
 | `store` | Which artifact store handles the write: `wiki` or `folder` |
-| `rootPath` | Absolute base directory. For `store: wiki` this is empty and the configured wiki location is used |
+| `rootPath` | Absolute base directory, declared by the type for BOTH stores — there is no global wiki location and no built-in default. For `store: wiki` a blank root is an incomplete config refused at Finish; for `store: folder` it is refused at save |
 | `subdir` | Relative directory beneath the root where artifacts land (for example `meeting-minutes`) |
 
 **Derived at write time**, not stored: the artifact's filename (a slug of the task title),
@@ -74,8 +74,9 @@ and the absolute resolved path.
   moved, rewritten, or deleted (FR-005).
 
 **Resolved roots per store**:
-- `wiki` → the configured wiki location (`Settings.wikiPath`, defaulting via
-  `defaultWikiPath()`, `src/main/paths.ts:52-54`)
+- `wiki` → `rootPath` as declared by the type; a blank root is refused at
+  Finish (`wiki.notConfigured`), never resolved against a global setting or a
+  built-in default (both were removed)
 - `folder` → `rootPath` as declared by the type
 
 ---

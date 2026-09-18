@@ -22,7 +22,9 @@ const typeDef = (over: Partial<TaskTypeDef> = {}): TaskTypeDef => ({
   inputSchema: [],
   isBuiltin: true,
   finishBehaviour: 'deposit-then-curate',
-  destination: { store: 'wiki', rootPath: null, subdir: 'learning-notes' },
+  // A wiki-destined type declares its own directory now; a valid fixture
+  // carries an absolute root like any other destination.
+  destination: { store: 'wiki', rootPath: '/home/u/knowledge/wiki', subdir: 'learning-notes' },
   grants: { skills: [], toolServers: [] },
   ...over
 })
@@ -79,9 +81,12 @@ test('the create/update identity rules carry the key they are about', () => {
 })
 
 test('destination refusals cover each rule once', () => {
-  const wiki: Destination = { store: 'wiki', rootPath: null, subdir: '' }
+  const wiki: Destination = { store: 'wiki', rootPath: '/home/u/knowledge', subdir: '' }
   assert.deepEqual(validateDestination(nodePathPort, wiki), [])
-  assert.deepEqual(keysOf(validateDestination(nodePathPort, { ...wiki, rootPath: '/x' })), ['destination.wikiTakesNoRoot'])
+  // A blank wiki root is an incomplete config (refused at Finish), a named
+  // but relative one is the save-time error.
+  assert.deepEqual(validateDestination(nodePathPort, { ...wiki, rootPath: null }), [])
+  assert.deepEqual(keysOf(validateDestination(nodePathPort, { ...wiki, rootPath: 'relative' })), ['destination.wikiNeedsRoot'])
   assert.deepEqual(keysOf(validateDestination(nodePathPort, { store: 'folder', rootPath: '', subdir: '' })), [
     'destination.folderNeedsAbsoluteRoot'
   ])

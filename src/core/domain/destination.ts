@@ -26,13 +26,15 @@ export interface ArtifactTarget extends ResolvedDestination {
 }
 
 /**
- * The absolute root a destination resolves against.
- * `wiki` uses the app's configured wiki location; `folder` uses its own
- * declared absolute path.
+ * The absolute root a destination resolves against. Both stores declare their
+ * own location: `store` says what happens when an artifact is written (the
+ * wiki scaffolds itself and gets curated; a folder is left alone), not where
+ * the path comes from. There is no global wiki location and no default — a
+ * blank root is refused by the caller that has to write, never resolved
+ * against the working directory or some built-in path.
  */
-export function resolveRoot(paths: PathPort, dest: Destination, wikiRoot: string): string {
-  if (dest.store === 'wiki') return paths.normalize(wikiRoot)
-  return paths.normalize(dest.rootPath ?? '')
+export function resolveRoot(paths: PathPort, dest: Destination): string {
+  return paths.normalize((dest.rootPath ?? '').trim())
 }
 
 /**
@@ -45,9 +47,9 @@ export function isInsideRoot(paths: PathPort, root: string, abs: string): boolea
   return !!rel && !rel.startsWith('..') && !paths.isAbsolute(rel)
 }
 
-export function resolveDestination(paths: PathPort, dest: Destination, wikiRoot: string): ResolvedDestination {
-  const root = resolveRoot(paths, dest, wikiRoot)
-  const subdir = dest.store === 'wiki' ? (dest.subdir ?? '') : (dest.subdir ?? '')
+export function resolveDestination(paths: PathPort, dest: Destination): ResolvedDestination {
+  const root = resolveRoot(paths, dest)
+  const subdir = dest.subdir ?? ''
   const absRoot = subdir ? paths.normalize(paths.join(root, subdir)) : root
   return { store: dest.store, root, subdir, absRoot }
 }
@@ -60,11 +62,10 @@ export function resolveDestination(paths: PathPort, dest: Destination, wikiRoot:
 export function resolveArtifact(
   paths: PathPort,
   dest: Destination,
-  wikiRoot: string,
   title: string,
   taskId: string
 ): ArtifactTarget {
-  const resolved = resolveDestination(paths, dest, wikiRoot)
+  const resolved = resolveDestination(paths, dest)
   const abs = paths.normalize(paths.join(resolved.absRoot, `${slugify(title, taskId)}.md`))
   const inside = isInsideRoot(paths, resolved.absRoot, abs)
   const rawRel = inside ? paths.relative(resolved.absRoot, abs) : ''
@@ -102,10 +103,9 @@ export function isAbsolutePath(paths: PathPort, p: unknown): boolean {
 export function confineOverride(
   paths: PathPort,
   dest: Destination,
-  wikiRoot: string,
   override: string
 ): { rootRel: string } | null {
-  const resolved = resolveDestination(paths, dest, wikiRoot)
+  const resolved = resolveDestination(paths, dest)
   const trimmed = override.trim()
   if (!trimmed) return null
   const abs = paths.isAbsolute(trimmed) ? paths.normalize(trimmed) : paths.normalize(paths.join(resolved.root, trimmed))
@@ -129,12 +129,20 @@ export function validateDestination(paths: PathPort, dest: Destination | undefin
     errors.push({ key: 'destination.storeUnknown', params: { stores: DESTINATION_STORES.join(', ') } })
     return errors
   }
-  if (dest.store === 'folder') {
-    if (!isAbsolutePath(paths, dest.rootPath)) {
-      errors.push({ key: 'destination.folderNeedsAbsoluteRoot' })
+  // Both stores declare their own location — there is no global wiki path to
+  // inherit and no built-in default. The stores differ in WHEN the absence of
+  // a root is wrong: a folder destination means nothing without one, so it is
+  // a save-time error; a wiki destination may legitimately be saved before it
+  // has been pointed (the seeded Learning type starts that way), so a blank
+  // root is an INCOMPLETE config refused at Finish, while a named-but-relative
+  // root is the save-time error.
+  if (dest.store === 'wiki') {
+    const root = (dest.rootPath ?? '').trim()
+    if (root && !isAbsolutePath(paths, root)) {
+      errors.push({ key: 'destination.wikiNeedsRoot' })
     }
-  } else if (dest.rootPath !== null && dest.rootPath !== undefined) {
-    errors.push({ key: 'destination.wikiTakesNoRoot' })
+  } else if (!isAbsolutePath(paths, dest.rootPath)) {
+    errors.push({ key: 'destination.folderNeedsAbsoluteRoot' })
   }
   const subdir = dest.subdir ?? ''
   if (typeof subdir !== 'string') {
@@ -151,10 +159,12 @@ export function validateDestination(paths: PathPort, dest: Destination | undefin
  * A short human description of a destination, for toasts and error messages.
  * Storage locations are shown as a path the user can recognise.
  */
-export function describeDestination(dest: Destination | undefined | null, wikiRoot?: string): string {
+export function describeDestination(dest: Destination | undefined | null): string {
   if (!dest) return '(none)'
-  if (dest.store === 'wiki') return `the wiki${dest.subdir ? ` (${dest.subdir}/)` : ''}`
   const base = dest.rootPath ?? '(unset)'
+  if (dest.store === 'wiki') {
+    return `the wiki at ${base}${dest.subdir ? ` (${dest.subdir}/)` : ''}`
+  }
   return dest.subdir ? `${base}/${dest.subdir}` : base
 }
 

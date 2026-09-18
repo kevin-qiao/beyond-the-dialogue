@@ -101,7 +101,6 @@ async function finishMeeting(conn: DB, minutesDir: string, taskId: string) {
     session: createAgentSessionAdapter(() => loadSettings(conn.db)),
     clock: systemClock,
     notifier: { toast: () => {}, progress: () => {} },
-    wikiRoot: () => loadSettings(conn.db).wikiPath,
     enqueueCurate: () => {}
   }
   return finishTask(deps, taskId)
@@ -131,11 +130,17 @@ test('8.1 flagship scenario: learning task -> My Day -> preprocess -> note -> Fi
     provider: 'openai',
     model: 'gpt-4o',
     apiKey: 'sk-scripted',
-    wikiPath,
     defaultListId: null,
     maxConcurrentJobs: 2, showWelcome: false, theme: 'light', skills: [], mcpServers: []
   })
   ensureVault()
+
+  // The learning type declares where its wiki lives — there is no global
+  // wiki directory setting anymore, so the flagship runs the configured flow.
+  updateTypeDef(conn.db, {
+    ...getTypeDef(conn.db, 'learning')!,
+    destination: { store: 'wiki', rootPath: wikiPath, subdir: 'learning-notes' }
+  })
 
   // 1. Create a learning task with its target input.
   const list = serviceCreateList(conn.db, 'Research')
@@ -223,7 +228,6 @@ test('8.1b re-running after input change refreshes outputs (hash gate)', { timeo
     provider: 'openai',
     model: 'gpt-4o',
     apiKey: 'sk-scripted',
-    wikiPath: path.join(dir, 'wiki-space'),
     defaultListId: null,
     maxConcurrentJobs: 2, showWelcome: false, theme: 'light', skills: [], mcpServers: []
   })
@@ -280,7 +284,6 @@ test('8.1c meeting journey: agenda -> minutes -> polished file in a configured f
     provider: 'openai',
     model: 'gpt-4o',
     apiKey: 'sk-scripted',
-    wikiPath: path.join(dir, 'wiki-space'),
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,
@@ -376,7 +379,6 @@ test('8.1d a polished finish never files a fact the user did not record (FR-009,
     provider: 'openai',
     model: 'gpt-4o',
     apiKey: 'sk-scripted',
-    wikiPath: path.join(dir, 'wiki-space'),
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,

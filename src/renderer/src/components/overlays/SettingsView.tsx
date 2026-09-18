@@ -28,10 +28,12 @@ const FINISH_BEHAVIOUR_LABELS: Record<FinishBehaviour, MessageKey> = {
 type Tab = 'general' | 'types' | 'plugins' | 'ai'
 
 // Settings drawer (spec task-types / skills-mcp-settings): capsule tabs —
-// General (appearance + wiki), Types (the workflow-type registry: built-in
-// presentation editing + custom type CRUD), AI (provider/model/key). Types
-// persist immediately through the types IPC; General/AI share a draft saved
-// with the Save button.
+// General (appearance), Types (the workflow-type registry: built-in
+// presentation and destination editing + custom type CRUD), AI
+// (provider/model/key). Types persist immediately through the types IPC;
+// General/AI share a draft saved with the Save button. The wiki directory is
+// NOT a setting here — a `store: wiki` type declares its own destination on
+// the Types tab, and with none configured a Finish is refused.
 export function SettingsView() {
   const { snapshot, types, saveSettings, saveType, deleteType } = useApp()
   const t = useT()
@@ -206,14 +208,6 @@ export function SettingsView() {
                   </option>
                 ))}
               </select>
-            </label>
-          </section>
-
-          <section className="settings-section">
-            <h4>{t('settings.wiki.title')}</h4>
-            <label>
-              {t('settings.wiki.dir')} <span className="muted">{t('settings.wiki.hint')}</span>
-              <input value={draft.wikiPath} onChange={(e) => update({ wikiPath: e.target.value })} placeholder="~/Documents/WorkBoard-Wiki" />
             </label>
           </section>
 
@@ -649,17 +643,21 @@ function TypeEditorModal({
     const inputSchema = existing?.isBuiltin ? existing.inputSchema : supported.filter((f) => fieldKeys.has(f.key))
 
     // A built-in's behaviour is fixed; its destination is a setting the user
-    // owns (FR-004) and stays editable.
+    // owns (FR-004) and stays editable. BOTH stores declare their own root
+    // now — there is no global wiki location to inherit. A folder without a
+    // root means nothing, so it is caught here; a wiki may be saved before it
+    // is pointed (the seeded Learning type starts that way) — Finish refuses
+    // until it names a directory.
     const behaviour = existing?.isBuiltin ? existing.finishBehaviour : finishBehaviour
     const writes = behaviour !== 'complete-only'
     if (writes && destStore === 'folder' && !destRoot.trim()) {
       return setError(t('typeEditor.needsFolder'))
     }
-    if (writes && destStore === 'folder' && destSubdir.trim().split(/[\\/]/).includes('..')) {
+    if (writes && destSubdir.trim().split(/[\\/]/).includes('..')) {
       return setError(t('typeEditor.subfolderRelative'))
     }
     const destination: Destination | undefined = writes
-      ? { store: destStore, rootPath: destStore === 'folder' ? destRoot.trim() : null, subdir: destSubdir.trim() }
+      ? { store: destStore, rootPath: destRoot.trim() || null, subdir: destSubdir.trim() }
       : undefined
 
     void onSave({
@@ -783,30 +781,36 @@ function TypeEditorModal({
                 <option value="folder">{t('typeEditor.dest.folder')}</option>
                 <option value="wiki">{t('typeEditor.dest.wiki')}</option>
               </select>
+              {/* Both stores own their root — the wiki's directory is declared
+                  here, on the type, not in a global setting. The picker, the
+                  input and the subfolder behave identically; only what the
+                  store DOES on first write differs. */}
+              <div className="row" style={{ gap: 8 }}>
+                <input
+                  style={{ flex: 1 }}
+                  value={destRoot}
+                  onChange={(e) => setDestRoot(e.target.value)}
+                  placeholder="/path/to/your/folder"
+                  spellCheck={false}
+                />
+                <button type="button" className="secondary-btn" onClick={() => void chooseDestFolder()}>
+                  {t('common.choose')}
+                </button>
+              </div>
+              <label>
+                {t('typeEditor.subfolder')} <span className="muted">{t('typeEditor.subfolderHint')}</span>
+                <input value={destSubdir} onChange={(e) => setDestSubdir(e.target.value)} placeholder="e.g. minutes/2026" spellCheck={false} />
+              </label>
               {destStore === 'folder' ? (
-                <>
-                  <div className="row" style={{ gap: 8 }}>
-                    <input
-                      style={{ flex: 1 }}
-                      value={destRoot}
-                      onChange={(e) => setDestRoot(e.target.value)}
-                      placeholder="/path/to/your/folder"
-                      spellCheck={false}
-                    />
-                    <button type="button" className="secondary-btn" onClick={() => void chooseDestFolder()}>
-                      {t('common.choose')}
-                    </button>
-                  </div>
-                  <label>
-                    {t('typeEditor.subfolder')} <span className="muted">{t('typeEditor.subfolderHint')}</span>
-                    <input value={destSubdir} onChange={(e) => setDestSubdir(e.target.value)} placeholder="e.g. minutes/2026" spellCheck={false} />
-                  </label>
-                  <span className="muted">{t('typeEditor.folderHint')}</span>
-                </>
+                <span className="muted">{t('typeEditor.folderHint')}</span>
               ) : (
                 <span className="muted">
                   {t('typeEditor.wikiResolved', {
-                    dest: describeDestination({ store: 'wiki', rootPath: null, subdir: destSubdir })
+                    dest: describeDestination({
+                      store: 'wiki',
+                      rootPath: destRoot.trim() || null,
+                      subdir: destSubdir.trim()
+                    })
                   })}
                 </span>
               )}

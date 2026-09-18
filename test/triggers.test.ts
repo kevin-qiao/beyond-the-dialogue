@@ -8,7 +8,6 @@ const SETTINGS_ON: Settings = {
   provider: 'openai',
   model: 'gpt-4o',
   apiKey: 'sk-test',
-  wikiPath: '',
   defaultListId: null,
   maxConcurrentJobs: 2,
   showWelcome: false,

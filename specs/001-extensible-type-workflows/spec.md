@@ -226,7 +226,7 @@ This specification describes the delta from an existing MVP. The following are a
 
 **Behavioural assumptions**
 
-- The default meeting-minutes destination is a folder under the user's documents, mirroring how the wiki location already defaults, and is user-configurable.
+- The default meeting-minutes destination is a folder under the user's documents, and is user-configurable. (The wiki location has no such default: it is declared per type and refused at Finish when unset.)
 - Polishing uses the user's configured AI provider. With no provider configured, minutes are saved in their written form, unpolished.
 - The set of finish behaviours is fixed at the four named in FR-014; users select among them rather than defining new ones. Composing custom step sequences, and finish behaviours that act on an external system, are out of scope for this version.
 - Reading current external information and performing remote changes both require a tool server granted to the type; absent a grant, the assistant continues to work only from content the user pasted in, exactly as today.

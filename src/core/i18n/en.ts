@@ -224,7 +224,7 @@ export const en = {
 
   'destination.storeUnknown': 'destination store must be one of: {stores}',
   'destination.folderNeedsAbsoluteRoot': 'a folder destination requires an absolute rootPath',
-  'destination.wikiTakesNoRoot': 'a wiki destination must not declare a rootPath (the configured wiki location is used)',
+  'destination.wikiNeedsRoot': 'a wiki destination requires an absolute rootPath — there is no global wiki location to inherit',
   'destination.subdirNotString': 'destination subdir must be a string',
   'destination.subdirAbsolute': 'destination subdir must be relative, not absolute',
   'destination.subdirTraversal': 'destination subdir must not contain a ".." segment',
@@ -246,6 +246,7 @@ export const en = {
   'artifact.folderNotWritable': 'destination folder is not writable: {path}',
   'artifact.wikiUnusable': 'wiki destination is not usable: {error}',
   'artifact.wikiNotWritable': 'wiki destination is not writable: {path}',
+  'wiki.notConfigured': 'no wiki directory is configured for this type — edit the type in Settings (Types) and set its destination',
   'ingest.typeNotDestined': 'type "{type}" is not destined for the wiki',
   'ingest.notePathOutside': 'learning-note path "{path}" is outside the current wiki — re-point it in the task inputs',
   'preprocess.noPreprocess': 'this task type has no pre-process',
@@ -359,7 +360,7 @@ export const en = {
     'Add a task to My Day and the agent pre-processes it: a working prompt, a summary, and activity suggestions.',
   'welcome.step3.title': '3 · Finish → it files itself into your wiki',
   'welcome.step3.body':
-    'Finished learning notes land in your wiki (Obsidian-ready); index and log updated, nothing to configure.',
+    'Finished learning notes land in your wiki (Obsidian-ready); index and log updated. Point the learning type at a wiki folder in Settings first.',
   'welcome.connect': 'Connect an AI provider to get started',
   'welcome.saveAndStart': 'Save & start',
   'welcome.trySample': 'Try a sample learning task →',
@@ -425,9 +426,6 @@ export const en = {
   'settings.theme.dark': 'Dark',
   'settings.appearance.language': 'Language',
   'settings.appearance.language.hint': '(applies immediately, saved on Save)',
-  'settings.wiki.title': 'Learning space (wiki)',
-  'settings.wiki.dir': 'Wiki directory',
-  'settings.wiki.hint': '(created automatically on first use)',
   'settings.ai.title': 'AI provider',
   'settings.ai.provider': 'Provider',
   'settings.ai.model': 'Model',
@@ -516,7 +514,7 @@ export const en = {
   'typeEditor.subfolderHint': '(optional, relative)',
   'typeEditor.folderHint':
     'Plain markdown files land here. Nothing else is written, and an existing file is never overwritten.',
-  'typeEditor.wikiResolved': 'Resolved as {dest} — set the wiki directory on the General tab.',
+  'typeEditor.wikiResolved': 'Resolved as {dest} — the wiki structure is created there on first use; your existing files are never overwritten.',
   'typeEditor.capabilities': 'Assistant capabilities',
   'typeEditor.capabilitiesHint':
     'Skills and tool servers let the assistant do more on a task of this type. Granting external reach means the assistant can act on that system — and that sessions for this type will no longer see your notes and minutes.',

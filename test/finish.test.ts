@@ -95,7 +95,7 @@ function makeCtx(opts: {
   return {
     task,
     typeDef,
-    destination: resolveArtifact(nodePathPort, dest, opts.root, task.title, task.id),
+    destination: resolveArtifact(nodePathPort, dest, task.title, task.id),
     workingContent: opts.content ?? MINUTES,
     declaredInputs: {},
     store: folderArtifactStore,

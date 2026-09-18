@@ -23,8 +23,10 @@ export type TaskKind = TaskCategory
 // and resolved at write time, so confinement is checkable by construction.
 export interface Destination {
   store: DestinationStore
-  // Absolute; required for 'folder', MUST be null for 'wiki' (the configured
-  // wiki location is used instead).
+  // Absolute; required for BOTH stores — the location is declared per type,
+  // never inherited from a global setting or a built-in default. A wiki-
+  // destined type with no rootPath is refused at Finish, never silently
+  // pointed somewhere.
   rootPath: string | null
   // Relative directory under the root; '' means the root itself.
   subdir: string
@@ -181,7 +183,6 @@ export interface Settings {
   provider: string
   model: string
   apiKey: string | null
-  wikiPath: string
   defaultListId: string | null
   maxConcurrentJobs: number
   showWelcome: boolean
@@ -210,7 +211,6 @@ export const SETTINGS_KEYS = [
   'provider',
   'model',
   'apiKey',
-  'wikiPath',
   'defaultListId',
   'maxConcurrentJobs',
   'showWelcome',

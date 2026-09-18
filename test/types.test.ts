@@ -216,10 +216,12 @@ test('the save path validates the destination (contracts/destination.md §5)', (
     () => createTypeDef(db.db, { ...base, destination: { store: 'folder', rootPath: 'relative', subdir: '' } }),
     /absolute rootPath/
   )
-  // A wiki destination must not carry its own root.
+  // A wiki destination declares its own root now, exactly like a folder one:
+  // a named-but-relative root is refused, a blank root is INCOMPLETE (refused
+  // at Finish, where it matters) so the seeded Learning type stays saveable.
   assert.throws(
-    () => createTypeDef(db.db, { ...base, destination: { store: 'wiki', rootPath: '/x', subdir: '' } }),
-    /must not declare a rootPath/
+    () => createTypeDef(db.db, { ...base, destination: { store: 'wiki', rootPath: 'relative', subdir: '' } }),
+    /absolute rootPath/
   )
   // subdir must be relative with no traversal.
   assert.throws(

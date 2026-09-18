@@ -27,7 +27,6 @@ function harness(configured = true): { conn: DB; storage: StoragePort; settings:
     provider: 'openai',
     model: configured ? 'gpt-4o' : '',
     apiKey: configured ? 'sk-scripted' : null,
-    wikiPath: path.join(dir, 'wiki'),
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,

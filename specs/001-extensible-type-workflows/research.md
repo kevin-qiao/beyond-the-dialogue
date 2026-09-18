@@ -125,6 +125,12 @@ worse outcome than failing.
 - *Reuse `Settings.wikiPath` with a subfolder per type*: rejected. It forces every type into
   one root, which cannot express a plain meeting-minutes folder outside the wiki.
 
+> *Addendum (2026-09)*: the second alternative's premise — a global wiki location — was later
+> removed outright. The wiki directory is now a per-type `rootPath` (the first alternative, as
+> shipped for folders since this feature itself), and the confinement concern is answered by the
+> single `relative()`/`..` containment check applied at every write. A wiki-destined type with no
+> root is refused at Finish (`wiki.notConfigured`).
+
 ---
 
 ## R5. Widening the set of behaviour categories

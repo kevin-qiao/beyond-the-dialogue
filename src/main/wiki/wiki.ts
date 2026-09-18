@@ -1,10 +1,11 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { getTask, getPreprocess, getNotes, loadSettings } from '../db'
-import { defaultWikiPath } from '../paths'
+import { getTask, getPreprocess, getNotes, listTypes } from '../db'
 import { depositInto } from '../adapters/artifacts/deposit'
 import { slugify } from '../../core/domain/slug'
+import { declaredWorkflow, effectiveType } from '../../core/domain/taskType'
+import { LocalizedError } from '../../core/i18n/issues'
 import type { TaskPreprocess } from '../../shared/types'
 
 // LLM-WiKi integration: scaffolding, deposit-first safety net, .history
@@ -29,11 +30,6 @@ function wikiGuideMarkdown(): string | null {
     }
   }
   return null
-}
-
-export function resolveWikiPath(configured: string): string {
-  if (configured && configured.trim()) return configured.trim()
-  return defaultWikiPath()
 }
 
 // Wiki scaffolding, create-only. It creates `learning-notes/` because that
@@ -139,7 +135,15 @@ export interface DepositResult {
 export function depositTask(db: DatabaseSync, taskId: string): DepositResult {
   const task = getTask(db, taskId)
   if (!task) throw new Error('task not found')
-  const wikiPath = resolveWikiPath(loadSettings(db).wikiPath)
+  // The wiki directory belongs to the TYPE that writes to it — there is no
+  // global setting and no default to fall back to. A wiki-destined task whose
+  // type carries no root is refused, not quietly pointed at a built-in path.
+  const def = effectiveType(listTypes(db), task)
+  const dest = def ? declaredWorkflow(def).destination : undefined
+  const wikiPath = dest && dest.store === 'wiki' ? (dest.rootPath ?? '').trim() : ''
+  if (!wikiPath) {
+    throw new LocalizedError([{ key: 'wiki.notConfigured' }])
+  }
   // Create-only scaffolding first: the deposit and the curating agent both
   // need the wiki's structure (schema file, index, log) to exist.
   ensureWikiDir(wikiPath)

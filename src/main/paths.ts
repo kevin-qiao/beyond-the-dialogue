@@ -61,13 +61,11 @@ export function skillsDir(): string {
   return path.join(userDataDir(), 'skills')
 }
 
-export function defaultWikiPath(): string {
-  return path.join(os.homedir(), 'Documents', 'WorkBoard-Wiki')
-}
-
 // The default destination for the Meeting type's minutes: a plain folder under
-// the user's documents, mirroring how the wiki location already defaults. The
-// user can re-point it per type in Settings; this is only the initial value.
+// the user's documents. The user can re-point it per type in Settings; this is
+// only the initial value. Note the wiki has NO such default — a `store: wiki`
+// destination carries its own rootPath, declared per type, and a type without
+// one is refused rather than pointed at a built-in path.
 export function defaultMeetingMinutesPath(): string {
   return path.join(os.homedir(), 'Documents', 'WorkBoard-Meeting-Minutes')
 }

@@ -906,6 +906,40 @@ export function migrate(db: DatabaseSync): void {
     mark(7)
   }
 
+  // v7 → v8: the wiki location moves from a global setting into the types
+  // destined for it.
+  //
+  // The `wikiPath` setting and the built-in `~/Documents/WorkBoard-Wiki`
+  // default are retired: a `store: 'wiki'` destination now carries its own
+  // absolute rootPath, exactly like a folder destination, and a type without
+  // one is refused at Finish rather than silently pointed somewhere.
+  //
+  // A database whose owner HAD configured a wiki location is not stranded:
+  // the stored value is copied into every wiki-rooted destination before the
+  // row is dropped. A database that had never set one — it had been riding on
+  // the default — is deliberately left unconfigured: materializing the old
+  // default here would re-create, in the user's data, the hidden fallback
+  // this migration exists to remove.
+  if (!ran(8)) {
+    const wikiRow = db.prepare("SELECT value FROM settings WHERE key = 'wikiPath'").get() as { value: string } | undefined
+    const configured = (wikiRow?.value ?? '').trim()
+    if (configured) {
+      const rows = db.prepare('SELECT key, destination_json FROM task_types WHERE destination_json IS NOT NULL').all() as {
+        key: string
+        destination_json: string
+      }[]
+      const update = db.prepare('UPDATE task_types SET destination_json = ? WHERE key = ?')
+      for (const r of rows) {
+        const dest = parseDestination(r.destination_json)
+        if (dest && dest.store === 'wiki' && !(dest.rootPath ?? '').trim()) {
+          update.run(JSON.stringify({ ...dest, rootPath: configured }), r.key)
+        }
+      }
+    }
+    db.prepare("DELETE FROM settings WHERE key = 'wikiPath'").run()
+    mark(8)
+  }
+
   // Seed a default list on first open.
   const row = db.prepare('SELECT COUNT(*) AS n FROM lists').get() as { n: number }
   if (row.n === 0) {
@@ -946,7 +980,6 @@ const DEFAULT_SETTINGS: Settings = {
   provider: 'openai',
   model: '',
   apiKey: null,
-  wikiPath: '',
   defaultListId: null,
   maxConcurrentJobs: 2,
   showWelcome: true,
@@ -994,7 +1027,6 @@ export function loadSettings(db: DatabaseSync): Settings {
     if (r.key === 'provider') out.provider = r.value
     else if (r.key === 'model') out.model = r.value
     else if (r.key === 'apiKey') out.apiKey = r.value || null
-    else if (r.key === 'wikiPath') out.wikiPath = r.value
     else if (r.key === 'defaultListId') out.defaultListId = r.value || null
     else if (r.key === 'maxConcurrentJobs') out.maxConcurrentJobs = parseInt(r.value, 10) || 2
     else if (r.key === 'showWelcome') out.showWelcome = r.value !== '0'
@@ -1013,7 +1045,6 @@ export function saveSettings(db: DatabaseSync, s: Settings): void {
   upsert.run('provider', s.provider)
   upsert.run('model', s.model)
   upsert.run('apiKey', s.apiKey ?? '')
-  upsert.run('wikiPath', s.wikiPath)
   upsert.run('defaultListId', s.defaultListId ?? '')
   upsert.run('maxConcurrentJobs', String(s.maxConcurrentJobs))
   upsert.run('showWelcome', s.showWelcome ? '1' : '0')

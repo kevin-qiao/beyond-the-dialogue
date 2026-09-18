@@ -35,6 +35,12 @@ export class WikiArtifactStore implements ArtifactStorePort {
   }
 
   async prepare(target: DestinationRef): Promise<void> {
+    // Belt and braces: the finish service refuses a wiki-destined type with no
+    // directory before this runs, and an empty root must never reach
+    // `ensureWikiDir` — it would scaffold a wiki in the working directory.
+    if (!this.wikiRoot) {
+      throw new LocalizedError([{ key: 'wiki.notConfigured' }])
+    }
     try {
       // Create-only: an existing wiki is reused, never restructured.
       ensureWikiDir(this.wikiRoot)
