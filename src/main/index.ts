@@ -29,6 +29,7 @@ import { getPreprocess, getNotes, listIngest, listSuggestions, listAllSuggestion
 import { notePathFor } from './wiki/vault'
 import { createTypeDef, deleteTypeDef, effectiveKind, effectiveTypeDef, getTypeDef, listTypeDefs, updateTypeDef } from './types'
 import { importSkillFolder } from './skills'
+import { importSkillFromGitHub } from './skills-github'
 import { IPC, type AppCommands, type AppEvents } from '../shared/ipc'
 import type { AppSnapshot, Settings, Task, TaskTypeDef } from '../shared/types'
 import type { RemoteProposalView } from '../shared/ipc'
@@ -494,6 +495,10 @@ function registerIpc(): void {
     if (res.canceled || res.filePaths.length === 0) return null
     return importSkillFolder(res.filePaths[0]!)
   })
+  // handleCommand, not a bare ipcMain.handle: this path refuses in codes
+  // (bad URL, 404, unsafe archive, missing SKILL.md) and the codes must be
+  // phrased in the user's language before they cross the IPC boundary.
+  handleCommand(IPC.importSkillGitHub, (args) => importSkillFromGitHub(args.url))
   ipcMain.handle(IPC.listTypes, () => listTypeDefs(d()))
   handleCommand(IPC.saveType, (args) => {
     const existing = args.type?.key ? getTypeDef(d(), args.type.key) : null

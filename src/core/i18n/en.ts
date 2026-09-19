@@ -241,6 +241,14 @@ export const en = {
   'plugin.mcp.argsNotList': 'MCP server "{name}": args must be a list',
   'plugin.mcp.envNotMap': 'MCP server "{name}": env must be a name→value map',
 
+  'skill.github.urlInvalid':
+    'not a GitHub repository URL: "{url}" — expected github.com/<owner>/<repo>, optionally followed by /tree/<ref>/<subdir>',
+  'skill.github.notFound': 'GitHub repository not found: {repo}',
+  'skill.github.fetchFailed': 'could not download {repo}: {error}',
+  'skill.github.tooLarge': 'the repository archive is too large (limit: {limit})',
+  'skill.github.badArchive': 'the downloaded archive was refused — it is malformed or contains an unsafe path',
+  'skill.github.noSkillMd': 'no SKILL.md found in {where} — point the URL at the folder that contains it',
+
   'artifact.destinationUnset': 'destination is not configured',
   'artifact.folderMissing': 'destination folder does not exist: {path} — create it or choose another in Settings',
   'artifact.folderNotWritable': 'destination folder is not writable: {path}',
@@ -463,6 +471,9 @@ export const en = {
   'settings.skills.importing': 'Importing…',
   'settings.skills.importFailed': 'Could not import the skill folder',
   'settings.skills.exists': 'Skill “{name}” already exists — names must be unique',
+  'settings.skills.githubImport': 'Import from GitHub',
+  'settings.skills.githubPlaceholder': 'https://github.com/owner/repo — optionally /tree/ref/subdir',
+  'settings.skills.githubImportFailed': 'Could not import from GitHub',
   'settings.mcp.title': 'MCP servers',
   'settings.mcp.hint': 'not yet active — configuration only',
   'settings.mcp.empty': 'No MCP servers yet',

@@ -20,6 +20,7 @@ export const IPC = {
   finishTask: 'tasks:finish',
   chooseFile: 'dialog:choose-file',
   importSkill: 'skills:import',
+  importSkillGitHub: 'skills:import-github',
   saveNote: 'notes:save',
   listTypes: 'types:list',
   saveType: 'types:save',
@@ -213,6 +214,9 @@ export interface RendererApi {
   chooseFile: () => Promise<string | null>
   chooseFolder: () => Promise<string | null>
   importSkill: () => Promise<SkillEntry | null>
+  // Unlike the folder import this never returns null: a URL that does not
+  // resolve to an importable skill arrives as a localized refusal.
+  importSkillFromGitHub: (url: string) => Promise<SkillEntry>
   saveNote: (args: SaveNoteArgs) => Promise<TaskNote>
   listTypes: () => Promise<TaskTypeDef[]>
   saveType: (args: SaveTypeArgs) => Promise<TaskTypeDef>
@@ -291,6 +295,7 @@ export interface AppCommands {
   [IPC.chooseFile]: { args: void; result: string | null }
   [IPC.chooseFolder]: { args: void; result: string | null }
   [IPC.importSkill]: { args: void; result: SkillEntry | null }
+  [IPC.importSkillGitHub]: { args: { url: string }; result: SkillEntry }
   [IPC.saveNote]: { args: SaveNoteArgs; result: TaskNote }
   [IPC.listTypes]: { args: void; result: TaskTypeDef[] }
   [IPC.saveType]: { args: SaveTypeArgs; result: TaskTypeDef }

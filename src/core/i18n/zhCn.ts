@@ -226,6 +226,14 @@ export const zhCN: Catalog = {
   'plugin.mcp.argsNotList': 'MCP 服务器“{name}”：args 必须是列表',
   'plugin.mcp.envNotMap': 'MCP 服务器“{name}”：env 必须是名称→值的映射',
 
+  'skill.github.urlInvalid':
+    '不是有效的 GitHub 仓库地址：“{url}” —— 应形如 github.com/<owner>/<repo>，可附加 /tree/<ref>/<subdir>',
+  'skill.github.notFound': '找不到 GitHub 仓库：{repo}',
+  'skill.github.fetchFailed': '无法下载 {repo}：{error}',
+  'skill.github.tooLarge': '仓库压缩包过大（上限：{limit}）',
+  'skill.github.badArchive': '下载的压缩包已被拒绝 —— 格式错误或包含不安全路径',
+  'skill.github.noSkillMd': '在 {where} 中找不到 SKILL.md —— 请把 URL 指向包含它的文件夹',
+
   'artifact.destinationUnset': '尚未配置输出位置',
   'artifact.folderMissing': '目标文件夹不存在：{path} — 请创建它，或在设置中选择其它文件夹',
   'artifact.folderNotWritable': '目标文件夹不可写：{path}',
@@ -435,6 +443,9 @@ export const zhCN: Catalog = {
   'settings.skills.importing': '导入中…',
   'settings.skills.importFailed': '无法导入该技能文件夹',
   'settings.skills.exists': '技能「{name}」已存在 — 名称必须唯一',
+  'settings.skills.githubImport': '从 GitHub 导入',
+  'settings.skills.githubPlaceholder': 'https://github.com/owner/repo — 可附加 /tree/分支/子目录',
+  'settings.skills.githubImportFailed': '无法从 GitHub 导入',
   'settings.mcp.title': 'MCP 服务器',
   'settings.mcp.hint': '尚未启用 — 仅作配置',
   'settings.mcp.empty': '还没有 MCP 服务器',

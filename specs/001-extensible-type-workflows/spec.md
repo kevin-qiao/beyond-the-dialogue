@@ -191,7 +191,7 @@ A user has registered skills and external tool servers in Settings. They grant a
 - **Output Destination**: The configured location a type's finished artifacts are written to. Owned by the type, editable by the user, and constrained to a permitted root.
 - **Finished Artifact**: The document produced when a task is finished — a curated learning note or polished meeting minutes. Has a location, a pre-finish form, and any earlier versions, which coexist alongside it as separate files rather than replacing one another.
 - **Plugin Grant**: The association between a task type and the specific skills or tool servers its assistant sessions may use. Absent for confined background operations by construction.
-- **Skill**: A user-imported capability entry that the assistant can be granted.
+- **Skill**: A user-imported capability entry — from a local folder or a GitHub repository URL — that the assistant can be granted.
 - **Tool Server**: A registered external system whose capabilities the assistant can be granted access to, so it can read current information from and act upon that system on the user's behalf.
 
 ## Success Criteria *(mandatory)*

@@ -20,6 +20,7 @@ const api: RendererApi = {
   chooseFile: () => ipcRenderer.invoke(IPC.chooseFile),
   chooseFolder: () => ipcRenderer.invoke(IPC.chooseFolder),
   importSkill: () => ipcRenderer.invoke(IPC.importSkill) as Promise<SkillEntry | null>,
+  importSkillFromGitHub: (url) => ipcRenderer.invoke(IPC.importSkillGitHub, { url }) as Promise<SkillEntry>,
   getProposals: () => ipcRenderer.invoke(IPC.getProposals),
   confirmRemoteChange: (args) => ipcRenderer.invoke(IPC.confirmRemoteChange, args),
   dismissProposal: (args) => ipcRenderer.invoke(IPC.dismissProposal, args),

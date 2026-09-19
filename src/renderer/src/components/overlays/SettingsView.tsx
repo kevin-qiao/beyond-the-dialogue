@@ -434,7 +434,19 @@ function SkillsSection({
 }) {
   const t = useT()
   const [importing, setImporting] = useState(false)
+  const [githubUrl, setGithubUrl] = useState('')
+  const [githubImporting, setGithubImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Both import paths end here: one duplicate check, one append, no drift
+  // between the folder import and the GitHub import.
+  const addEntry = (entry: SkillEntry) => {
+    if (skills.some((s) => s.name === entry.name)) {
+      setError(t('settings.skills.exists', { name: entry.name }))
+      return
+    }
+    onChange([...skills, entry])
+  }
 
   const handleImport = async () => {
     setImporting(true)
@@ -442,15 +454,28 @@ function SkillsSection({
     try {
       const entry = await window.api.importSkill()
       if (!entry) return
-      if (skills.some((s) => s.name === entry.name)) {
-        setError(t('settings.skills.exists', { name: entry.name }))
-        return
-      }
-      onChange([...skills, entry])
+      addEntry(entry)
     } catch (e: any) {
       setError(e?.message ?? t('settings.skills.importFailed'))
     } finally {
       setImporting(false)
+    }
+  }
+
+  const handleGitHubImport = async () => {
+    const url = githubUrl.trim()
+    if (!url) return
+    setGithubImporting(true)
+    setError(null)
+    try {
+      addEntry(await window.api.importSkillFromGitHub(url))
+      setGithubUrl('')
+    } catch (e: any) {
+      // The refusal arrives already phrased in the user's language — main
+      // localizes the codes before they cross IPC.
+      setError(e?.message ?? t('settings.skills.githubImportFailed'))
+    } finally {
+      setGithubImporting(false)
     }
   }
 
@@ -486,6 +511,28 @@ function SkillsSection({
       <div className="plugin-row">
         <button className="mini-btn primary" disabled={importing} onClick={() => void handleImport()}>
           {importing ? t('settings.skills.importing') : `＋ ${t('settings.skills.import')}`}
+        </button>
+      </div>
+      {/* The second import path: a GitHub repository (or a folder inside one).
+          The download, the archive safety checks and the SKILL.md contract all
+          live in main; this row only hands over the URL. */}
+      <div className="plugin-row">
+        <input
+          value={githubUrl}
+          onChange={(e) => setGithubUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void handleGitHubImport()
+          }}
+          placeholder={t('settings.skills.githubPlaceholder')}
+          spellCheck={false}
+          disabled={githubImporting}
+        />
+        <button
+          className="mini-btn primary"
+          disabled={githubImporting || !githubUrl.trim()}
+          onClick={() => void handleGitHubImport()}
+        >
+          {githubImporting ? t('settings.skills.importing') : `＋ ${t('settings.skills.githubImport')}`}
         </button>
       </div>
       {error && <div className="error-text">{error}</div>}
