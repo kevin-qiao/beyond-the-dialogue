@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, Notification } from 'electron'
 import { AlarmScheduler } from './alarms'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
@@ -614,11 +615,27 @@ function registerIpc(): void {
   })
 }
 
+// The window/taskbar icon. Same file electron-builder uses as the installer
+// icon source (build/icon.png from directories.buildResources); resolved like
+// the wiki guide — repo checkout first (dev), then the packaged extraResources
+// copy next to the app.
+function appIconPath(): string | undefined {
+  const candidates = [
+    path.resolve(process.cwd(), 'build', 'icon.png'),
+    typeof process.resourcesPath === 'string' ? path.join(process.resourcesPath, 'icon.png') : undefined
+  ]
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate
+  }
+  return undefined
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
     title: 'Beyond the Dialogue',
+    icon: appIconPath(),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,

@@ -12,6 +12,12 @@ extraResources:
   # Bundled LLM-WiKi pattern guide — seeded into each created wiki (see src/main/wiki/wiki.ts).
   - from: src/main/wiki/LLM-WiKi.md
     to: LLM-WiKi.md
+  # Window/taskbar icon for packaged builds (the BrowserWindow icon seam in
+  # src/main/index.ts reads it from resourcesPath). The same build/icon.png is
+  # also the source electron-builder converts into the per-platform installer
+  # icons (.ico / .icns / hicolor PNGs) via directories.buildResources.
+  - from: build/icon.png
+    to: icon.png
 npmRebuild: false
 electronLanguages:
   - en-US
