@@ -150,7 +150,7 @@ export const en = {
   'proposal.confirm': 'Confirm and send',
   'proposal.discard': 'Discard',
   'remote.confirmDeferred':
-    'The MCP transport is live for granted agent sessions, but per-change remote confirmation execution is still deferred (research R7a) — the change was not sent',
+    'The MCP transport is live for granted agent sessions, but confirmation-driven remote execution is not yet wired to it (research R7b, FR-022 second amendment) — the change was not sent',
 
   // ---- the focus column and its editor ----
   'focus.empty': 'Select a task to open its AI band and working area.',

@@ -141,7 +141,7 @@ export const zhCN: Catalog = {
   'proposal.exactly': '将发送的确切内容',
   'proposal.confirm': '确认并发送',
   'proposal.discard': '放弃',
-  'remote.confirmDeferred': 'MCP 传输已对获授权的 Agent 会话生效，但逐次变更的远端确认执行仍被推迟（研究 R7a）—— 该变更未被发送',
+  'remote.confirmDeferred': 'MCP 传输已对获授权的 Agent 会话生效，但确认驱动的远端执行尚未接入它（研究 R7b、FR-022 第二次修订）—— 该变更未被发送',
 
   // ---- the focus column and its editor ----
   'focus.empty': '选择一个任务，打开它的 AI 面板与工作区。',
