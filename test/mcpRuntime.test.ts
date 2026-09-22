@@ -87,6 +87,10 @@ test('the session factory wires the extension as an inline factory and names the
   const src = fs.readFileSync(path.join(process.cwd(), 'src/main/ai/session-factory.ts'), 'utf-8')
   assert.ok(/buildMcpExtension\(/.test(src), 'session-factory must build the extension from the resolved grant')
   assert.ok(/extensionFactories:/.test(src), 'the extension must be registered as an inline factory')
+  // The loader's getters only fill during reload() — a session built from an
+  // unloaded loader sees no extensions and no skills (this bit the first
+  // harness run: the factory built fine and registered nothing, silently).
+  assert.ok(/await loader\.reload\(\)/.test(src), 'the loader must be reloaded before createAgentSession')
   assert.ok(/\[\.\.\.new Set\(\[\.\.\.tools, \.\.\.mcpToolNames\]\)\]/.test(src), 'the tools allowlist must include the mcp tool names')
 })
 

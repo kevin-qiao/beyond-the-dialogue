@@ -130,6 +130,13 @@ export async function createJobSession(opts: CreateJobSessionOptions): Promise<J
     systemPrompt
   })
 
+  // The loader's getters (extensions, skills, prompts…) are populated by
+  // reload(); the constructor only seeds them empty. Skipping this — which the
+  // SDK's own docs always do before createAgentSession — leaves both the
+  // granted skills and the inline MCP factory invisible to the session: built,
+  // but never loaded.
+  await loader.reload()
+
   const { session } = await createAgentSession({
     cwd,
     modelRuntime: runtime,
