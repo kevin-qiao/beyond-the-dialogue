@@ -116,5 +116,8 @@ export async function runPreprocessJob(ctx: JobContext): Promise<void> {
     throw e instanceof Error ? e : new Error(String(e?.message ?? e))
   } finally {
     await session.abort().catch(() => undefined)
+    // End the session properly (stops any MCP servers its shutdown handler
+    // owns — none for this confined run, but the ordering is uniform).
+    await session.dispose?.().catch(() => undefined)
   }
 }

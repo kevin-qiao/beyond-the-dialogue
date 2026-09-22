@@ -90,6 +90,20 @@ test('the session factory wires the extension as an inline factory and names the
   assert.ok(/\[\.\.\.new Set\(\[\.\.\.tools, \.\.\.mcpToolNames\]\)\]/.test(src), 'the tools allowlist must include the mcp tool names')
 })
 
+test('every session path disposes, so the adapter tears its servers down', () => {
+  // abort() alone never emits session_shutdown; dispose does the emission.
+  // Both job-consuming sites must call dispose in their finally, or a
+  // granted session leaks every child process it lazily spawned.
+  for (const rel of ['src/main/preprocess.ts', 'src/main/adapters/agent/sessionAdapter.ts']) {
+    const src = fs.readFileSync(path.join(process.cwd(), rel), 'utf-8')
+    assert.ok(/session\.dispose\?\.\(\)/.test(src), `${rel} must dispose the session`)
+  }
+  const factory = fs.readFileSync(path.join(process.cwd(), 'src/main/ai/session-factory.ts'), 'utf-8')
+  const emitAt = factory.indexOf(`session_shutdown`)
+  const disposeAt = factory.indexOf('raw.dispose()')
+  assert.ok(emitAt >= 0 && disposeAt > emitAt, 'dispose must emit session_shutdown before disposing')
+})
+
 test('the real seam: jiti loads pi-mcp-adapter and builds an isolated factory', async (t) => {
   // Only this test touches the real package — and it only CONSTRUCTS a
   // factory, it never registers it or connects a server.

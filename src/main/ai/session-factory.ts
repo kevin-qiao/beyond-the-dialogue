@@ -21,6 +21,15 @@ export interface JobSessionLike {
   prompt: (text: string, opts?: { expandPromptTemplates?: boolean }) => Promise<void>
   messages: any[]
   abort: () => Promise<void>
+  /**
+   * End the session for good: extensions are told to shut down — which is
+   * how pi-mcp-adapter tears down its (lazy) MCP child processes — and the
+   * session's listeners are removed. abort() alone settles the turn but does
+   * NOT emit session_shutdown; leaving a granted session undisposed would
+   * leak the servers its proxy started. Optional so scripted test doubles
+   * need not implement it.
+   */
+  dispose?: () => Promise<void>
 }
 
 export interface CreateJobSessionOptions {
@@ -136,7 +145,41 @@ export async function createJobSession(opts: CreateJobSessionOptions): Promise<J
     customTools: customTools as any[],
     noTools: 'builtin'
   })
-  return session as unknown as JobSessionLike
+
+  // A granted session may have started (lazily) MCP child processes that only
+  // the adapter's session_shutdown handler tears down. The SDK's own
+  // runtime.dispose() emits that event then disposes; this in-memory job
+  // session is not a runtime, so we replicate the order here: emit shutdown
+  // first (stops the servers), then dispose (drops listeners). Skipping the
+  // emit would leak every spawned server for the life of the main process.
+  const raw = session as unknown as {
+    subscribe: JobSessionLike['subscribe']
+    prompt: JobSessionLike['prompt']
+    messages: any[]
+    abort: () => Promise<void>
+    dispose: () => void
+    extensionRunner?: { emit: (ev: { type: 'session_shutdown'; reason: 'quit' }) => Promise<unknown> }
+  }
+  return {
+    subscribe: (cb) => raw.subscribe(cb),
+    prompt: (text, o) => raw.prompt(text, o),
+    get messages() {
+      return raw.messages
+    },
+    abort: () => raw.abort(),
+    dispose: async () => {
+      try {
+        await raw.extensionRunner?.emit({ type: 'session_shutdown', reason: 'quit' })
+      } catch (e) {
+        console.warn('[mcp] session_shutdown emission failed:', e)
+      }
+      try {
+        raw.dispose()
+      } catch {
+        // Dispose must not throw into a job's finally.
+      }
+    }
+  }
 }
 
 /**
