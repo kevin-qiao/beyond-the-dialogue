@@ -368,6 +368,14 @@ session yet, so the transport is proven at the seam and by a scripted harness, n
 screen. Both gaps are stated in FR-018/FR-021/FR-022's second amendments rather than left
 as discoveries.
 
+**Recorded at packaging (Linux).** The packaged layout was verified: the adapter and the
+published MCP clients ship inside `app.asar`, `@napi-rs/keyring`'s platform binary is
+asar-unpacked (a `.node` cannot dlopen from inside an asar), and `libsecret-1-0` joined the
+deb prerequisites. The one thing not exercisable offline: jiti resolving `pi-mcp-adapter`
+through Electron's asar-patched fs in a packaged run (the dev/proven path loads it from
+plain `node_modules`). It is the same bundle and the same seam; it is listed as the first
+check for whoever lands the interactive-session surface, not assumed as a pass.
+
 ---
 
 ## R8. Remote changes are structurally un-makeable without confirmation
