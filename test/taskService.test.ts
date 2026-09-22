@@ -174,8 +174,8 @@ test('saveSettings applies the plugin rules and the first-run rule, then persist
     'plugin.skill.nameUnique'
   )
   assertRefusedWith(
-    () => save(storage, { ...base, mcpServers: [{ name: 's', transport: { type: 'stdio', command: '' } }] }),
-    'plugin.mcp.commandRequired'
+    () => save(storage, { ...base, mcpServers: [{ name: 's', config: { command: '' } }] }),
+    'plugin.mcp.transportAmbiguous'
   )
   // A refused save persists nothing.
   assert.deepEqual(storage.loadSettings().skills, [])

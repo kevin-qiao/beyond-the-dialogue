@@ -575,13 +575,16 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.getProposals, () => proposalViews())
   ipcMain.handle(IPC.confirmRemoteChange, async (_e, args: { proposalId: string }) => {
-    // The remote transport is deferred (research R7a), so there is nothing that
-    // can actually reach an external system. That is reported as a failure —
-    // never as a success (FR-024).
+    // The per-change confirmation EXECUTION (mutating an external system from
+    // this bar) is still deferred (research R7a): the MCP transport is now
+    // live at the session seam for granted types, but this flow needs
+    // out-of-model tool execution the adapter's public surface does not yet
+    // offer. That is reported as a failure — never as a success (FR-024),
+    // and phrased in the user's language rather than a hardcoded literal.
     const outcome = await proposals.confirm(args.proposalId, {
       apply: async () => ({
         ok: false,
-        error: 'no tool-server transport is connected in this version (see research R7a) — the change was not sent'
+        error: message(loadSettings(d()).uiLanguage, 'remote.confirmDeferred')
       })
     })
     broadcastProposals()

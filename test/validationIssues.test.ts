@@ -108,12 +108,18 @@ test('plugin refusals name the entry they are about', () => {
     keysOf(validatePluginEntries(settings({ skills: [{ name: 'a', description: '', path: '' }] }))),
     ['plugin.skill.pathRequired']
   )
-  // An http transport is refused AND, having no command, fails the stdio rule:
-  // the validator states everything wrong with the entry rather than stopping
-  // at the first problem, so the user can fix it in one pass.
+  // A config that supplies no valid transport AND has malformed env reports
+  // both: the validator states everything wrong with the entry rather than
+  // stopping at the first problem, so the user fixes it in one pass. A remote
+  // (url) server is now valid, so "no command" alone is the shape problem.
   assert.deepEqual(
-    keysOf(validatePluginEntries(settings({ mcpServers: [{ name: 'j', transport: { type: 'http' } as never }] }))),
-    ['plugin.mcp.unsupportedTransport', 'plugin.mcp.commandRequired']
+    keysOf(validatePluginEntries(settings({ mcpServers: [{ name: 'j', config: { url: 1, env: 'x' } }] }))),
+    ['plugin.mcp.transportAmbiguous', 'plugin.mcp.envNotMap']
+  )
+  // A nameless paste entry reports both.
+  assert.deepEqual(
+    keysOf(validatePluginEntries(settings({ mcpServers: [{ name: '', config: {} }] }))),
+    ['plugin.mcp.nameRequired', 'plugin.mcp.transportAmbiguous']
   )
 })
 

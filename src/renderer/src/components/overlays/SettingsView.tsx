@@ -4,6 +4,7 @@ import type { Destination, DestinationStore, FinishBehaviour, McpServerEntry, Se
 import { SETTINGS_KEYS } from '../../../../shared/types'
 import { FINISH_BEHAVIOURS } from '../../../../core/domain/categories'
 import { describeDestination } from '../../../../core/domain/destination'
+import { describeMcpServer, parseMcpJsonPaste } from '../../../../core/domain/mcpConfig'
 import { LANGUAGES, LANGUAGE_NAMES, isLanguage, type MessageKey } from '../../../../core/i18n'
 import { useLanguage, useT } from '../../lib/useT'
 import { allTypeConfigs, displayTypeDescription, displayTypeLabel, localizeTypeDef } from '../../lib/typeCatalog'
@@ -540,9 +541,13 @@ function SkillsSection({
   )
 }
 
-// MCP server management (spec skills-mcp-settings): unique name + a complete
-// stdio transport (command; optional args/env) validated before persistence
-// (renderer checks shape; main re-validates on save).
+// MCP server management (add-mcp-support): servers are added MANUALLY by
+// pasting the standard mcp.json shape — the app's own row form could not carry
+// enough information to make a server work (env was uneditable, remote servers
+// impossible). The paste accepts a complete {"mcpServers": {…}} block or a
+// { "<name>": {…} } map; the core parser decides, main re-validates on save.
+// Saved servers are connected to the interactive sessions of types that grant
+// them, and auto-written to the app's mcp.json as an inspection copy.
 function McpSection({
   servers,
   onChange,
@@ -553,23 +558,19 @@ function McpSection({
   confirmRemove: (name: string) => Promise<boolean>
 }) {
   const t = useT()
-  const [name, setName] = useState('')
-  const [command, setCommand] = useState('')
-  const [args, setArgs] = useState('')
+  const [paste, setPaste] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   const add = () => {
-    const n = name.trim()
-    if (!n) return setError(t('settings.mcp.nameRequired'))
-    if (servers.some((s) => s.name === n)) return setError(t('settings.mcp.exists', { name: n }))
-    if (!command.trim()) return setError(t('settings.mcp.commandRequired'))
-    onChange([
-      ...servers,
-      { name: n, transport: { type: 'stdio', command: command.trim(), args: args.trim() ? args.trim().split(/\s+/) : undefined } }
-    ])
-    setName('')
-    setCommand('')
-    setArgs('')
+    const raw = paste.trim()
+    if (!raw) return setError(t('settings.mcp.emptyPaste'))
+    const { entries, issues } = parseMcpJsonPaste(raw)
+    if (issues.length > 0) return setError(issues.map((i) => t(i.key, i.params)).join('\n'))
+    const clash = entries.find((e) => servers.some((s) => s.name === e.name))
+    // Adding never silently replaces — the user removes the old entry first.
+    if (clash) return setError(t('settings.mcp.exists', { name: clash.name }))
+    onChange([...servers, ...entries])
+    setPaste('')
     setError(null)
   }
 
@@ -579,27 +580,10 @@ function McpSection({
         <h4>{t('settings.mcp.title')}</h4>
         <span className="muted">{t('settings.mcp.hint')}</span>
       </div>
-      {servers.map((s, i) => (
+      {servers.map((s) => (
         <div key={s.name} className="plugin-row">
           <input value={s.name} disabled title={t('settings.skills.nameKey')} className="plugin-name" />
-          <input
-            value={s.transport.command}
-            placeholder={t('settings.mcp.commandPlaceholder')}
-            onChange={(e) =>
-              onChange(servers.map((x, xi) => (xi === i ? { ...x, transport: { ...x.transport, command: e.target.value } } : x)))
-            }
-          />
-          <input
-            value={(s.transport.args ?? []).join(' ')}
-            placeholder={t('settings.mcp.argsPlaceholder')}
-            onChange={(e) =>
-              onChange(
-                servers.map((x, xi) =>
-                  xi === i ? { ...x, transport: { ...x.transport, args: e.target.value.trim() ? e.target.value.trim().split(/\s+/) : undefined } } : x
-                )
-              )
-            }
-          />
+          <input value={describeMcpServer(s)} disabled />
           <button
             className="icon-btn tiny danger"
             title={t('common.remove')}
@@ -614,14 +598,21 @@ function McpSection({
         </div>
       ))}
       {servers.length === 0 && <div className="type-empty"><div className="te-msg">{t('settings.mcp.empty')}</div></div>}
+      <textarea
+        className="mcp-paste"
+        rows={4}
+        spellCheck={false}
+        value={paste}
+        onChange={(e) => setPaste(e.target.value)}
+        placeholder={t('settings.mcp.pastePlaceholder')}
+      />
       <div className="plugin-row">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('settings.mcp.namePlaceholder')} />
-        <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder={t('settings.mcp.commandExample')} />
-        <input value={args} onChange={(e) => setArgs(e.target.value)} placeholder="-y some-mcp-server" />
-        <button className="mini-btn primary" onClick={add}>
-          ＋ {t('settings.mcp.add')}
+        <button className="mini-btn primary" disabled={!paste.trim()} onClick={add}>
+          ＋ {t('settings.mcp.addJson')}
         </button>
       </div>
+      <div className="muted mcp-note">{t('settings.mcp.mcpJsonNote')}</div>
+      <div className="muted mcp-note">{t('settings.mcp.trustNote')}</div>
       {error && <div className="error-text">{error}</div>}
     </section>
   )

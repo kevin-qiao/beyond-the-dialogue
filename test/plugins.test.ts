@@ -13,7 +13,7 @@ test('7.1 skills/MCP persist with settings and reload intact (AppSnapshot source
   migrate(db.db)
   const s = settings({
     skills: [{ name: 'web-search', description: 'Search the web', path: '/skills/web-search' }],
-    mcpServers: [{ name: 'jira', transport: { type: 'stdio', command: 'npx', args: ['-y', 'atlassian-mcp'], env: { TOKEN: 'x' } } }]
+    mcpServers: [{ name: 'jira', config: { command: 'npx', args: ['-y', 'atlassian-mcp'], env: { TOKEN: 'x' } } }]
   })
   saveSettings(db.db, s)
   const back = loadSettings(db.db)
@@ -52,24 +52,102 @@ test('skills validation: unique names, path required (description optional)', ()
   )
 })
 
-test('MCP validation: unique names, complete stdio transport', () => {
+test('MCP validation: unique names, exactly one transport, typed standard fields', () => {
+  // stdio — and a remote server, which the old stdio-only rule refused.
   assert.deepEqual(
-    validatePluginEntries(settings({ mcpServers: [{ name: 'jira', transport: { type: 'stdio', command: 'npx', args: ['-y', 'atlassian-mcp'] } }] })),
+    validatePluginEntries(
+      settings({
+        mcpServers: [
+          { name: 'jira', config: { command: 'npx', args: ['-y', 'atlassian-mcp'] } },
+          { name: 'docs', config: { url: 'https://mcp.example.com/mcp', headers: { AUTH: 'x' } } }
+        ]
+      })
+    ),
     []
   )
-  assert.deepEqual(validatePluginEntries(settings({ mcpServers: [{ name: 'jira', transport: { type: 'stdio', command: '' } }] })), [
-    { key: 'plugin.mcp.commandRequired', params: { name: 'jira' } }
+  // Adapter fields the app does not interpret pass through untouched.
+  assert.deepEqual(
+    validatePluginEntries(settings({ mcpServers: [{ name: 'a', config: { command: 'x', lifecycle: 'eager', directTools: true, includeTools: ['t'] } }] })),
+    []
+  )
+  // No transport at all.
+  assert.deepEqual(validatePluginEntries(settings({ mcpServers: [{ name: 'jira', config: {} }] })), [
+    { key: 'plugin.mcp.transportAmbiguous', params: { name: 'jira' } }
   ])
+  // Two transports at once.
+  assert.deepEqual(validatePluginEntries(settings({ mcpServers: [{ name: 'x', config: { command: 'a', url: 'b' } }] })), [
+    { key: 'plugin.mcp.transportAmbiguous', params: { name: 'x' } }
+  ])
+  // A transport present but not a non-empty string.
+  assert.ok(
+    validatePluginEntries(settings({ mcpServers: [{ name: 'jira', config: { command: '' } }] })).some(
+      (e) => e.key === 'plugin.mcp.transportAmbiguous'
+    )
+  )
+  assert.ok(
+    validatePluginEntries(settings({ mcpServers: [{ name: 'jira', config: { command: 5 } }] })).some(
+      (e) => e.key === 'plugin.mcp.transportAmbiguous'
+    )
+  )
   assert.ok(
     validatePluginEntries(
-      settings({ mcpServers: [{ name: 'a', transport: { type: 'stdio', command: 'x' } }, { name: 'a', transport: { type: 'stdio', command: 'y' } }] })
+      settings({ mcpServers: [{ name: 'a', config: { command: 'x' } }, { name: 'a', config: { command: 'y' } }] })
     ).some((e) => e.key === 'plugin.mcp.nameUnique')
   )
   assert.ok(
-    validatePluginEntries(
-      settings({ mcpServers: [{ name: 'remote', transport: { type: 'http', command: '' } as never }] })
-    ).some((e) => e.key === 'plugin.mcp.unsupportedTransport')
+    validatePluginEntries(settings({ mcpServers: [{ name: 'a', config: { command: 'x', args: 'not-a-list' } }] })).some(
+      (e) => e.key === 'plugin.mcp.argsNotList'
+    )
   )
+  assert.ok(
+    validatePluginEntries(settings({ mcpServers: [{ name: 'a', config: { command: 'x', env: ['A'] } }] })).some(
+      (e) => e.key === 'plugin.mcp.envNotMap'
+    )
+  )
+  assert.ok(
+    validatePluginEntries(settings({ mcpServers: [{ name: 'a', config: { command: 'x', headers: { A: 1 } } }] })).some(
+      (e) => e.key === 'plugin.mcp.headersNotMap'
+    )
+  )
+  assert.ok(
+    validatePluginEntries(settings({ mcpServers: [{ name: 'a', config: { command: 'x', cwd: 1 } }] })).some(
+      (e) => e.key === 'plugin.mcp.cwdNotString'
+    )
+  )
+  assert.ok(
+    validatePluginEntries(settings({ mcpServers: [{ name: 'a', config: null as never }] })).some(
+      (e) => e.key === 'plugin.mcp.configNotObject'
+    )
+  )
+})
+
+test('v9 migration: the stdio transport envelope becomes the standard config', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-mig9-'))
+  const db = openDB(dir)
+  migrate(db.db)
+  const legacy = JSON.stringify([
+    { name: 'jira', transport: { type: 'stdio', command: 'npx', args: ['-y', 'atlassian-mcp'], env: { TOKEN: 'x' } } },
+    { name: 'kept', config: { url: 'https://x/mcp' } },
+    { name: 'dropped', transport: { type: 'http', url: 'z' } }
+  ])
+  db.db.prepare("INSERT INTO settings (key,value) VALUES ('mcpServers',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(legacy)
+  // Make the database pretend v9 has not run yet: this is exactly the state a
+  // v8-era database presents to the new code.
+  db.db.prepare('DELETE FROM schema_migrations WHERE version = 9').run()
+  migrate(db.db)
+  const rows = db.db.prepare("SELECT value FROM settings WHERE key = 'mcpServers'").get() as { value: string }
+  assert.deepEqual(JSON.parse(rows.value), [
+    { name: 'jira', config: { command: 'npx', args: ['-y', 'atlassian-mcp'], env: { TOKEN: 'x' } } },
+    { name: 'kept', config: { url: 'https://x/mcp' } },
+    { name: 'dropped', transport: { type: 'http', url: 'z' } }
+  ])
+  // Idempotent: re-running migrate with v9 marked changes nothing further.
+  migrate(db.db)
+  const rows2 = db.db.prepare("SELECT value FROM settings WHERE key = 'mcpServers'").get() as { value: string }
+  assert.equal(rows2.value, rows.value)
+  const version = db.db.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 9').get() as { n: number }
+  assert.equal(version.n, 1)
+  db.db.close()
 })
 
 test('7.3 managed skills/MCP are provably inert on the agent path (design D6)', () => {

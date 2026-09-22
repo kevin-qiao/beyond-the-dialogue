@@ -149,6 +149,8 @@ export const en = {
   'proposal.exactly': 'Exactly what will be sent',
   'proposal.confirm': 'Confirm and send',
   'proposal.discard': 'Discard',
+  'remote.confirmDeferred':
+    'The MCP transport is live for granted agent sessions, but per-change remote confirmation execution is still deferred (research R7a) — the change was not sent',
 
   // ---- the focus column and its editor ----
   'focus.empty': 'Select a task to open its AI band and working area.',
@@ -234,12 +236,15 @@ export const en = {
   'plugin.skill.pathRequired': 'skill "{name}": a source path is required',
   'plugin.mcp.nameRequired': 'MCP server #{n}: name is required',
   'plugin.mcp.nameUnique': 'MCP server "{name}": name must be unique',
-  'plugin.mcp.transportRequired': 'MCP server "{name}": transport definition is required',
-  'plugin.mcp.unsupportedTransport':
-    'MCP server "{name}": unsupported transport type "{type}" (only stdio in this version)',
-  'plugin.mcp.commandRequired': 'MCP server "{name}": a command is required for the stdio transport',
+  'plugin.mcp.invalidJson': 'not valid JSON: {error}',
+  'plugin.mcp.pasteShape':
+    'paste a complete {"mcpServers": { … }} block, or a { "<name>": { … } } map of server configs',
+  'plugin.mcp.configNotObject': 'MCP server "{name}": its configuration must be an object',
+  'plugin.mcp.transportAmbiguous': 'MCP server "{name}": exactly one of command, url, or socket is required',
   'plugin.mcp.argsNotList': 'MCP server "{name}": args must be a list',
   'plugin.mcp.envNotMap': 'MCP server "{name}": env must be a name→value map',
+  'plugin.mcp.headersNotMap': 'MCP server "{name}": headers must be a name→value map',
+  'plugin.mcp.cwdNotString': 'MCP server "{name}": cwd must be a string',
 
   'skill.github.urlInvalid':
     'not a GitHub repository URL: "{url}" — expected github.com/<owner>/<repo>, optionally followed by /tree/<ref>/<subdir>',
@@ -455,7 +460,7 @@ export const en = {
   'settings.types.empty.body':
     'Click “＋ New type” to wrap a built-in behavior kind with your own label, emoji, and input fields.',
   'settings.plugins.inert':
-    "Skills are imported into the app's skill folder but not yet loaded by the agent; MCP servers are configuration-only for now.",
+    "Skills are imported into the app's skill folder but not yet loaded by the agent. MCP servers you add here are connected to interactive sessions of types that grant them, and written to the app's mcp.json.",
   'settings.plugins.saveFailed': 'Could not save: {error}',
   'settings.plugins.removeSkill.title': 'Remove skill',
   'settings.plugins.removeSkill.message': 'Remove skill “{name}”?',
@@ -475,16 +480,15 @@ export const en = {
   'settings.skills.githubPlaceholder': 'https://github.com/owner/repo — optionally /tree/ref/subdir',
   'settings.skills.githubImportFailed': 'Could not import from GitHub',
   'settings.mcp.title': 'MCP servers',
-  'settings.mcp.hint': 'not yet active — configuration only',
+  'settings.mcp.hint': 'paste a standard mcp.json server config',
   'settings.mcp.empty': 'No MCP servers yet',
-  'settings.mcp.namePlaceholder': 'Name',
-  'settings.mcp.commandPlaceholder': 'command',
-  'settings.mcp.commandExample': 'command (e.g. npx)',
-  'settings.mcp.argsPlaceholder': 'args (space-separated)',
-  'settings.mcp.add': 'Add',
-  'settings.mcp.nameRequired': 'Name is required',
-  'settings.mcp.commandRequired': 'A command is required for the stdio transport',
+  'settings.mcp.pastePlaceholder': '{"mcpServers": { "name": { "command": "npx", "args": ["-y", "some-mcp-server"] } }}',
+  'settings.mcp.addJson': 'Add servers',
+  'settings.mcp.emptyPaste': 'Paste a server configuration first',
   'settings.mcp.exists': 'MCP server "{name}" already exists — names must be unique',
+  'settings.mcp.mcpJsonNote': "These servers are also written to the app's mcp.json automatically (an inspection copy — the agent reads its own settings).",
+  'settings.mcp.trustNote': 'A server you add runs with your own permissions — the app never invokes its command, env helpers, or credentials on its own.',
+  'settings.mcp.materializeFailed': 'MCP servers were saved, but writing mcp.json failed: {error}',
 
   // ---- what each finish behaviour does (FR-014) ----
   'finishBehaviour.completeOnly': 'Complete only — writes nothing',

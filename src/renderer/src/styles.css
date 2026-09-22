@@ -1082,6 +1082,30 @@ button {
   font: inherit;
 }
 
+/* The MCP manual-config paste box: a standard mcp.json body reads best in a
+   mono face, and it occupies its own line. */
+.settings-section textarea.mcp-paste {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.mcp-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .settings-section .section-head {
   display: flex;
   align-items: baseline;

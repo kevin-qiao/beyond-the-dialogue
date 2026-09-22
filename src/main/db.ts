@@ -940,6 +940,53 @@ export function migrate(db: DatabaseSync): void {
     mark(8)
   }
 
+  // v8 → v9: an MCP server row carries the FULL standard server config.
+  //
+  // The old shape was the app's own invention — `{name, transport: {type:
+  // 'stdio', command, args?, env?}}` — which could not express remote servers
+  // or any of the adapter's options, i.e. "the input information is not
+  // enough to make a MCP working". v9 rewrites every row to
+  // `{name, config: {...}}`, where config is the standard `mcpServers.<name>`
+  // object the adapter consumes directly. A stdio row maps its fields out of
+  // the transport envelope; anything already migrated (or already a full
+  // config) passes through untouched, so the step is idempotent; a corrupt
+  // value is cleared here rather than surfacing as an unexplained empty list.
+  if (!ran(9)) {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'mcpServers'").get() as { value: string } | undefined
+    if (row) {
+      let out = '[]'
+      try {
+        const arr = JSON.parse(row.value)
+        if (Array.isArray(arr)) {
+          out = JSON.stringify(
+            arr.map((e: any) => {
+              if (!e || typeof e !== 'object') return e
+              if (e.config !== undefined) return { name: e.name, config: e.config }
+              const t = e.transport
+              if (t && typeof t === 'object' && typeof t.command === 'string') {
+                return {
+                  name: e.name,
+                  config: {
+                    command: t.command,
+                    ...(Array.isArray(t.args) && t.args.length ? { args: t.args } : {}),
+                    ...(t.env && typeof t.env === 'object' && !Array.isArray(t.env) && Object.keys(t.env).length
+                      ? { env: t.env }
+                      : {})
+                  }
+                }
+              }
+              return e
+            })
+          )
+        }
+      } catch {
+        out = '[]'
+      }
+      db.prepare("UPDATE settings SET value = ? WHERE key = 'mcpServers'").run(out)
+    }
+    mark(9)
+  }
+
   // Seed a default list on first open.
   const row = db.prepare('SELECT COUNT(*) AS n FROM lists').get() as { n: number }
   if (row.n === 0) {
@@ -1005,14 +1052,12 @@ function parseMcpServers(value: unknown): McpServerEntry[] {
   try {
     const parsed = JSON.parse(String(value))
     if (!Array.isArray(parsed)) return []
+    // Structural parse only — a row with a bad config must still surface so
+    // the Settings form can show it and let the user fix or remove it; the
+    // domain validator (plugins.ts → mcpConfig.ts) refuses it on save.
     return parsed.filter(
       (s): s is McpServerEntry =>
-        s &&
-        typeof s.name === 'string' &&
-        s.transport &&
-        typeof s.transport === 'object' &&
-        s.transport.type === 'stdio' &&
-        typeof s.transport.command === 'string'
+        s && typeof s.name === 'string' && s.config && typeof s.config === 'object' && !Array.isArray(s.config)
     )
   } catch {
     return []

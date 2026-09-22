@@ -110,7 +110,7 @@ export interface TaskTypeDef {
   grants: PluginGrant
 }
 
-// ---- Skills & MCP (configuration entries, inert in v0.8 — design D6) ----
+// ---- Skills & MCP (managed plugin entries) ----
 
 export interface SkillEntry {
   name: string
@@ -119,16 +119,17 @@ export interface SkillEntry {
   path: string
 }
 
-export interface McpTransportConfig {
-  type: 'stdio'
-  command: string
-  args?: string[]
-  env?: Record<string, string>
-}
-
+/**
+ * One registered MCP server. `config` is the STANDARD server object — whatever
+ * `mcpServers.<name>` would hold in a normal `mcp.json` (command/args/env/cwd
+ * for stdio, url/headers for HTTP, plus the adapter's optional fields). The
+ * app validates only structural sanity (`src/core/domain/mcpConfig.ts`) and
+ * passes the rest through to pi-mcp-adapter uninterpreted, which is what makes
+ * the full standard configuration round-trippable into mcp.json.
+ */
 export interface McpServerEntry {
   name: string
-  transport: McpTransportConfig
+  config: Record<string, unknown>
 }
 
 // ---- Task management ----
@@ -191,8 +192,10 @@ export interface Settings {
   // messages) — named `uiLanguage` rather than `language` to say so: it is a
   // presentation choice and must never reach a prompt or shape model output.
   uiLanguage: Language
-  // Managed plugin entries (config-only in v0.8; nothing on the agent path
-  // reads them). Custom task types moved to the task_types table.
+  // Managed plugin entries. MCP servers here are the source of truth for the
+  // pi-mcp-adapter grant-gated sessions and are auto-materialized to the
+  // app-owned mcp.json (output only). Custom task types live in the task_types
+  // table.
   skills: SkillEntry[]
   mcpServers: McpServerEntry[]
 }

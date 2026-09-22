@@ -57,6 +57,17 @@ export function piModelsPath(): string {
   return path.join(piAgentDir(), 'models.json')
 }
 
+// The app-owned MCP config file, in the standard `{"mcpServers": {...}}`
+// shape. It is an OUTPUT: the Settings rows are the source of truth and this
+// file is rewritten from them (src/main/mcpConfigFile.ts). The agent runtime
+// is never pointed here — sessions receive an in-memory isolated config
+// snapshot built from the rows (contracts/plugin-grants.md §5) — so this path
+// is for user inspection and external-tool interop, and must live beside
+// auth.json/models.json under userData, never in a global config location.
+export function piMcpConfigPath(): string {
+  return path.join(piAgentDir(), 'mcp.json')
+}
+
 export function skillsDir(): string {
   return path.join(userDataDir(), 'skills')
 }
