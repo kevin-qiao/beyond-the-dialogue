@@ -2,6 +2,7 @@ import * as path from 'node:path'
 import type { PluginGrant, Settings, TaskTypeDef } from '../../shared/types'
 import { resolveGrant } from '../../core/domain/grant'
 import type { SessionPurpose } from '../../core/ports/agent'
+import { buildMcpExtension } from '../adapters/agent/mcpAdapter'
 
 // Central factory for job agent sessions. Isolates all Pi session creation so
 // jobs stay thin, and gives tests a seam to inject scripted sessions.
@@ -74,6 +75,26 @@ export async function createJobSession(opts: CreateJobSessionOptions): Promise<J
   const grant = resolveGrant({ purpose: opts.purpose ?? 'confined', typeDef: opts.typeDef ?? null })
   const grantedSkillPaths = grantedSkillDirs(grant, skillsDir())
 
+  // MCP tool servers, from the SAME resolved grant: a session reaches the
+  // outside network only through servers its type declared. This is the one
+  // place the agent path reads settings.mcpServers (design D6's scan updated
+  // by add-mcp-support); a confined run arrives with no tool servers, so it
+  // constructs no adapter at all. A setup failure degrades the build rather
+  // than failing the run — but it is reported, never swallowed (FR-024).
+  const extensionFactories: unknown[] = []
+  let mcpToolNames: string[] = []
+  try {
+    const mcp = await buildMcpExtension(settings.mcpServers ?? [], grant)
+    if (mcp.extension) {
+      extensionFactories.push(mcp.extension)
+      mcpToolNames = mcp.toolNames
+    }
+    if (mcp.missingGranted.length)
+      console.warn(`[mcp] type grants tool servers that are not configured: ${mcp.missingGranted.join(', ')}`)
+  } catch (e) {
+    console.warn('[mcp] tool-server setup failed; building the session without MCP:', e)
+  }
+
   const runtime = await getRuntime()
   const model = resolveModel(settings.provider, settings.model)
   if (!model) throw new Error(`no model available for provider ${settings.provider}`)
@@ -89,6 +110,12 @@ export async function createJobSession(opts: CreateJobSessionOptions): Promise<J
     // driven by the resolved grant, not by a flag the caller could set.
     noSkills: grantedSkillPaths.length === 0,
     additionalSkillPaths: grantedSkillPaths,
+    // Inline factories load even under noExtensions: true — that option only
+    // suppresses DISCOVERED extensions, which is exactly the ambient behavior
+    // the isolation contract forbids. The MCP adapter registers here (or not
+    // at all); pi-mcp-adapter's inline-config mode also disables its own
+    // interactive setup commands, so there is no code path to ambient files.
+    extensionFactories: extensionFactories as never[],
     noPromptTemplates: true,
     noThemes: true,
     systemPrompt
@@ -102,7 +129,10 @@ export async function createJobSession(opts: CreateJobSessionOptions): Promise<J
     resourceLoader: loader,
     sessionManager: SessionManager.inMemory(cwd),
     settingsManager: SettingsManager.create(cwd, piAgentDir()),
-    tools,
+    // The SDK allowlist must name every extension tool it should enable, so
+    // the MCP proxy tool has to be added HERE (and nothing else — confined
+    // runs have no mcpToolNames to add).
+    tools: [...new Set([...tools, ...mcpToolNames])],
     customTools: customTools as any[],
     noTools: 'builtin'
   })

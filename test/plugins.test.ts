@@ -150,12 +150,19 @@ test('v9 migration: the stdio transport envelope becomes the standard config', (
   db.db.close()
 })
 
-test('7.3 managed skills/MCP are provably inert on the agent path (design D6)', () => {
-  // No module on the agent path reads the managed collections — future grant
-  // wiring is gated behind add-mcp-support. Enforce by source scan: the only
-  // references to settings .skills/.mcpServers must live outside the runtime.
-  const agentPath = [
-    'src/main/ai/session-factory.ts',
+test('7.3 (add-mcp-support) grants are read at exactly one seam, never on a confined path', () => {
+  // Design D6's inertness was superseded by wiring, not removed: the managed
+  // collections may still be read at ONE place — the session-build seam — and
+  // nowhere else on the agent path. The confined job paths (ingestion,
+  // polishing, suggestions, the queue) must never see them, because their
+  // safety rests on resolveGrant returning NO_GRANT by construction: if such
+  // a path could read grants directly, a bug in purpose threading would turn
+  // into a quiet capability leak instead of a loud one.
+  const seam = [
+    'src/main/ai/session-factory.ts', // resolves the grant, builds the session
+    'src/main/adapters/agent/mcpAdapter.ts' // receives the already-resolved grant
+  ]
+  const confined = [
     'src/main/ai/agent-runtime.ts',
     'src/main/ai/chat.ts',
     'src/main/ai/triggers.ts',
@@ -166,8 +173,48 @@ test('7.3 managed skills/MCP are provably inert on the agent path (design D6)', 
     'src/main/job-queue.ts'
   ]
   const usage = /\bsettings\.(skills|mcpServers)\b/
-  for (const rel of agentPath) {
+  for (const rel of confined) {
     const src = fs.readFileSync(path.join(process.cwd(), rel), 'utf-8')
-    assert.equal(usage.test(src), false, `${rel} must not read managed skills/MCP in v0.8`)
+    assert.equal(usage.test(src), false, `${rel} must never read managed skills/MCP`)
   }
+  // And nothing outside the seam + the settings-materializing adapters wires
+  // the MCP entry collections at all.
+  // The mcpServers collection may be referenced by the seam plus the places
+  // that DECLARATE, VALIDATE, PERSIST or EDIT it — never by anything that
+  // runs an agent. A new reader has to be sanctioned here, which forces the
+  // confinement question to be asked explicitly.
+  const mcpWiring = /\bmcpServers\b/
+  const sanctioned = new Set([
+    ...seam,
+    'src/core/domain/mcpConfig.ts', // the rules over the entries
+    'src/core/domain/plugins.ts', // validation
+    'src/core/i18n/en.ts',
+    'src/core/i18n/zhCn.ts', // key names and message text
+    'src/shared/types.ts', // the declaration
+    'src/main/mcpConfigFile.ts', // the materializer
+    'src/main/db.ts', // the settings row
+    'src/main/index.ts', // save + startup wiring
+    'src/renderer/src/components/overlays/SettingsView.tsx', // the editor
+    'src/renderer/src/components/board/TaskInputsForm.tsx', // legacy inert-field options
+    'src/renderer/src/store.tsx', // snapshot plumbing
+    'src/renderer/src/lib/typeCatalog.ts' // grant UI labels, if it names them
+  ])
+  const offenders: string[] = []
+  const walk = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (/\.tsx?$/.test(entry.name)) {
+        const relPath = path.relative(process.cwd(), full)
+        if (sanctioned.has(relPath)) continue
+        const src = fs
+          .readFileSync(full, 'utf-8')
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+        if (mcpWiring.test(src)) offenders.push(relPath)
+      }
+    }
+  }
+  walk(path.join(process.cwd(), 'src'))
+  assert.deepEqual(offenders, [], `settings.mcpServers may only be wired by the seam and the sanctioned files, found: ${offenders.join(', ')}`)
 })
