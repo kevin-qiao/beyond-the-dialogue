@@ -8,6 +8,7 @@ import type { DatabaseSync } from 'node:sqlite'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 import { openDB, migrate, loadSettings, saveSettings, type DB } from './db'
+import { materializeMcpConfig } from './mcpConfigFile'
 import { ensureVault, writeNote } from './wiki/vault'
 import {
   serviceCreateList,
@@ -531,6 +532,18 @@ function registerIpc(): void {
   handleCommand(IPC.saveSettings, async (args) => {
     // The validation and the first-run rule live in the service.
     const saved = saveSettingsService(createSqliteStorage(d()), args.settings)
+    // The user asked the app to keep mcp.json current. The save already
+    // committed — a failed file write must not pretend the settings were lost,
+    // but it must be reported (FR-024: a failure never presents as success).
+    try {
+      materializeMcpConfig(saved.mcpServers ?? [])
+    } catch (e: any) {
+      broadcast(IPC.evToast, {
+        message: message(saved.uiLanguage, 'settings.mcp.materializeFailed', {
+          error: e instanceof Error ? e.message : String(e)
+        })
+      })
+    }
     await configureRuntimeFromSettings(saved)
     broadcast(IPC.evSettingsUpdated, saved)
     return saved
@@ -663,6 +676,15 @@ app.whenReady().then(async () => {
   db = d
   migrate(d.db)
   ensureVault()
+  // Converge the app-owned mcp.json with the settings on every startup — a
+  // save that crashed between the commit and the file write leaves the copy
+  // stale, and here it is rewritten from the source of truth. A failure must
+  // not block boot; the file is an inspection copy.
+  try {
+    materializeMcpConfig(loadSettings(d.db).mcpServers ?? [])
+  } catch (e) {
+    console.warn('[mcp] could not write the app mcp.json:', e)
+  }
 
   // Day rollover on first open after a date change.
   rolloverMyDay(d.db)
