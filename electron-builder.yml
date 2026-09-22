@@ -8,6 +8,12 @@ files:
   - package.json
 asarUnpack:
   - resources/**
+  # pi-mcp-adapter's only native module (@napi-rs/keyring, a prebuilt .node) cannot be
+  # dlopen'd from inside the asar. It loads LAZILY — only when user-added MCP config
+  # reaches for the OS credential store — but it must be present and unpacked so that
+  # path can work at all. research R7b / tasks T062: Linux verified, Windows unexercised.
+  - "**/node_modules/@napi-rs/**"
+  - "**/node_modules/**/keyring-*.node"
 extraResources:
   # Bundled LLM-WiKi pattern guide — seeded into each created wiki (see src/main/wiki/wiki.ts).
   - from: src/main/wiki/LLM-WiKi.md
@@ -33,6 +39,10 @@ deb:
     - libgtk-3-0
     - libnss3
     - libasound2
+    # pi-mcp-adapter's credential store (@napi-rs/keyring) uses the Secret Service API
+    # on Linux. Only reached when user-added MCP config opts into it (T062/R7b), but the
+    # library must be present for that path to load.
+    - libsecret-1-0
 win:
   target:
     - nsis

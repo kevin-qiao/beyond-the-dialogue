@@ -141,12 +141,31 @@ dependency in the SDK, so there was nothing to enable.
 driven through its SDK entry point `createMcpAdapter({ config })` with an **isolated
 in-memory config** built from the app's own registered tool servers.
 
+**Landed 2026-09-22 (`add-mcp-support`) as `pi-mcp-adapter@2.35.0`** — the version whose
+published-npm MCP pins clear the reproducibility gate T061 that deferred v2.33.0
+(`research.md` R7b). The concrete shape, replacing the illustrative snippet above:
+
 ```ts
-// inside the agent adapter seam only — never elsewhere
-const adapter = createMcpAdapter({
-  config: buildConfigFromSettings(settings.mcpServers)   // in-memory, isolated
-})
+// src/main/adapters/agent/mcpAdapter.ts — the ONLY file allowed to name the package
+// (a guard test enforces it), reached from the session seam with an ALREADY-RESOLVED grant.
+export async function buildMcpExtension(entries, grant) {
+  if (grant.toolServers.length === 0) return NO_MCP   // confined runs never get here with servers
+  const snapshot = snapshotFromGrant(entries, grant.toolServers) // in-memory, isolated
+  const factory = await loadAdapter()   // jiti: the package entry is TypeScript-only
+  return { extension: factory({ config: { mcpServers: snapshot } }), toolNames: ['mcp'] }
+}
 ```
+
+Registration is at the seam, NOT by turning on the SDK's ambient extension discovery: the
+factory is passed as an **inline** `extensionFactories` entry to `DefaultResourceLoader`,
+which still runs with `noExtensions: true` (inline factories always load; discovered ones
+are what that flag suppresses). The `mcp` proxy tool is then named into the session's
+`tools` allowlist. Teardown emits `session_shutdown` before disposing — the adapter stops
+its (lazily spawned) servers on exactly that event, which `abort()` alone does not fire.
+
+The settings rows are the source of truth; the standard `mcp.json` the app writes to
+`<userData>/pi-agent/mcp.json` is an OUTPUT for inspection and external-tool interop — the
+runtime reads the rows, never that file, and never any global/project MCP config path.
 
 **Non-negotiable isolation property**: the app MUST use the in-memory config form. The
 adapter's documented behaviour is that supplied in-memory configurations do not read or
@@ -156,14 +175,15 @@ lives under the app's user data directory and never touches the user's `~/.pi` �
 rule that already governs the Pi runtime, auth, and model files
 (`src/main/ai/agent-runtime.ts`).
 
-**Risks recorded, with verification gates** (see `research.md` R7 for the full analysis):
+**Risks recorded, with verification gates** (see `research.md` R7/R7b for the full
+analysis; status is the 2026-09-22 landing):
 
-| Risk | Gate before the tool-server half is declared done |
-|---|---|
-| Adapter deps `@modelcontextprotocol/client` and `core` are pinned to **preview-registry commit URLs**, not published npm versions | A clean `npm install` must succeed reproducibly on both target platforms, with resolved artifacts recorded in the lockfile |
-| Two **native modules** (`@napi-rs/keyring`, `fs-native-extensions`) | Must build for Windows and Linux; the Linux secret-service requirement must be documented alongside the existing packaging prerequisites |
-| A **terminal-UI peer dependency** (`@earendil-works/pi-tui`) | Must be satisfiable without shipping a terminal renderer into a GUI app |
-| The adapter supports OAuth via the OS credential store | No credential material may reach the repository, settings, or logs |
+| Risk | Gate | Status at landing |
+|---|---|---|
+| Adapter deps `@modelcontextprotocol/client` and `core` are pinned to **preview-registry commit URLs**, not published npm versions | A clean `npm install` must succeed reproducibly on both target platforms, with resolved artifacts recorded in the lockfile | **PASSED on 2.35.0** (both are published `2.0.0`); re-asserted on every run by `test/mcpAdapter.test.ts`. Windows half of the install remains unexercised |
+| **Native modules** — `@napi-rs/keyring` remains; `fs-native-extensions` is **gone** in 2.35.0 | Must load on Windows and Linux; the Linux secret-service requirement must be documented alongside the existing packaging prerequisites | Linux only, via asar-unpack of the platform binary; loads lazily (not touched at import). Windows **unexercised** — recorded, not assumed |
+| A **terminal-UI peer dependency** (`@earendil-works/pi-tui`) | Must be satisfiable without shipping a terminal renderer into a GUI app | Satisfied by pinning the peer at the root; no module imports it |
+| The adapter supports OAuth via the OS credential store | No credential material may reach the repository, settings, or logs | **Held**: the app never invokes OAuth/keyring; those act only inside user-pasted config, and isolated-config mode disables the adapter's own auth UI |
 
 **If these gates fail**, the tool-server half is deferred and the grant seam ships alone.
 Everything else in this contract is independently valuable and testable without any MCP

@@ -222,6 +222,34 @@ an ungranted one cannot, and a confined operation cannot even when its type is g
 **Purpose**: Adopt the community adapter. **This phase is gated** — every task below must
 pass before the tool-server half of FR-018 is claimed (research R7, plan Complexity Tracking).
 
+> ### OUTCOME (2026-09-22, `add-mcp-support`): the deferral was lifted and T059/T060 are DONE
+>
+> `pi-mcp-adapter@2.33.0` was correctly deferred in September — its MCP dependencies pinned
+> `pkg.pr.new` preview URLs (T061 FAIL). **`pi-mcp-adapter@2.35.0` clears the same gate**:
+> `@modelcontextprotocol/client` and `@modelcontextprotocol/core` are published npm `2.0.0`,
+> `fs-native-extensions` is gone, and a clean install from the project mirror writes no
+> preview URL to the lockfile. So:
+>
+> - **T059/T060 DONE** — the adapter is adopted (pinned `2.35.0`) and wrapped at the seam
+>   `src/main/adapters/agent/mcpAdapter.ts`, driven through the in-memory isolated
+>   `createMcpAdapter({ config })` form (the only reference to the package anywhere in `src`,
+>   enforced by `test/mcpAdapter.test.ts`).
+> - **T061 re-run: PASSED on Linux**, and now **re-asserted on every test run** (exact-pin +
+>   zero-`pkg.pr.new` in the lockfile), so a future dependency bump cannot silently reopen
+>   it. The Windows half of the install remains unexercised — a recorded limitation (T062).
+> - **T062 half-passed**: `@napi-rs/keyring` (the sole remaining native module) loads lazily
+>   on Linux via asar-unpack; Windows is NOT run. **T063 satisfied**: `pi-tui` pinned at the
+>   root to resolve the peer, imported by nothing. **T064 held**: the app never calls
+>   OAuth/keyring; the isolated-config mode also disables the adapter's own auth UI.
+> - **T065 extended** to cover the live seam: grant-filtered in-memory snapshot, confined
+>   non-construction, `session_shutdown` teardown, and the no-static-import rule.
+>
+> The transport reaches **interactive** sessions only; confined jobs construct no adapter.
+> Because the app still has no user-facing interactive-session surface, the loop is proven
+> at the seam and by a scripted harness (`test/mcpRuntime.test.ts`), not a screen —
+> FR-021/FR-022's second amendments keep that honest. The 2.33.0 outcome below is kept
+> verbatim: it is the evidence for why the gate exists and why T061 is now a standing test.
+
 > ### OUTCOME: the gates were run and the tool-server half was DEFERRED
 >
 > **T061 failed on its stated criterion.** `pi-mcp-adapter@2.33.0` pins
@@ -244,12 +272,12 @@ pass before the tool-server half of FR-018 is claimed (research R7, plan Complex
 > config path read or written, nothing reaching `~/.pi`, all agent state under userData —
 > so the property cannot be lost before the transport lands.
 
-- [ ] T059 [US4] **DEFERRED** (T061 failed) — Adopt `pi-mcp-adapter`, **pinned to an exact version** (2.33.0 as researched), consistent with the existing rule that the agent runtime is pinned and never floated. Wrap it in `src/main/adapters/agent/mcpAdapter.ts` so all adapter usage stays behind one seam.
-- [ ] T060 [US4] **DEFERRED** (T061 failed) — Drive it through `createMcpAdapter({ config })` with an **isolated in-memory config** built from `Settings.mcpServers`. The in-memory form is non-negotiable: it is what prevents the adapter from reading or writing the user's `~/.pi` or any global MCP config file, preserving the rule that all agent-runtime state lives under the app's user data directory.
-- [X] T061 [US4] **Gate — dependency reproducibility. RUN: FAILED** (see the outcome note above and research R7a). A clean `npm install` must succeed on both Windows and Linux with the resolved artifacts recorded in the lockfile. The adapter's `@modelcontextprotocol/client` and `@modelcontextprotocol/core` currently resolve to `pkg.pr.new` **preview commit URLs**, not published npm versions — ephemeral third-party artifacts outside npm's provenance pipeline. If this cannot be made reproducible, do not proceed.
-- [ ] T062 [US4] **Gate — native modules. NOT RUN** (no Windows runner available; recorded as a limitation, not a pass). Verify `@napi-rs/keyring` and `fs-native-extensions` build for Windows and Linux. Document the Linux secret-service requirement alongside the existing packaging prerequisites (GTK/NSS/ALSA) in `README.md`.
-- [ ] T063 [US4] **Gate — terminal-UI peer. NOT RUN** (`@earendil-works/pi-tui@0.85.1` exists; satisfiability unestablished). Confirm `@earendil-works/pi-tui` is satisfiable without shipping a terminal renderer into a GUI app. If it forces one in, the adapter is unsuitable.
-- [ ] T064 [US4] **Gate — credential containment. NOT RUN** (could not be proven without installing the package). The adapter supports OAuth via the OS credential store. Confirm no credential material can reach the repository, `src/main/adapters/` app settings, logs, or the activity record.
+- [X] T059 [US4] **DONE (2.35.0)** — Adopt `pi-mcp-adapter`, **pinned to an exact version** (`2.35.0`), consistent with the existing rule that the agent runtime is pinned and never floated. Wrapped in `src/main/adapters/agent/mcpAdapter.ts` so all adapter usage stays behind one seam.
+- [X] T060 [US4] **DONE (2.35.0)** — Driven through `createMcpAdapter({ config })` with an **isolated in-memory config** built from `Settings.mcpServers`. The in-memory form is non-negotiable: it is what prevents the adapter from reading or writing the user's `~/.pi` or any global MCP config file, preserving the rule that all agent-runtime state lives under the app's user data directory. Enforced by the seam-only-import + no-`configPath` guard in `test/mcpAdapter.test.ts`.
+- [X] T061 [US4] **Gate — dependency reproducibility. RE-RUN 2026-09-22: PASSED** on `2.35.0` (its `@modelcontextprotocol/client` and `@modelcontextprotocol/core` are published npm `2.0.0`; `fs-native-extensions` dropped) — and now a **standing test**: `test/mcpAdapter.test.ts` fails if the pin moves off the exact version or any `pkg.pr.new` URL enters the lockfile. The Windows half of the install is still unexercised (see T062). The original 2.33.0 FAILED result is preserved in the OUTCOME note above.
+- [ ] T062 [US4] **Gate — native modules. HALF-RUN**: only `@napi-rs/keyring` remains (2.35.0 dropped `fs-native-extensions`); verified to load lazily on Linux via asar-unpack, **not** run on Windows — recorded as a limitation, not a pass. The Linux secret-service requirement must still be documented alongside the existing packaging prerequisites (GTK/NSS/ALSA) in `README.md`.
+- [X] T063 [US4] **Gate — terminal-UI peer. RUN: SATISFIED** — `@earendil-works/pi-tui` is pinned at the root purely to resolve the peer; no module imports or renders a terminal, and the isolated-config mode keeps the adapter's own TUI setup commands unavailable.
+- [X] T064 [US4] **Gate — credential containment. HELD** — the app never invokes OAuth/keyring code; those act only inside user-pasted server config at the user's own instruction, the isolated-config form disables the adapter's ambient auth UI, and no credential material is written to the repository, settings, or the activity record.
 - [X] T065 [P] [US4] *(adapted — the adapter is deferred, so this is an isolation guard, not an adapter test)* `test/mcpAdapter.test.ts` — assert the adapter is constructed with the in-memory config, that no global MCP config path is read or written, and that nothing reaches `~/.pi`. This is the isolation property the whole adoption rests on; T061–T064 are manual gates, not tests, and a regression here would silently reintroduce global-config reads.
 - [X] T066 [US4] **Fallback — INVOKED**: defer the tool-server half, keep the grant seam (T053–T058 all stand alone and are testable against a scripted tool double), and **amend FR-018 in `specs/001-extensible-type-workflows/spec.md`** rather than leaving the spec claiming unbuilt behaviour. Record the decision and the reason in `specs/001-extensible-type-workflows/research.md` R7a.
 

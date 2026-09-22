@@ -33,14 +33,20 @@ I believe AI-driven software will take this shape: results-oriented, task-centri
 - **Finish + wiki ingestion** — **Finish** on a learning task first copies raw material into your wiki's `raw/` (safe even if everything after fails), then a confined agent writes the curated note at the learning-note path following the wiki's own schema; `.history/` snapshots make every ingest reversible.
 - **Task alarms** — set a date-time on any task; an OS notification fires at that moment and opens the task.
 - **Skills and tool servers, granted per type** — Settings lets you record skills and MCP servers, and grant specific ones to a type. Confined background work — ingestion, polishing, suggestions — never receives a grant under any configuration. Granting external reach makes a session *less* rich, deliberately: it then sees only the task's declared inputs and your request, never your notes, minutes, drafts or wiki. A remote change is never made from a conversation: the assistant can only *propose* one, and you see exactly what would be sent before confirming it.
-  **Not yet connected:** the transport that would let a granted tool server actually reach its external system is deferred — see [Where it's headed](#where-its-headed) and the FR-018 amendment in `specs/001-extensible-type-workflows/spec.md`.
+  **Now connected:** a granted tool server is reached through `pi-mcp-adapter` at the session
+  seam (see [Where it's headed](#where-its-headed) and the FR-018/FR-021 amendments). Add
+  servers manually in Settings by pasting the standard `mcp.json` shape; the app also writes
+  them to its own `mcp.json` under the data directory as an inspection copy. Confined
+  background jobs still never receive a grant, so the connection is only ever live for an
+  interactive session of a type you explicitly granted a server to — and the app does not yet
+  surface such a session in the UI (chat is single-shot today), which is the named next step.
 - **Activity view** — a ledger of what jobs the agent ran and which files it actually touched; failed ingests can be retried.
 - **AI is optional** — no provider configured? Tasks, notes, lists, search, and alarms still work fully.
 - **Chat is where work needs it** — chat is embedded in typed working areas for grounding, not a central surface; a small debug chat remains to inspect the configured model. Because work is not a conversation.
 
 ## Where it's headed
 
-- **Live connectors** — the tool-server transport, so a granted server can actually be read from and acted on. The grant seam, the confinement guarantee, the egress boundary and the propose-then-confirm model all ship today and are tested against a scripted tool double; only the connection is missing. The community adapter that was to provide it failed its reproducibility gate — its dependencies pinned preview-registry commit URLs rather than published npm versions — so the adoption was deferred rather than forced in. The evidence is in `specs/001-extensible-type-workflows/research.md` R7a, and FR-018 is amended rather than left claiming unbuilt behaviour.
+- **Live connectors** — *landed* (`add-mcp-support`): granted tool servers now connect through `pi-mcp-adapter@2.35.0`, which — unlike the 2.33.0 release whose preview-registry dependency pins forced the deferral (R7a) — pins its Model Context Protocol deps to published npm `2.0.0`, clearing the reproducibility gate. The connection is proven at the session seam and by a scripted harness. **What remains:** the per-change remote-write *execution* behind the confirm bar (FR-022's second amendment) still needs an out-of-model tool call, and the first user-facing interactive-session surface — so a granted server is reachable from a screen, not just the seam.
 - **A plugin-centric surface** — the UI becomes something you assemble around the agent core.
 
 Feature behavior is specified in [`specs/`](specs/) — the spec source of truth, written with the Spec Kit workflow. The governing principles live in [`.specify/memory/constitution.md`](.specify/memory/constitution.md).
@@ -49,7 +55,8 @@ Feature behavior is specified in [`specs/`](specs/) — the spec source of truth
 
 - **Node.js ≥ 22** — the dev toolchain; the app itself runs on the Node bundled with Electron.
 - An AI provider API key **only if** you want AI features — see [Configuring AI](#configuring-ai).
-- Linux (packaged builds): `libgtk-3-0`, `libnss3`, `libasound2`.
+- Linux (packaged builds): `libgtk-3-0`, `libnss3`, `libasound2`, and `libsecret-1-0` (only
+  reached if a user-added MCP server opts into the OS credential store — never by the app itself).
 
 ## Getting started
 

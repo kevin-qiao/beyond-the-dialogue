@@ -318,6 +318,58 @@ global MCP config path is read or written, and nothing reaches `~/.pi`.
 
 ---
 
+## R7b. The reproducibility gate clears — the transport is re-adopted
+
+**Decision (2026-09-22, `add-mcp-support`)**: lift the R7a deferral. Adopt
+`pi-mcp-adapter@2.35.0`, **pinned exactly**, driven through the same isolated in-memory
+form R7 named non-negotiable: `createMcpAdapter({ config })`, the config built per session
+from the type's granted servers.
+
+**Why the deferral no longer holds.** R7a invoked the fallback on one disqualifying fact:
+v2.33.0 pinned `@modelcontextprotocol/client` and `@modelcontextprotocol/core` to
+`pkg.pr.new` preview-commit URLs. v2.35.0 pins both to **published npm `2.0.0`** with
+ordinary provenance, and drops the `fs-native-extensions` native dependency entirely. T061
+re-run: a clean install from this project's mirror resolves those artifacts and writes no
+`pkg.pr.new` URL into the lockfile — and that is now asserted on every test run
+(`test/mcpAdapter.test.ts` fails if either property regresses), so the gate cannot be
+undone quietly by a future bump.
+
+**Gates still open, recorded rather than assumed.**
+
+- **T062 (native, both platforms): half-passed.** Only Linux (WSL2) is exercised here.
+  `@napi-rs/keyring` is prebuilt (no compile step) and loads lazily — the isolated-config
+  spike proved neither it nor `recheck` is touched at import — but it is a native `.node`
+  that must be available to the packaged app (handled via asar-unpack of the package's
+  platform binaries). Windows was NOT exercised; that half remains a limitation, not an
+  assumption.
+- **T063 (terminal-UI peer): satisfied without shipping a renderer.** The peer is pinned at
+  the root purely to resolve; nothing imports `pi-tui`.
+- **T064 (credential surface): unchanged posture.** The app never invokes OAuth/keyring
+  code. Those live only inside user-pasted server config (`!` secret helpers, `auth`,
+  `bearerTokenStore`) that the ADAPTER acts on at the user's own instruction — the same
+  trust boundary the settings copy states: "a server you add runs with your permissions;
+  the app never invokes it on its own." The isolated-config mode also disables the
+  adapter's own interactive `/mcp` setup, so there is no ambient code path.
+
+**The one place it plugs in, and what it does not claim.** The adapter is constructed at
+the existing session-build seam (`src/main/ai/session-factory.ts`), fed by
+`resolveGrant`, registered as an inline extension factory so it loads without opening the
+SDK's ambient-extension discovery. A confined run gets NO_GRANT by construction and so
+constructs nothing — the confinement guarantee is honored by the same mechanism that made
+it provable during the deferral, now with a live transport behind it. Sessions are
+disposed with `session_shutdown` emitted, because the adapter's child-process teardown
+hangs off that event and `abort()` alone does not fire it.
+
+**What this deliberately does not claim.** The per-change remote-write execution of
+FR-022 still needs an out-of-model tool call the adapter's public SDK surface does not
+expose, so the confirmation bar keeps reporting the deferral honestly rather than reaching
+a system it cannot safely drive from there. And the app has no user-facing interactive
+session yet, so the transport is proven at the seam and by a scripted harness, not a
+screen. Both gaps are stated in FR-018/FR-021/FR-022's second amendments rather than left
+as discoveries.
+
+---
+
 ## R8. Remote changes are structurally un-makeable without confirmation
 
 **Decision**: Remote-mutating operations are never exposed to the model as directly
