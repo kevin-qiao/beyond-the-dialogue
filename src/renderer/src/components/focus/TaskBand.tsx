@@ -8,13 +8,13 @@ import { statusChip } from '../board/status'
 import { hasPreprocess } from '../../../../core/domain/preprocess'
 
 // AI band of the focus column (spec app-layout, design D4): everything about
-// the selected task except its working note — the header (title/type editing),
+// the selected task except its working note — the header (title editing),
 // pre-process status + outputs, the agent's suggestions, and one action line
 // holding My Day, complete, delete and the alarm. Notes live in TaskNotes.
 //
-// The declared type inputs are not edited here. They are entered at creation
-// and edited through the task's ✎ Edit modal (TaskForm), which owns the one
-// TaskInputsForm in the app.
+// Neither the type nor its declared inputs are changed here. The type is set
+// at creation and re-chosen in the task's ✎ Edit modal (TaskForm), which owns
+// the one type select and the one TaskInputsForm in the app.
 export function TaskBand({ task }: { task: Task }) {
   const { snapshot, types, toggleTask, setMyDay, deleteTask, updateTask, finishTask, runPreprocess, setAlarm, notify, cancelJob, liveJobs } = useApp()
   const t = useT()
@@ -49,31 +49,6 @@ export function TaskBand({ task }: { task: Task }) {
   // has any decides if that section is rendered at all: an empty "Suggestions"
   // heading is noise.
   const ownSuggestions = hasPre ? [] : (snapshot?.suggestions ?? []).filter((s) => s.taskId === task.id)
-
-  // Type change supports built-ins and custom type keys. Selecting a custom
-  // key sets customTypeKey + that key's built-in behavior stays via the def;
-  // built-in selections clear customTypeKey. Inputs are discarded on switch
-  // (main clears them; spec task-types).
-  const handleTypeChange = async (newKey: string) => {
-    if (newKey === def.key) return
-    const target = types.find((t) => t.key === newKey)
-    if (!target) return
-    if (target.kind !== 'plain' || def.kind !== 'plain') {
-      const ok = await confirm({
-        title: t('task.changeType.title'),
-        message: t('task.changeType.message'),
-        confirmLabel: t('task.changeType.confirm'),
-        danger: true
-      })
-      if (!ok) return
-    }
-    const patch: { id: string; type?: Task['type']; customTypeKey?: string | null } = {
-      id: task.id,
-      type: target.isBuiltin ? (target.key as Task['type']) : 'plain',
-      customTypeKey: target.isBuiltin ? null : target.key
-    }
-    void updateTask(patch)
-  }
 
   const handleDeleteClick = async () => {
     const ok = await confirm({
@@ -149,18 +124,6 @@ export function TaskBand({ task }: { task: Task }) {
           )}
         </div>
         <div className="detail-actions">
-          <select
-            className="type-select"
-            value={def.key}
-            onChange={(e) => void handleTypeChange(e.target.value)}
-            title={t('task.type.title')}
-          >
-            {types.map((option) => (
-              <option key={option.key} value={option.key}>
-                {option.emoji} {displayTypeLabel(option, language)}{option.isBuiltin ? '' : t('type.customSuffix')}
-              </option>
-            ))}
-          </select>
           <button className={`day-toggle ${task.inMyDay ? 'in' : ''}`} onClick={() => void setMyDay(task.id, !task.inMyDay)}>
             {task.inMyDay ? `★ ${t('task.myDay.in')}` : `☆ ${t('task.myDay.add')}`}
           </button>

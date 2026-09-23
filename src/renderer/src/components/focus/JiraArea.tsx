@@ -2,13 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import type { Task } from '../../../../shared/types'
 import { useApp } from '../../store'
 import { useT } from '../../lib/useT'
-import { ChatPanel } from './ChatPanel'
 
 // JIRA/Confluence working area (spec jira-confluence-type, design D4): the
-// pasted source (read-only), a chat panel grounded in it, and a comments
-// area whose drafts persist locally with the task (inputs.comments). v0.8 has
-// no connector: there is deliberately no posting action, and the surfaces are
-// labeled as drafts.
+// pasted source (read-only) and a comments area whose drafts persist locally
+// with the task (inputs.comments). The chat grounded in the source moved to
+// the band above (FocusColumn). v0.8 has no connector: there is deliberately
+// no posting action, and the surfaces are labeled as drafts.
 export function JiraArea({ task }: { task: Task }) {
   const { updateTask, notify } = useApp()
   const t = useT()
@@ -67,9 +66,6 @@ export function JiraArea({ task }: { task: Task }) {
           rows={5}
           placeholder={t('jira.drafts.placeholder')}
         />
-      </section>
-      <section className="jira-chat">
-        <ChatPanel taskId={task.id} label="" />
       </section>
     </div>
   )

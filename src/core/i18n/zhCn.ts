@@ -64,7 +64,6 @@ export const zhCN: Catalog = {
 
   // ---- one task: the board row and the AI band ----
   'task.title.edit': '编辑标题',
-  'task.type.title': '任务类型',
   'task.reopen': '重新打开',
   'task.complete': '完成',
   'task.completedBanner': '完成于 {when}',
@@ -76,9 +75,6 @@ export const zhCN: Catalog = {
   'task.myDay.in': '已在 My Day',
   'task.delete.title': '删除任务',
   'task.delete.message': '删除“{title}”？此操作无法撤销。',
-  'task.changeType.title': '更改任务类型？',
-  'task.changeType.message': '该任务类型专属的输入会被清空；标题、描述、清单、笔记与完成状态会保留。',
-  'task.changeType.confirm': '更改类型',
   'task.finish': '完成',
   'task.finish.failed': '完成失败',
   'task.finishEmpty.title': '还没写笔记就要完成？',
@@ -151,9 +147,10 @@ export const zhCN: Catalog = {
   'focus.ai.hide': '隐藏 AI 面板',
   'focus.ai.showLabel': '显示 AI',
   'focus.ai.hideLabel': '隐藏 AI',
+  'focus.band.ai': 'AI',
+  'focus.band.chat': '对话',
   'editor.write': '编写',
   'editor.preview': '预览',
-  'editor.chat': '对话',
   'editor.saved': '已保存 {when}',
   'task.notes.placeholder': '补充细节…',
 

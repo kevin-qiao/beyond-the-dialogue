@@ -4,7 +4,6 @@ import type { Task } from '../../../../shared/types'
 import { effectiveType } from '../../lib/typeCatalog'
 import { emptyContentWarning, finishActionLabel, workingAreaFor } from '../../../../core/domain/workingArea'
 import { NotesEditor } from './NotesEditor'
-import { ChatPanel } from './ChatPanel'
 import { RemoteProposalBar } from './RemoteProposalBar'
 import { useDialog } from '../ui/Dialog'
 
@@ -15,8 +14,9 @@ import { useDialog } from '../ui/Dialog'
 // describes what will actually happen — "ingest to wiki" is true for one
 // behaviour out of four, and saying it for a meeting would be a lie.
 
-/** The markdown editing surface: the editor's Write/Preview/Chat tabs over one
- *  body, plus Finish and any proposed remote change. */
+/** The markdown editing surface: the editor's Write/Preview tabs over one
+ *  body, plus Finish and any proposed remote change. The chat is not here — it
+ *  lives in the band above (FocusColumn). */
 function MarkdownArea({ task }: { task: Task }) {
   const { snapshot, saveNote, finishTask, notify } = useApp()
   const t = useT()
@@ -49,15 +49,7 @@ function MarkdownArea({ task }: { task: Task }) {
   return (
     <div className="learning-area focus-notes">
       <section className="notes-section">
-        <NotesEditor
-          taskId={task.id}
-          initial={notes?.content ?? ''}
-          onSave={saveNote}
-          // The chat is the editor's third tab rather than a fixed pane under
-          // it, so the conversation and the note share the column's height
-          // instead of splitting it.
-          chat={<ChatPanel taskId={task.id} />}
-        />
+        <NotesEditor taskId={task.id} initial={notes?.content ?? ''} onSave={saveNote} />
       </section>
       {!task.completed && writes && (
         <div className="finish-row">

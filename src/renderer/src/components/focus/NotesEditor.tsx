@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocale, useT } from '../../lib/useT'
 import { EditorView, basicSetup } from 'codemirror'
 import { markdown } from '@codemirror/lang-markdown'
@@ -6,12 +6,12 @@ import MarkdownIt from 'markdown-it'
 
 const md = new MarkdownIt()
 
-type Tab = 'write' | 'preview' | 'chat'
+type Tab = 'write' | 'preview'
 
-// The working-area tab shell: Write (the CodeMirror editor), Preview (that
-// document rendered), and Chat when the caller supplies a panel for it. The
-// three are peers sharing one body, so the section fills the column and only
-// the active tab is displayed.
+// The working-area tab shell: Write (the CodeMirror editor) and Preview (that
+// document rendered). The two are peers sharing one body, so the section fills
+// the column and only the active tab is displayed. (Chat used to be this
+// shell's third tab; it now lives in the band above, see FocusColumn.)
 //
 // The editor host is NEVER unmounted while another tab is active — it is
 // hidden with CSS. Rebuilding the CodeMirror view on every tab switch would
@@ -20,14 +20,11 @@ type Tab = 'write' | 'preview' | 'chat'
 export function NotesEditor({
   taskId,
   initial,
-  onSave,
-  chat
+  onSave
 }: {
   taskId: string
   initial: string
   onSave: (taskId: string, content: string) => Promise<void>
-  /** The Chat tab's body. Omitted leaves the tab bar as Write | Preview. */
-  chat?: ReactNode
 }) {
   const t = useT()
   const locale = useLocale()
@@ -110,18 +107,12 @@ export function NotesEditor({
         <button className={`mini-btn ${tab === 'preview' ? 'active' : ''}`} onClick={openPreview}>
           {t('editor.preview')}
         </button>
-        {chat && (
-          <button className={`mini-btn ${tab === 'chat' ? 'active' : ''}`} onClick={() => setTab('chat')}>
-            {t('editor.chat')}
-          </button>
-        )}
         {savedAt && <span className="muted">{t('editor.saved', { when: savedAt })}</span>}
       </div>
       {/* The editor host stays mounted (hidden via CSS) so the CodeMirror view
-          survives Write→Preview→Chat→Write; the other tabs are siblings. */}
+          survives Write→Preview→Write; Preview is its sibling. */}
       <div ref={containerRef} className="cm-editor-host" style={{ display: tab === 'write' ? '' : 'none' }} />
       {tab === 'preview' && <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: html }} />}
-      {tab === 'chat' && chat}
     </div>
   )
 }

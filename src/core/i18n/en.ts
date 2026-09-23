@@ -69,7 +69,6 @@ export const en = {
 
   // ---- one task: the board row and the AI band ----
   'task.title.edit': 'Edit title',
-  'task.type.title': 'Task type',
   'task.reopen': 'Reopen',
   'task.complete': 'Complete',
   'task.completedBanner': 'Completed {when}',
@@ -81,10 +80,6 @@ export const en = {
   'task.myDay.in': 'In My Day',
   'task.delete.title': 'Delete task',
   'task.delete.message': 'Delete "{title}"? This cannot be undone.',
-  'task.changeType.title': 'Change task type?',
-  'task.changeType.message':
-    'The type-specific inputs will be cleared for this task. Title, description, list, notes, and completion are kept.',
-  'task.changeType.confirm': 'Change type',
   'task.finish': 'Finish',
   'task.finish.failed': 'Finish failed',
   'task.finishEmpty.title': 'Finish without notes?',
@@ -160,9 +155,10 @@ export const en = {
   'focus.ai.hide': 'Hide AI band',
   'focus.ai.showLabel': 'show AI',
   'focus.ai.hideLabel': 'hide AI',
+  'focus.band.ai': 'AI',
+  'focus.band.chat': 'Chat',
   'editor.write': 'Write',
   'editor.preview': 'Preview',
-  'editor.chat': 'Chat',
   'editor.saved': 'saved {when}',
   'task.notes.placeholder': 'Add details…',
 
