@@ -790,16 +790,6 @@ button {
   gap: 4px;
 }
 
-.type-select {
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  padding: 4px 8px;
-  font: inherit;
-  font-size: 12px;
-}
-
 .link-row {
   display: flex;
   flex-direction: column;
@@ -1570,6 +1560,25 @@ button {
   gap: 12px;
 }
 
+/* Band tabs — the AI band and the task's chat share the top half */
+.band-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px 0;
+}
+
+/* While Chat is open the band stops scrolling: the conversation fills it and
+   .chat-messages scrolls inside, so the input row stays anchored at its bottom. */
+.focus-band.chat-open {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.focus-band.chat-open .chat-panel {
+  padding: 6px 12px 12px;
+}
+
 .focus-empty {
   padding: 40px 24px;
 }
@@ -1663,13 +1672,6 @@ button {
 
 .jira-comments {
   flex-shrink: 0;
-}
-
-.jira-chat {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
 }
 
 /* ---- Top bar actions (drawer entry points) ---- */
@@ -2176,11 +2178,6 @@ button {
 
 .detail-actions {
   flex-wrap: wrap;
-}
-
-.detail-actions .type-select {
-  background: var(--bg-panel);
-  border-color: var(--border-2);
 }
 
 /* Detail cards (analysis etc.) look like the prototype output cards */
@@ -3093,14 +3090,6 @@ select,
 .detail-actions {
   gap: 6px;
   flex-wrap: wrap;
-}
-.detail-actions .type-select {
-  height: 28px;
-  padding: 0 22px 0 10px;
-  border-radius: 6px;
-  background: var(--bg-panel);
-  border-color: var(--border);
-  font-size: 12px;
 }
 .detail-actions .day-toggle,
 .detail-actions .secondary-btn,
