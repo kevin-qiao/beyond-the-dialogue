@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useT } from '../../lib/useT'
 
 // Themed in-app dialogs replacing native confirm()/prompt() (spec app-layout).
 // useDialog returns promise-based confirm/prompt plus the rendered dialog.
@@ -25,6 +26,7 @@ interface DialogState {
 }
 
 export function useDialog() {
+  const t = useT()
   const [state, setState] = useState<DialogState | null>(null)
   const [inputValue, setInputValue] = useState('')
 
@@ -43,7 +45,7 @@ export function useDialog() {
         kind: 'confirm',
         title: opts.title,
         message: opts.message,
-        confirmLabel: opts.confirmLabel ?? 'Confirm',
+        confirmLabel: opts.confirmLabel ?? t('common.confirm'),
         danger: opts.danger,
         resolve: (v) => resolve(v === true)
       })
@@ -55,7 +57,7 @@ export function useDialog() {
         kind: 'prompt',
         title: opts.title,
         message: opts.message,
-        confirmLabel: opts.confirmLabel ?? 'OK',
+        confirmLabel: opts.confirmLabel ?? t('common.ok'),
         placeholder: opts.placeholder,
         resolve: (v) => resolve(typeof v === 'string' ? v : null)
       })
@@ -65,7 +67,9 @@ export function useDialog() {
     <div className="modal-backdrop" onClick={() => close(null)}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <span className="modal-tag">{state.danger ? 'Danger' : state.kind === 'prompt' ? 'Input' : 'Confirm'}</span>
+          <span className="modal-tag">
+            {state.danger ? t('dialog.tag.danger') : state.kind === 'prompt' ? t('dialog.tag.input') : t('dialog.tag.confirm')}
+          </span>
           <h3>{state.title}</h3>
         </div>
         <div className="modal-body">
@@ -86,7 +90,7 @@ export function useDialog() {
         </div>
         <div className="modal-actions">
           <button className="secondary-btn" onClick={() => close(null)}>
-            Cancel
+            {t('common.cancel')}
           </button>
           {state.kind === 'confirm' ? (
             <button className={state.danger ? 'danger-btn' : 'primary-btn'} onClick={() => close(true)}>

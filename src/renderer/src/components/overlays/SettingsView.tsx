@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../../store'
 import type { Destination, DestinationStore, FinishBehaviour, McpServerEntry, Settings, SkillEntry, TaskKind, TaskTypeDef } from '../../../../shared/types'
+import { SETTINGS_KEYS } from '../../../../shared/types'
 import { FINISH_BEHAVIOURS } from '../../../../core/domain/categories'
 import { describeDestination } from '../../../../core/domain/destination'
-import { allTypeConfigs } from '../../lib/typeCatalog'
+import { describeMcpServer, parseMcpJsonPaste } from '../../../../core/domain/mcpConfig'
+import { LANGUAGES, LANGUAGE_NAMES, isLanguage, type MessageKey } from '../../../../core/i18n'
+import { useLanguage, useT } from '../../lib/useT'
+import { allTypeConfigs, displayTypeDescription, displayTypeLabel, localizeTypeDef } from '../../lib/typeCatalog'
 import { useDialog } from '../ui/Dialog'
 
 const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
@@ -15,22 +19,26 @@ const DEFAULT_FINISH_BEHAVIOUR: FinishBehaviour = 'complete-only'
 // Plain-language descriptions of the closed set of four (FR-014). A user
 // choosing a behaviour is choosing what happens to their work, so the list
 // says what each one does rather than naming it and stopping.
-const FINISH_BEHAVIOUR_LABELS: Record<FinishBehaviour, string> = {
-  'complete-only': 'Complete only — writes nothing',
-  'file-as-is': 'File as-is — saves your content unchanged',
-  'polish-then-file': 'Polish then file — the assistant rewrites it, then saves',
-  'deposit-then-curate': 'Deposit then curate — raw material preserved first, then the assistant authors the artifact'
+const FINISH_BEHAVIOUR_LABELS: Record<FinishBehaviour, MessageKey> = {
+  'complete-only': 'finishBehaviour.completeOnly',
+  'file-as-is': 'finishBehaviour.fileAsIs',
+  'polish-then-file': 'finishBehaviour.polishThenFile',
+  'deposit-then-curate': 'finishBehaviour.depositThenCurate'
 }
 
 type Tab = 'general' | 'types' | 'plugins' | 'ai'
 
 // Settings drawer (spec task-types / skills-mcp-settings): capsule tabs —
-// General (appearance + wiki), Types (the workflow-type registry: built-in
-// presentation editing + custom type CRUD), AI (provider/model/key). Types
-// persist immediately through the types IPC; General/AI share a draft saved
-// with the Save button.
+// General (appearance), Types (the workflow-type registry: built-in
+// presentation and destination editing + custom type CRUD), AI
+// (provider/model/key). Types persist immediately through the types IPC;
+// General/AI share a draft saved with the Save button. The wiki directory is
+// NOT a setting here — a `store: wiki` type declares its own destination on
+// the Types tab, and with none configured a Finish is refused.
 export function SettingsView() {
   const { snapshot, types, saveSettings, saveType, deleteType } = useApp()
+  const t = useT()
+  const language = useLanguage()
   const [tab, setTab] = useState<Tab>('general')
 
   const [draft, setDraft] = useState<Settings | null>(snapshot?.settings ?? null)
@@ -94,16 +102,23 @@ export function SettingsView() {
   // user knows what'll fall back to plain.
   const referenceCount = (key: string) => (snapshot?.tasks ?? []).filter((t) => !t.deletedAt && t.customTypeKey === key).length
 
+  // Does the draft differ from what is saved? Driven by SETTINGS_KEYS rather
+  // than a hand-written list of comparisons: a setting missing from the list
+  // fails silently — the field edits fine and Save simply never enables — so
+  // the list is read from the one declaration of the field set instead.
   const dirty = useMemo(() => {
-    if (!draft) return false
-    if (draft.theme !== snapshot?.settings.theme) return true
-    if (draft.provider !== snapshot?.settings.provider) return true
-    if (draft.model !== snapshot?.settings.model) return true
-    if ((draft.apiKey ?? '') !== (snapshot?.settings.apiKey ?? '')) return true
-    if (draft.wikiPath !== snapshot?.settings.wikiPath) return true
-    if (JSON.stringify(draft.skills ?? []) !== JSON.stringify(snapshot?.settings.skills ?? [])) return true
-    if (JSON.stringify(draft.mcpServers ?? []) !== JSON.stringify(snapshot?.settings.mcpServers ?? [])) return true
-    return false
+    if (!draft || !snapshot?.settings) return false
+    const saved = snapshot.settings
+    return SETTINGS_KEYS.some((key) => {
+      const a = draft[key]
+      const b = saved[key]
+      // The two object-valued settings (skills, mcpServers) are edited in
+      // place, so identity comparison would always report a change.
+      if (typeof a === 'object' || typeof b === 'object') {
+        return JSON.stringify(a ?? null) !== JSON.stringify(b ?? null)
+      }
+      return a !== b
+    })
   }, [draft, snapshot?.settings])
 
   // The seed input schema a kind supports — taken from its built-in type.
@@ -113,18 +128,18 @@ export function SettingsView() {
   const builtinTypes = allTypeConfigs(types).filter((t) => t.isBuiltin)
   const customTypes = allTypeConfigs(types).filter((t) => !t.isBuiltin)
 
-  if (!draft) return <div className="view">Loading…</div>
+  if (!draft) return <div className="view">{t('app.loading')}</div>
 
   return (
     <div className="view settings-view">
       <div className="view-head">
-        <h2>Settings</h2>
+        <h2>{t('drawer.settings.title')}</h2>
         <button className="primary-btn" disabled={!dirty} onClick={() => void save()}>
-          {saved ? '✓ Saved' : 'Save'}
+          {saved ? `✓ ${t('common.saved')}` : t('common.save')}
         </button>
       </div>
 
-      <div className="settings-tabs" role="tablist" aria-label="Settings sections">
+      <div className="settings-tabs" role="tablist" aria-label={t('settings.sections')}>
         <button
           role="tab"
           aria-selected={tab === 'general'}
@@ -132,7 +147,7 @@ export function SettingsView() {
           onClick={() => setTab('general')}
         >
           <span className="tab-ico">⚙</span>
-          General
+          {t('settings.tab.general')}
         </button>
         <button
           role="tab"
@@ -141,7 +156,7 @@ export function SettingsView() {
           onClick={() => setTab('types')}
         >
           <span className="tab-ico">▤</span>
-          Types
+          {t('settings.tab.types')}
           {customTypes.length > 0 && <span className="tab-count">{customTypes.length}</span>}
         </button>
         <button
@@ -151,7 +166,7 @@ export function SettingsView() {
           onClick={() => setTab('plugins')}
         >
           <span className="tab-ico">🔌</span>
-          Plugins
+          {t('settings.tab.plugins')}
         </button>
         <button
           role="tab"
@@ -160,36 +175,50 @@ export function SettingsView() {
           onClick={() => setTab('ai')}
         >
           <span className="tab-ico">✦</span>
-          AI
+          {t('settings.tab.ai')}
         </button>
       </div>
 
       {tab === 'general' && (
         <>
           <section className="settings-section">
-            <h4>Appearance</h4>
+            <h4>{t('settings.appearance.title')}</h4>
             <label>
-              Theme <span className="muted">(applies immediately, saved on Save)</span>
+              {t('settings.theme')} <span className="muted">{t('settings.appearance.language.hint')}</span>
               <select value={draft.theme} onChange={(e) => update({ theme: e.target.value as 'light' | 'dark' })}>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
+                <option value="light">{t('settings.theme.light')}</option>
+                <option value="dark">{t('settings.theme.dark')}</option>
               </select>
             </label>
-          </section>
-
-          <section className="settings-section">
-            <h4>Learning space (wiki)</h4>
             <label>
-              Wiki directory <span className="muted">(created automatically on first use)</span>
-              <input value={draft.wikiPath} onChange={(e) => update({ wikiPath: e.target.value })} placeholder="~/Documents/WorkBoard-Wiki" />
+              {t('settings.appearance.language')} <span className="muted">{t('settings.appearance.language.hint')}</span>
+              <select
+                value={draft.uiLanguage}
+                onChange={(e) => {
+                  // The language the app's own text is shown in. It never
+                  // reaches a prompt: the agent's output language is its own.
+                  const next = e.target.value
+                  if (isLanguage(next)) update({ uiLanguage: next })
+                }}
+              >
+                {/* Each language is named in its own script, so a user who
+                    cannot read the current interface can still find theirs. */}
+                {LANGUAGES.map((l) => (
+                  <option key={l} value={l}>
+                    {LANGUAGE_NAMES[l]}
+                  </option>
+                ))}
+              </select>
             </label>
           </section>
 
           <div className="ai-status-card">
             {snapshot?.aiConfigured ? (
-              <span className="ai-on">AI is configured · {draft.provider} / {draft.model || 'no model'}</span>
+              <span className="ai-on">
+                {t('settings.ai.configured', { provider: draft.provider, model: draft.model || t('settings.ai.noModel') })}
+              </span>
             ) : (
-              <span className="ai-off">AI not configured — non-AI features still work. Configure in the AI tab.</span>
+              <span className="ai-off">{t('settings.ai.notConfigured')}</span>
             )}
           </div>
         </>
@@ -200,23 +229,23 @@ export function SettingsView() {
           {typeError && <div className="warning-box"><p>{typeError}</p><button className="mini-btn" onClick={() => setTypeError(null)}>×</button></div>}
           <section className="settings-section">
             <div className="section-head">
-              <h4>Built-in types</h4>
-              <span className="muted">Presentation is editable; behavior is fixed</span>
+              <h4>{t('settings.types.builtin.title')}</h4>
+              <span className="muted">{t('settings.types.builtin.hint')}</span>
             </div>
             <div className="type-card-grid">
               {builtinTypes.map((c) => (
                 <div key={c.key} className="type-card builtin">
                   <div className="tc-emoji">{c.emoji}</div>
                   <div className="tc-main">
-                    <div className="tc-label">{c.label}</div>
+                    <div className="tc-label">{displayTypeLabel(c, language)}</div>
                     <code className="tc-key">{c.key} · {c.kind}</code>
-                    {c.description && <div className="tc-desc">{c.description}</div>}
+                    {c.description && <div className="tc-desc">{displayTypeDescription(c, language)}</div>}
                   </div>
                   <div className="tc-actions">
-                    <button className="icon-btn tiny" title="Edit presentation" onClick={() => setTypeEditor({ mode: 'edit', existing: c })}>
+                    <button className="icon-btn tiny" title={t('settings.types.editPresentation')} onClick={() => setTypeEditor({ mode: 'edit', existing: c })}>
                       ✎
                     </button>
-                    <span className="tc-badge">built-in</span>
+                    <span className="tc-badge">{t('palette.type.builtin')}</span>
                   </div>
                 </div>
               ))}
@@ -225,16 +254,16 @@ export function SettingsView() {
 
           <section className="settings-section">
             <div className="section-head">
-              <h4>Custom types</h4>
+              <h4>{t('settings.types.custom.title')}</h4>
               <button className="mini-btn primary" onClick={() => setTypeEditor({ mode: 'add' })}>
-                ＋ New type
+                ＋ {t('settings.types.new')}
               </button>
             </div>
             {customTypes.length === 0 ? (
               <div className="type-empty">
                 <div className="te-emoji">📦</div>
-                <div className="te-msg">No custom types yet</div>
-                <div className="te-sub">Click “＋ New type” to wrap a built-in behavior kind with your own label, emoji, and input fields.</div>
+                <div className="te-msg">{t('settings.types.empty.title')}</div>
+                <div className="te-sub">{t('settings.types.empty.body')}</div>
               </div>
             ) : (
               <div className="type-card-grid">
@@ -242,15 +271,15 @@ export function SettingsView() {
                   <div key={c.key} className="type-card">
                     <div className="tc-emoji">{c.emoji}</div>
                     <div className="tc-main">
-                      <div className="tc-label">{c.label}</div>
+                      <div className="tc-label">{displayTypeLabel(c, language)}</div>
                       <code className="tc-key">{c.key} · {c.kind}</code>
-                      {c.description && <div className="tc-desc">{c.description}</div>}
+                      {c.description && <div className="tc-desc">{displayTypeDescription(c, language)}</div>}
                     </div>
                     <div className="tc-actions">
-                      <button className="icon-btn tiny" title="Edit" onClick={() => setTypeEditor({ mode: 'edit', existing: c })}>
+                      <button className="icon-btn tiny" title={t('common.edit')} onClick={() => setTypeEditor({ mode: 'edit', existing: c })}>
                         ✎
                       </button>
-                      <button className="icon-btn tiny danger" title="Delete" onClick={() => setPendingDelete(c)}>
+                      <button className="icon-btn tiny danger" title={t('common.delete')} onClick={() => setPendingDelete(c)}>
                         🗑
                       </button>
                     </div>
@@ -266,23 +295,35 @@ export function SettingsView() {
         <>
           {saveError && (
             <div className="warning-box">
-              <p>Could not save: {saveError}</p>
+              <p>{t('settings.plugins.saveFailed', { error: saveError })}</p>
               <button className="mini-btn" onClick={() => setSaveError(null)}>×</button>
             </div>
           )}
-          <div className="inert-banner muted">
-            Skills are imported into the app's skill folder but not yet loaded by the agent; MCP servers are configuration-only for now.
-          </div>
+          <div className="inert-banner muted">{t('settings.plugins.inert')}</div>
 
           <SkillsSection
             skills={draft.skills ?? []}
             onChange={(skills) => update({ skills })}
-            confirmRemove={async (name) => confirm({ title: 'Remove skill', message: `Remove skill “${name}”?`, confirmLabel: 'Remove', danger: true })}
+            confirmRemove={async (name) =>
+              confirm({
+                title: t('settings.plugins.removeSkill.title'),
+                message: t('settings.plugins.removeSkill.message', { name }),
+                confirmLabel: t('common.remove'),
+                danger: true
+              })
+            }
           />
           <McpSection
             servers={draft.mcpServers ?? []}
             onChange={(mcpServers) => update({ mcpServers })}
-            confirmRemove={async (name) => confirm({ title: 'Remove MCP server', message: `Remove MCP server “${name}”?`, confirmLabel: 'Remove', danger: true })}
+            confirmRemove={async (name) =>
+              confirm({
+                title: t('settings.plugins.removeServer.title'),
+                message: t('settings.plugins.removeServer.message', { name }),
+                confirmLabel: t('common.remove'),
+                danger: true
+              })
+            }
           />
         </>
       )}
@@ -290,9 +331,9 @@ export function SettingsView() {
       {tab === 'ai' && (
         <>
           <section className="settings-section">
-            <h4>AI provider</h4>
+            <h4>{t('settings.ai.title')}</h4>
             <label>
-              Provider
+              {t('settings.ai.provider')}
               <select value={draft.provider} onChange={(e) => update({ provider: e.target.value })}>
                 {providers.map((p) => (
                   <option key={p} value={p}>
@@ -302,7 +343,7 @@ export function SettingsView() {
               </select>
             </label>
             <label>
-              Model
+              {t('settings.ai.model')}
               <input
                 list="model-options"
                 value={draft.model}
@@ -316,7 +357,7 @@ export function SettingsView() {
               </datalist>
             </label>
             <label>
-              API key <span className="muted">(stored in the app's private data dir)</span>
+              {t('settings.ai.apiKey')} <span className="muted">{t('settings.ai.apiKey.hint')}</span>
               <input
                 type="password"
                 value={draft.apiKey ?? ''}
@@ -326,11 +367,13 @@ export function SettingsView() {
             </label>
             <div className="row">
               <button className="mini-btn" disabled={testing} onClick={() => void runTest()}>
-                {testing ? 'Testing…' : 'Test connection'}
+                {testing ? t('settings.ai.testing') : t('settings.ai.test')}
               </button>
               {testResult && (
                 <span className={testResult.ok ? 'ai-on' : 'error-text'}>
-                  {testResult.ok ? `Connected — model replied: ${testResult.text ?? 'OK'}` : `Failed: ${testResult.error ?? 'unknown error'}`}
+                  {testResult.ok
+                    ? t('settings.ai.connected', { text: testResult.text || t('common.ok') })
+                    : t('settings.ai.failed', { error: testResult.error ?? t('task.preprocess.unknownError') })}
                 </span>
               )}
             </div>
@@ -390,8 +433,21 @@ function SkillsSection({
   onChange: (next: SkillEntry[]) => void
   confirmRemove: (name: string) => Promise<boolean>
 }) {
+  const t = useT()
   const [importing, setImporting] = useState(false)
+  const [githubUrl, setGithubUrl] = useState('')
+  const [githubImporting, setGithubImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Both import paths end here: one duplicate check, one append, no drift
+  // between the folder import and the GitHub import.
+  const addEntry = (entry: SkillEntry) => {
+    if (skills.some((s) => s.name === entry.name)) {
+      setError(t('settings.skills.exists', { name: entry.name }))
+      return
+    }
+    onChange([...skills, entry])
+  }
 
   const handleImport = async () => {
     setImporting(true)
@@ -399,31 +455,44 @@ function SkillsSection({
     try {
       const entry = await window.api.importSkill()
       if (!entry) return
-      if (skills.some((s) => s.name === entry.name)) {
-        setError(`Skill "${entry.name}" already exists — names must be unique`)
-        return
-      }
-      onChange([...skills, entry])
+      addEntry(entry)
     } catch (e: any) {
-      setError(e?.message ?? 'Could not import the skill folder')
+      setError(e?.message ?? t('settings.skills.importFailed'))
     } finally {
       setImporting(false)
+    }
+  }
+
+  const handleGitHubImport = async () => {
+    const url = githubUrl.trim()
+    if (!url) return
+    setGithubImporting(true)
+    setError(null)
+    try {
+      addEntry(await window.api.importSkillFromGitHub(url))
+      setGithubUrl('')
+    } catch (e: any) {
+      // The refusal arrives already phrased in the user's language — main
+      // localizes the codes before they cross IPC.
+      setError(e?.message ?? t('settings.skills.githubImportFailed'))
+    } finally {
+      setGithubImporting(false)
     }
   }
 
   return (
     <section className="settings-section">
       <div className="section-head">
-        <h4>Skills</h4>
-        <span className="muted">imported · not yet loaded by the agent</span>
+        <h4>{t('settings.skills.title')}</h4>
+        <span className="muted">{t('settings.skills.hint')}</span>
       </div>
       {skills.map((s) => (
         <div key={s.name} className="plugin-row">
-          <input value={s.name} disabled title="Name is the key" className="plugin-name" />
-          <input value={s.description} disabled placeholder="no description" />
+          <input value={s.name} disabled title={t('settings.skills.nameKey')} className="plugin-name" />
+          <input value={s.description} disabled placeholder={t('settings.skills.noDescription')} />
           <button
             className="icon-btn tiny danger"
-            title="Remove"
+            title={t('common.remove')}
             onClick={() =>
               void confirmRemove(s.name).then((ok) => {
                 if (ok) onChange(skills.filter((x) => x.name !== s.name))
@@ -436,13 +505,35 @@ function SkillsSection({
       ))}
       {skills.length === 0 && (
         <div className="type-empty">
-          <div className="te-msg">No skills yet</div>
-          <div className="te-sub">Import a folder containing SKILL.md to add a skill.</div>
+          <div className="te-msg">{t('settings.skills.empty')}</div>
+          <div className="te-sub">{t('settings.skills.emptyBody')}</div>
         </div>
       )}
       <div className="plugin-row">
         <button className="mini-btn primary" disabled={importing} onClick={() => void handleImport()}>
-          {importing ? 'Importing…' : '＋ Import skill folder'}
+          {importing ? t('settings.skills.importing') : `＋ ${t('settings.skills.import')}`}
+        </button>
+      </div>
+      {/* The second import path: a GitHub repository (or a folder inside one).
+          The download, the archive safety checks and the SKILL.md contract all
+          live in main; this row only hands over the URL. */}
+      <div className="plugin-row">
+        <input
+          value={githubUrl}
+          onChange={(e) => setGithubUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void handleGitHubImport()
+          }}
+          placeholder={t('settings.skills.githubPlaceholder')}
+          spellCheck={false}
+          disabled={githubImporting}
+        />
+        <button
+          className="mini-btn primary"
+          disabled={githubImporting || !githubUrl.trim()}
+          onClick={() => void handleGitHubImport()}
+        >
+          {githubImporting ? t('settings.skills.importing') : `＋ ${t('settings.skills.githubImport')}`}
         </button>
       </div>
       {error && <div className="error-text">{error}</div>}
@@ -450,9 +541,13 @@ function SkillsSection({
   )
 }
 
-// MCP server management (spec skills-mcp-settings): unique name + a complete
-// stdio transport (command; optional args/env) validated before persistence
-// (renderer checks shape; main re-validates on save).
+// MCP server management (add-mcp-support): servers are added MANUALLY by
+// pasting the standard mcp.json shape — the app's own row form could not carry
+// enough information to make a server work (env was uneditable, remote servers
+// impossible). The paste accepts a complete {"mcpServers": {…}} block or a
+// { "<name>": {…} } map; the core parser decides, main re-validates on save.
+// Saved servers are connected to the interactive sessions of types that grant
+// them, and auto-written to the app's mcp.json as an inspection copy.
 function McpSection({
   servers,
   onChange,
@@ -462,56 +557,36 @@ function McpSection({
   onChange: (next: McpServerEntry[]) => void
   confirmRemove: (name: string) => Promise<boolean>
 }) {
-  const [name, setName] = useState('')
-  const [command, setCommand] = useState('')
-  const [args, setArgs] = useState('')
+  const t = useT()
+  const [paste, setPaste] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   const add = () => {
-    const n = name.trim()
-    if (!n) return setError('Name is required')
-    if (servers.some((s) => s.name === n)) return setError(`MCP server "${n}" already exists — names must be unique`)
-    if (!command.trim()) return setError('A command is required for the stdio transport')
-    onChange([
-      ...servers,
-      { name: n, transport: { type: 'stdio', command: command.trim(), args: args.trim() ? args.trim().split(/\s+/) : undefined } }
-    ])
-    setName('')
-    setCommand('')
-    setArgs('')
+    const raw = paste.trim()
+    if (!raw) return setError(t('settings.mcp.emptyPaste'))
+    const { entries, issues } = parseMcpJsonPaste(raw)
+    if (issues.length > 0) return setError(issues.map((i) => t(i.key, i.params)).join('\n'))
+    const clash = entries.find((e) => servers.some((s) => s.name === e.name))
+    // Adding never silently replaces — the user removes the old entry first.
+    if (clash) return setError(t('settings.mcp.exists', { name: clash.name }))
+    onChange([...servers, ...entries])
+    setPaste('')
     setError(null)
   }
 
   return (
     <section className="settings-section">
       <div className="section-head">
-        <h4>MCP servers</h4>
-        <span className="muted">not yet active — configuration only</span>
+        <h4>{t('settings.mcp.title')}</h4>
+        <span className="muted">{t('settings.mcp.hint')}</span>
       </div>
-      {servers.map((s, i) => (
+      {servers.map((s) => (
         <div key={s.name} className="plugin-row">
-          <input value={s.name} disabled title="Name is the key" className="plugin-name" />
-          <input
-            value={s.transport.command}
-            placeholder="command"
-            onChange={(e) =>
-              onChange(servers.map((x, xi) => (xi === i ? { ...x, transport: { ...x.transport, command: e.target.value } } : x)))
-            }
-          />
-          <input
-            value={(s.transport.args ?? []).join(' ')}
-            placeholder="args (space-separated)"
-            onChange={(e) =>
-              onChange(
-                servers.map((x, xi) =>
-                  xi === i ? { ...x, transport: { ...x.transport, args: e.target.value.trim() ? e.target.value.trim().split(/\s+/) : undefined } } : x
-                )
-              )
-            }
-          />
+          <input value={s.name} disabled title={t('settings.skills.nameKey')} className="plugin-name" />
+          <input value={describeMcpServer(s)} disabled />
           <button
             className="icon-btn tiny danger"
-            title="Remove"
+            title={t('common.remove')}
             onClick={() =>
               void confirmRemove(s.name).then((ok) => {
                 if (ok) onChange(servers.filter((x) => x.name !== s.name))
@@ -522,15 +597,22 @@ function McpSection({
           </button>
         </div>
       ))}
-      {servers.length === 0 && <div className="type-empty"><div className="te-msg">No MCP servers yet</div></div>}
+      {servers.length === 0 && <div className="type-empty"><div className="te-msg">{t('settings.mcp.empty')}</div></div>}
+      <textarea
+        className="mcp-paste"
+        rows={4}
+        spellCheck={false}
+        value={paste}
+        onChange={(e) => setPaste(e.target.value)}
+        placeholder={t('settings.mcp.pastePlaceholder')}
+      />
       <div className="plugin-row">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
-        <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="command (e.g. npx)" />
-        <input value={args} onChange={(e) => setArgs(e.target.value)} placeholder="-y some-mcp-server" />
-        <button className="mini-btn primary" onClick={add}>
-          ＋ Add
+        <button className="mini-btn primary" disabled={!paste.trim()} onClick={add}>
+          ＋ {t('settings.mcp.addJson')}
         </button>
       </div>
+      <div className="muted mcp-note">{t('settings.mcp.mcpJsonNote')}</div>
+      <div className="muted mcp-note">{t('settings.mcp.trustNote')}</div>
       {error && <div className="error-text">{error}</div>}
     </section>
   )
@@ -554,7 +636,9 @@ function TypeEditorModal({
   onSave: (cfg: TaskTypeDef) => Promise<void>
   onClose: () => void
 }) {
-  const { snapshot } = useApp()
+  const { snapshot, types } = useApp()
+  const t = useT()
+  const language = useLanguage()
   const isBuiltinEdit = mode === 'edit' && !!existing?.isBuiltin
   const [key, setKey] = useState(existing?.key ?? '')
   const [kind, setKind] = useState<TaskKind>(existing?.kind ?? 'learning')
@@ -572,7 +656,11 @@ function TypeEditorModal({
   const [destSubdir, setDestSubdir] = useState(existing?.destination?.subdir ?? '')
   const [grantSkills, setGrantSkills] = useState<Set<string>>(new Set(existing?.grants?.skills ?? []))
   const [grantServers, setGrantServers] = useState<Set<string>>(new Set(existing?.grants?.toolServers ?? []))
-  const supported = kindSchema(kind)
+  // The fields offered come from the kind's built-in type, and their labels are
+  // seeded strings — shown in the active language through the same rule as
+  // everywhere else.
+  const kindDef = allTypeConfigs(types).find((c) => c.key === kind)
+  const supported = kindDef ? localizeTypeDef(kindDef, language).inputSchema : kindSchema(kind)
   const behaviourWrites = (existing?.isBuiltin ? existing.finishBehaviour : finishBehaviour) !== 'complete-only'
   const skillsForGrants = snapshot?.settings.skills ?? []
   const serversForGrants = snapshot?.settings.mcpServers ?? []
@@ -584,26 +672,30 @@ function TypeEditorModal({
   const submit = () => {
     const k = key.trim().replace(/\s+/g, '_').toLowerCase()
     if (!existing) {
-      if (!k) return setError('Key is required')
-      if (!/^[a-z0-9_]{2,32}$/.test(k)) return setError('Key must be lowercase letters, digits, underscore (2–32 chars)')
-      if (takenKeys.has(k)) return setError(`Key "${k}" is already used`)
+      if (!k) return setError(t('typeEditor.keyRequired'))
+      if (!/^[a-z0-9_]{2,32}$/.test(k)) return setError(t('typeEditor.keyFormat'))
+      if (takenKeys.has(k)) return setError(t('typeEditor.keyTaken', { key: k }))
     }
-    if (!label.trim()) return setError('Label is required')
-    if (!emoji.trim()) return setError('Emoji is required')
+    if (!label.trim()) return setError(t('typeEditor.labelRequired'))
+    if (!emoji.trim()) return setError(t('typeEditor.emojiRequired'))
     const inputSchema = existing?.isBuiltin ? existing.inputSchema : supported.filter((f) => fieldKeys.has(f.key))
 
     // A built-in's behaviour is fixed; its destination is a setting the user
-    // owns (FR-004) and stays editable.
+    // owns (FR-004) and stays editable. BOTH stores declare their own root
+    // now — there is no global wiki location to inherit. A folder without a
+    // root means nothing, so it is caught here; a wiki may be saved before it
+    // is pointed (the seeded Learning type starts that way) — Finish refuses
+    // until it names a directory.
     const behaviour = existing?.isBuiltin ? existing.finishBehaviour : finishBehaviour
     const writes = behaviour !== 'complete-only'
     if (writes && destStore === 'folder' && !destRoot.trim()) {
-      return setError('This behaviour writes a file, so it needs a destination folder')
+      return setError(t('typeEditor.needsFolder'))
     }
-    if (writes && destStore === 'folder' && destSubdir.trim().split(/[\\/]/).includes('..')) {
-      return setError('The subfolder must be relative and must not contain ".."')
+    if (writes && destSubdir.trim().split(/[\\/]/).includes('..')) {
+      return setError(t('typeEditor.subfolderRelative'))
     }
     const destination: Destination | undefined = writes
-      ? { store: destStore, rootPath: destStore === 'folder' ? destRoot.trim() : null, subdir: destSubdir.trim() }
+      ? { store: destStore, rootPath: destRoot.trim() || null, subdir: destSubdir.trim() }
       : undefined
 
     void onSave({
@@ -646,111 +738,118 @@ function TypeEditorModal({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <span className="modal-tag">{mode === 'add' ? '＋ NEW' : '✎ EDIT'}</span>
-          <h3>{mode === 'add' ? 'New type' : existing?.isBuiltin ? 'Edit built-in presentation' : 'Edit type'}</h3>
+          <span className="modal-tag">{mode === 'add' ? `＋ ${t('typeEditor.newTag')}` : `✎ ${t('typeEditor.editTag')}`}</span>
+          <h3>{mode === 'add' ? t('typeEditor.newTitle') : existing?.isBuiltin ? t('typeEditor.editBuiltin') : t('typeEditor.editTitle')}</h3>
         </div>
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="row" style={{ gap: 8, alignItems: 'flex-end' }}>
             <label style={{ flex: 1 }}>
-              Key
-              <input value={key} disabled={mode === 'edit'} onChange={(e) => setKey(e.target.value)} placeholder="e.g. code_review" spellCheck={false} />
+              {t('typeEditor.key')}
+              <input value={key} disabled={mode === 'edit'} onChange={(e) => setKey(e.target.value)} placeholder={t('typeEditor.keyPlaceholder')} spellCheck={false} />
             </label>
             <label style={{ width: 80 }}>
-              Emoji
+              {t('typeEditor.emoji')}
               <input value={emoji} onChange={(e) => setEmoji(e.target.value)} maxLength={4} />
             </label>
           </div>
           <label>
-            Label
-            <input autoFocus={mode === 'add'} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Code review" />
+            {t('typeEditor.label')}
+            <input autoFocus={mode === 'add'} value={label} onChange={(e) => setLabel(e.target.value)} placeholder={t('typeEditor.labelPlaceholder')} />
           </label>
           <label>
-            Description
-            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this type is for" />
+            {t('typeEditor.description')}
+            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('typeEditor.descriptionPlaceholder')} />
           </label>
           {!isBuiltinEdit && (
             <>
               <label>
-                Behavior kind
+                {t('typeEditor.kind')}
                 <select value={kind} disabled={mode === 'edit'} onChange={(e) => setKind(e.target.value as TaskKind)}>
-                  <option value="plain">plain — notes &amp; suggestion chips only</option>
-                  <option value="learning">learning — prompt/summary, note editor, curated on Finish</option>
-                  <option value="jira">jira — pasted source, chat, comment drafts</option>
-                  <option value="meeting">meeting — agenda/core topics, minutes editor</option>
+                  <option value="plain">{t('typeEditor.kind.plain')}</option>
+                  <option value="learning">{t('typeEditor.kind.learning')}</option>
+                  <option value="jira">{t('typeEditor.kind.jira')}</option>
+                  <option value="meeting">{t('typeEditor.kind.meeting')}</option>
                 </select>
               </label>
               {mode === 'add' && (
                 <div className="tif-fields">
-                  <span className="tif-label">Input fields (from this kind)</span>
+                  <span className="tif-label">{t('typeEditor.fields')}</span>
                   {supported.map((f) => (
                     <label key={f.key} className="tif-check">
                       <input type="checkbox" checked={fieldKeys.has(f.key)} onChange={() => toggleField(f.key)} />
                       {f.label}
                       {f.required && <span className="tif-required"> *</span>}
-                      {f.inert && <span className="muted"> (not yet active)</span>}
+                      {f.inert && <span className="muted"> {t('task.inputs.notYetActive')}</span>}
                     </label>
                   ))}
                 </div>
               )}
               <label>
-                AI guidance <span className="muted">(optional — appended to this type's pre-process prompt)</span>
-                <textarea value={aiGuidance} onChange={(e) => setAiGuidance(e.target.value)} rows={3} placeholder="e.g. Focus on security review angles." />
+                {t('typeEditor.aiGuidance')} <span className="muted">{t('typeEditor.aiGuidanceHint')}</span>
+                <textarea value={aiGuidance} onChange={(e) => setAiGuidance(e.target.value)} rows={3} placeholder={t('typeEditor.aiGuidancePlaceholder')} />
               </label>
             </>
           )}
 
           {/* ---- Declared finish behaviour and destination (FR-002, FR-014) ---- */}
           <div className="tif-fields">
-            <span className="tif-label">Finish behaviour</span>
+            <span className="tif-label">{t('typeEditor.finishBehaviour')}</span>
             {existing?.isBuiltin ? (
               <div className="muted">
-                {FINISH_BEHAVIOUR_LABELS[existing.finishBehaviour]} — fixed for a built-in type
+                {t(FINISH_BEHAVIOUR_LABELS[existing.finishBehaviour])} — {t('typeEditor.finishFixed')}
               </div>
             ) : (
               <>
                 <select value={finishBehaviour} onChange={(e) => setFinishBehaviour(e.target.value as FinishBehaviour)}>
                   {FINISH_BEHAVIOURS.map((b) => (
                     <option key={b} value={b}>
-                      {FINISH_BEHAVIOUR_LABELS[b]}
+                      {t(FINISH_BEHAVIOUR_LABELS[b])}
                     </option>
                   ))}
                 </select>
-                <span className="muted">What happens to your work when you press Finish on a task of this type.</span>
+                <span className="muted">{t('typeEditor.finishHint')}</span>
               </>
             )}
           </div>
 
           {behaviourWrites && (
             <div className="tif-fields">
-              <span className="tif-label">Output destination</span>
+              <span className="tif-label">{t('typeEditor.destination')}</span>
               <select value={destStore} onChange={(e) => setDestStore(e.target.value as DestinationStore)}>
-                <option value="folder">A folder I own</option>
-                <option value="wiki">The wiki</option>
+                <option value="folder">{t('typeEditor.dest.folder')}</option>
+                <option value="wiki">{t('typeEditor.dest.wiki')}</option>
               </select>
+              {/* Both stores own their root — the wiki's directory is declared
+                  here, on the type, not in a global setting. The picker, the
+                  input and the subfolder behave identically; only what the
+                  store DOES on first write differs. */}
+              <div className="row" style={{ gap: 8 }}>
+                <input
+                  style={{ flex: 1 }}
+                  value={destRoot}
+                  onChange={(e) => setDestRoot(e.target.value)}
+                  placeholder="/path/to/your/folder"
+                  spellCheck={false}
+                />
+                <button type="button" className="secondary-btn" onClick={() => void chooseDestFolder()}>
+                  {t('common.choose')}
+                </button>
+              </div>
+              <label>
+                {t('typeEditor.subfolder')} <span className="muted">{t('typeEditor.subfolderHint')}</span>
+                <input value={destSubdir} onChange={(e) => setDestSubdir(e.target.value)} placeholder="e.g. minutes/2026" spellCheck={false} />
+              </label>
               {destStore === 'folder' ? (
-                <>
-                  <div className="row" style={{ gap: 8 }}>
-                    <input
-                      style={{ flex: 1 }}
-                      value={destRoot}
-                      onChange={(e) => setDestRoot(e.target.value)}
-                      placeholder="/path/to/your/folder"
-                      spellCheck={false}
-                    />
-                    <button type="button" className="secondary-btn" onClick={() => void chooseDestFolder()}>
-                      Choose…
-                    </button>
-                  </div>
-                  <label>
-                    Subfolder <span className="muted">(optional, relative)</span>
-                    <input value={destSubdir} onChange={(e) => setDestSubdir(e.target.value)} placeholder="e.g. minutes/2026" spellCheck={false} />
-                  </label>
-                  <span className="muted">Plain markdown files land here. Nothing else is written, and an existing file is never overwritten.</span>
-                </>
+                <span className="muted">{t('typeEditor.folderHint')}</span>
               ) : (
                 <span className="muted">
-                  Resolved as {describeDestination({ store: 'wiki', rootPath: null, subdir: destSubdir })} — set the wiki
-                  directory on the General tab.
+                  {t('typeEditor.wikiResolved', {
+                    dest: describeDestination({
+                      store: 'wiki',
+                      rootPath: destRoot.trim() || null,
+                      subdir: destSubdir.trim()
+                    })
+                  })}
                 </span>
               )}
             </div>
@@ -758,14 +857,11 @@ function TypeEditorModal({
 
           {/* ---- Grants (FR-019; contracts/plugin-grants.md §6) ---- */}
           <div className="tif-fields">
-            <span className="tif-label">Assistant capabilities</span>
-            <span className="muted">
-              Skills and tool servers let the assistant do more on a task of this type. Granting external reach means the
-              assistant can act on that system — and that sessions for this type will no longer see your notes and minutes.
-            </span>
+            <span className="tif-label">{t('typeEditor.capabilities')}</span>
+            <span className="muted">{t('typeEditor.capabilitiesHint')}</span>
             <div className="tif-check-group">
-              <span className="muted">Skills — capabilities the assistant can load:</span>
-              {(skillsForGrants.length === 0 && <span className="muted">none imported yet</span>) || null}
+              <span className="muted">{t('typeEditor.skillsLabel')}</span>
+              {(skillsForGrants.length === 0 && <span className="muted">{t('typeEditor.noneImported')}</span>) || null}
               {skillsForGrants.map((sk: SkillEntry) => (
                 <label key={`skill-${sk.name}`} className="tif-check">
                   <input type="checkbox" checked={grantSkills.has(sk.name)} onChange={() => toggleGrant(setGrantSkills)(sk.name)} />
@@ -774,30 +870,27 @@ function TypeEditorModal({
               ))}
             </div>
             <div className="tif-check-group">
-              <span className="muted">Tool servers — external systems the assistant can read from and act on:</span>
-              {(serversForGrants.length === 0 && <span className="muted">none registered yet</span>) || null}
+              <span className="muted">{t('typeEditor.serversLabel')}</span>
+              {(serversForGrants.length === 0 && <span className="muted">{t('typeEditor.noneRegistered')}</span>) || null}
               {serversForGrants.map((sv: McpServerEntry) => (
                 <label key={`server-${sv.name}`} className="tif-check">
                   <input type="checkbox" checked={grantServers.has(sv.name)} onChange={() => toggleGrant(setGrantServers)(sv.name)} />
-                  {sv.name}
-                  <span className="muted"> — grants external reach</span>
+                  {sv.name} <span className="muted">{t('typeEditor.grantReach')}</span>
                 </label>
               ))}
             </div>
             {(grantServers.size > 0 || grantSkills.size > 0) && (
-              <span className="muted">
-                A change here takes effect on the next session; existing tasks do not need recreating.
-              </span>
+              <span className="muted">{t('typeEditor.grantHint')}</span>
             )}
           </div>
           {error && <div className="error-text">{error}</div>}
         </div>
         <div className="modal-actions">
           <button className="secondary-btn" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button className="primary-btn" onClick={submit}>
-            {mode === 'add' ? 'Create' : 'Save'}
+            {mode === 'add' ? t('common.create') : t('common.save')}
           </button>
         </div>
       </div>
@@ -816,27 +909,24 @@ function ConfirmDeleteTypeModal({
   onConfirm: () => void
   onClose: () => void
 }) {
+  const t = useT()
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <span className="modal-tag danger">🗑 DELETE</span>
-          <h3>Delete type “{config.label}”?</h3>
+          <span className="modal-tag danger">🗑 {t('typeEditor.deleteTag')}</span>
+          <h3>{t('typeEditor.deleteTitle', { label: config.label })}</h3>
         </div>
         <div className="modal-body">
-          <p>
-            {refCount > 0
-              ? `${refCount} task(s) use this type. They will fall back to plain; their titles, notes, lists, and completion state are kept.`
-              : 'No tasks currently use this type.'}
-          </p>
-          <p className="muted">The type itself is removed from pickers and this Settings list.</p>
+          <p>{refCount > 0 ? t('typeEditor.deleteInUse', { count: refCount }) : t('typeEditor.deleteUnused')}</p>
+          <p className="muted">{t('typeEditor.deleteHint')}</p>
         </div>
         <div className="modal-actions">
           <button className="secondary-btn" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button className="danger-btn" onClick={onConfirm}>
-            Delete type
+            {t('typeEditor.deleteConfirm')}
           </button>
         </div>
       </div>

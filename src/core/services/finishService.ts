@@ -10,6 +10,8 @@ import { declaredWorkflow, effectiveType } from '../domain/taskType'
 import { hasUnfilledRequiredInputs } from '../domain/validation'
 import { FINISH_STRATEGIES, type FinishContext, type FinishResult } from '../domain/finish'
 import { writesArtifact, type FinishBehaviour } from '../domain/categories'
+import { message, type Language } from '../i18n'
+import { isLocalizedError, LocalizedError, type IssueList } from '../i18n/issues'
 
 // Finish orchestration: the one place a task's completion is decided.
 //
@@ -28,6 +30,8 @@ import { writesArtifact, type FinishBehaviour } from '../domain/categories'
 // assistant step inside a finish receives a plugin grant (purpose 'confined').
 
 export interface FinishDeps {
+  /** The language the step labels and toasts are produced in. */
+  language: Language
   paths: PathPort
   storage: StoragePort
   /** The artifact store for a destination's `store` value. */
@@ -35,8 +39,6 @@ export interface FinishDeps {
   session: AgentSessionPort
   clock: ClockPort
   notifier: NotifierPort
-  /** The configured wiki location, for `store: wiki` destinations. */
-  wikiRoot: () => string
   /**
    * Hand a `deposit-then-curate` finish to the background: the deposit is the
    * part that must survive, and the curating agent is long-running work the
@@ -64,9 +66,10 @@ export interface FinishOutcome {
  * Raised when a finish must not proceed. Always thrown BEFORE the task is
  * marked complete, so the user can fix the problem and try again.
  */
-export class FinishRefused extends Error {
-  constructor(message: string) {
-    super(message)
+/** A refusal the user must read. Carries codes; the transport phrases them. */
+export class FinishRefused extends LocalizedError {
+  constructor(issues: IssueList) {
+    super(issues)
     this.name = 'FinishRefused'
   }
 }
@@ -76,14 +79,16 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
   if (!task) throw new Error('task not found')
   const types = deps.storage.listTypes()
   const def = effectiveType(types, task)
-  if (!def) throw new FinishRefused(`no type definition resolves for task "${task.title}"`)
+  if (!def) throw new FinishRefused([{ key: 'finish.noTypeDefinition', params: { title: task.title } }])
 
   const behaviour = resolveBehaviour(def)
 
   // 1. Declared inputs gate Finish (spec task-types).
   const missing = hasUnfilledRequiredInputs(def, task.inputs)
   if (missing.length > 0) {
-    throw new FinishRefused(`cannot finish: missing required input(s): ${missing.map((f) => f.label).join(', ')}`)
+    throw new FinishRefused([
+      { key: 'finish.missingInputs', params: { fields: missing.map((f) => f.label).join(', ') } }
+    ])
   }
 
   // 2. Resolve + confine the destination, and make sure it is usable — all
@@ -95,23 +100,30 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
 
   if (behaviour !== 'complete-only') {
     const declared = declaredDestination(def)
+    // A wiki-destined type carries its own directory (there is no global wiki
+    // location and no default); when it has none, refuse while the task is
+    // still actionable and point the user at the type, not at a phantom
+    // setting.
+    if (declared.store === 'wiki' && !(declared.rootPath ?? '').trim()) {
+      throw new FinishRefused([{ key: 'wiki.notConfigured' }])
+    }
     store = deps.storeFor(declared)
-    destination = resolveArtifact(deps.paths, declared, deps.wikiRoot(), task.title, task.id)
+    destination = resolveArtifact(deps.paths, declared, task.title, task.id)
     if (!destination.inside) {
       // Refuse rather than write to an unintended location (FR-006).
-      throw new FinishRefused(
-        `refusing to finish: the artifact would be written outside the destination root (${declared.rootPath ?? 'wiki'}) — re-point the destination in Settings`
-      )
+      throw new FinishRefused([
+        { key: 'finish.outsideDestination', params: { root: declared.rootPath ?? 'wiki' } }
+      ])
     }
     // A per-task target override (a wiki destination lets the user name the
     // note) is confined the same way, and refused rather than defaulted: a
     // stored path that no longer resolves — the wiki moved — must be surfaced
     // while the task is still actionable, never silently replaced.
     const override = deps.taskTargetOverride?.(task)
-    if (override && !confineOverride(deps.paths, declared, deps.wikiRoot(), override)) {
-      throw new FinishRefused(
-        `"${override}" is outside the destination (${declared.rootPath ?? 'the wiki'}) — re-point it in the task's inputs`
-      )
+    if (override && !confineOverride(deps.paths, declared, override)) {
+      throw new FinishRefused([
+        { key: 'finish.overrideOutside', params: { path: override, root: declared.rootPath ?? 'the wiki' } }
+      ])
     }
     // prepare() rejects a missing or unwritable destination, so the failure
     // surfaces while the task is still actionable.
@@ -128,6 +140,7 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
 
   const ctx: FinishContext = {
     task,
+    language: deps.language,
     typeDef: def,
     destination,
     workingContent: note?.content ?? '',
@@ -158,7 +171,7 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
     })
     const completed = markComplete(deps, task)
     deps.enqueueCurate(completed, deposited.files)
-    deps.notifier.toast('Task finished — the assistant is writing it up', { view: 'activity' })
+    deps.notifier.toast(message(deps.language, 'toast.finishDeferred'), { view: 'activity' })
     return { task: completed, behaviour, result: null, deferred: true }
   }
 
@@ -168,15 +181,21 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
   } catch (e: any) {
     // The artifact step failed. The task stays incomplete and the user's work
     // is untouched, so the finish is retriable without retyping (FR-027).
-    const message = e?.message ?? String(e)
+    //
+    // A refusal that already carries codes keeps them, so it arrives localised.
+    // Anything else — an adapter's own error, an agent failure — has no codes to
+    // give, so it is kept whole inside a frame that says what step failed. The
+    // activity record keeps the raw text either way: it is a record of what
+    // happened, and this is the only place that text exists.
+    const refused = isLocalizedError(e) ? e : new FinishRefused([{ key: 'finish.artifactFailed', params: { error: e?.message ?? String(e) } }])
     if (activity) {
       deps.storage.updateActivity(activity.id, {
         state: 'failed',
-        error: message,
+        error: e?.message ?? String(e),
         finishedAt: deps.clock.nowIso()
       })
     }
-    throw new FinishRefused(message)
+    throw refused
   }
 
   // 4. Only now is the task complete.
@@ -191,12 +210,16 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
     })
   }
   if (result.artifactPath) {
-    deps.notifier.toast(`Finished — filed to ${result.artifactPath}`, { view: 'activity' })
+    deps.notifier.toast(message(deps.language, 'toast.filedTo', { path: result.artifactPath ?? '' }), {
+      view: 'activity'
+    })
   }
   if (result.assistantError) {
     // Reported, never presented as success (FR-024's spirit: a failure the
     // user is not told about is a failure they will discover later).
-    deps.notifier.toast(`Filed as written — the assistant step failed: ${result.assistantError}`, { view: 'activity' })
+    deps.notifier.toast(message(deps.language, 'toast.filedUnpolished', { error: result.assistantError ?? '' }), {
+      view: 'activity'
+    })
   }
 
   return { task: completed, behaviour, result, deferred: false }
@@ -212,9 +235,7 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
 export function resolveBehaviour(def: TaskTypeDef): FinishBehaviour {
   const declared = declaredWorkflow(def)
   if (!declared.finishBehaviour) {
-    throw new FinishRefused(
-      `type "${def.label}" does not declare a finish behaviour — set one in Settings before finishing`
-    )
+    throw new FinishRefused([{ key: 'finish.noBehaviour', params: { type: def.label } }])
   }
   return declared.finishBehaviour
 }
@@ -222,7 +243,7 @@ export function resolveBehaviour(def: TaskTypeDef): FinishBehaviour {
 function declaredDestination(def: TaskTypeDef): Destination {
   const declared = declaredWorkflow(def)
   if (!declared.destination) {
-    throw new FinishRefused(`type "${def.label}" writes an artifact but declares no destination — set one in Settings`)
+    throw new FinishRefused([{ key: 'finish.noDestination', params: { type: def.label } }])
   }
   return declared.destination
 }
@@ -241,11 +262,11 @@ function renderSummary(deps: FinishDeps, taskId: string): string | undefined {
   if (!p) return undefined
   return `# AI Pre-process Summary — ${p.taskId}
 
-## Generated working prompt
-${p.generatedPrompt || '(none)'}
-
 ## Summary
 ${p.summary || '(none)'}
+
+## Analysis
+${p.analysis || '(none)'}
 
 ## Activity suggestions
 ${p.suggestions.map((s) => `- ${s}`).join('\n') || '(none)'}

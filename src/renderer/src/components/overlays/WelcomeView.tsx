@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '../../store'
+import { useT } from '../../lib/useT'
 import type { Settings } from '../../../../shared/types'
 
 const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
@@ -10,6 +11,7 @@ const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
 // showWelcome flag).
 export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const { snapshot, saveSettings, createTask } = useApp()
+  const t = useT()
   const [draft, setDraft] = useState<Settings | null>(snapshot?.settings ?? null)
   const [models, setModels] = useState<string[]>([])
   const [testing, setTesting] = useState(false)
@@ -49,11 +51,13 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
   const trySample = async () => {
     const listId = snapshot?.settings?.defaultListId ?? snapshot?.lists[0]?.id
     if (!listId) return
+    // The sample becomes the user's own task, so it is created in the language
+    // they are reading — and keeps that language afterwards, like any task.
     await createTask({
       listId,
-      title: 'Linear algebra review',
+      title: t('welcome.sample.title'),
       type: 'learning',
-      inputs: { target: 'Eigenvalues and why they matter' }
+      inputs: { target: t('welcome.sample.target') }
     })
     // Adding the sample to My Day runs the learning pre-process once AI is
     // configured (spec task-types: per-type AI pre-processing).
@@ -62,35 +66,35 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
 
   return (
     <div className="view welcome">
-      <h2 className="welcome-title">Welcome to Beyond the Dialogue</h2>
-      <p className="muted welcome-sub">A to-do board where an AI agent works each kind of task with you and files the results into your personal wiki.</p>
+      <h2 className="welcome-title">{t('welcome.title')}</h2>
+      <p className="muted welcome-sub">{t('welcome.sub')}</p>
       {onOpenSettings && (
         <div className="row welcome-settings-row">
           <button className="mini-btn" onClick={onOpenSettings}>
-            ⚙ Open Settings
+            ⚙ {t('welcome.openSettings')}
           </button>
         </div>
       )}
 
       <div className="welcome-steps">
         <div className="card">
-          <h5>1 · Pick a task type</h5>
-          <p>Learning, JIRA/Confluence, plain, or your own types — each type declares its inputs and its AI flow.</p>
+          <h5>{t('welcome.step1.title')}</h5>
+          <p>{t('welcome.step1.body')}</p>
         </div>
         <div className="card">
-          <h5>2 · Work with the agent's help</h5>
-          <p>Add a task to My Day and the agent pre-processes it: a working prompt, a summary, and activity suggestions.</p>
+          <h5>{t('welcome.step2.title')}</h5>
+          <p>{t('welcome.step2.body')}</p>
         </div>
         <div className="card">
-          <h5>3 · Finish → it files itself into your wiki</h5>
-          <p>Finished learning notes land in your wiki (Obsidian-ready); index and log updated, nothing to configure.</p>
+          <h5>{t('welcome.step3.title')}</h5>
+          <p>{t('welcome.step3.body')}</p>
         </div>
       </div>
 
       <section className="settings-section">
-        <h4>Connect an AI provider to get started</h4>
+        <h4>{t('welcome.connect')}</h4>
         <label>
-          Provider
+          {t('settings.ai.provider')}
           <select value={draft.provider} onChange={(e) => update({ provider: e.target.value })}>
             {providers.map((p) => (
               <option key={p} value={p}>
@@ -100,7 +104,7 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
           </select>
         </label>
         <label>
-          Model
+          {t('settings.ai.model')}
           <input list="model-options" value={draft.model} onChange={(e) => update({ model: e.target.value })} placeholder="e.g. gpt-4o, claude-sonnet-4-5" />
           <datalist id="model-options">
             {models.map((m) => (
@@ -109,19 +113,21 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
           </datalist>
         </label>
         <label>
-          API key
+          {t('settings.ai.apiKey')}
           <input type="password" value={draft.apiKey ?? ''} onChange={(e) => update({ apiKey: e.target.value || null })} placeholder="sk-…" />
         </label>
         <div className="row">
           <button className="primary-btn" onClick={() => void save()}>
-            Save &amp; start
+            {t('welcome.saveAndStart')}
           </button>
           <button className="mini-btn" disabled={testing} onClick={() => void runTest()}>
-            {testing ? 'Testing…' : 'Test connection'}
+            {testing ? t('settings.ai.testing') : t('settings.ai.test')}
           </button>
           {testResult && (
             <span className={testResult.ok ? 'ai-on' : 'error-text'}>
-              {testResult.ok ? 'Connected' : `Failed: ${testResult.error ?? 'unknown error'}`}
+              {testResult.ok
+                ? t('settings.ai.connected', { text: testResult.text || t('common.ok') })
+                : t('settings.ai.failed', { error: testResult.error ?? t('task.preprocess.unknownError') })}
             </span>
           )}
         </div>
@@ -129,11 +135,11 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
 
       <div className="row">
         <button className="finish-btn welcome-sample" onClick={() => void trySample()}>
-          Try a sample learning task →
+          {t('welcome.trySample')}
         </button>
       </div>
       <button className="mini-btn welcome-skip" onClick={() => void skip()}>
-        Skip — just show me the board (plain tasks work without AI)
+        {t('welcome.skip')}
       </button>
     </div>
   )

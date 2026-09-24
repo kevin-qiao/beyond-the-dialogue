@@ -1,5 +1,6 @@
 import type { JobContext } from './job-queue'
 import { getTask, addSuggestion, listSuggestions, loadSettings } from './db'
+import { message, plural } from '../core/i18n'
 import { isConfigured } from './ai/ai-config'
 
 // My Day suggestion job: a single non-looping LLM call that produces 2-3
@@ -20,7 +21,8 @@ export async function runSuggestionJob(ctx: JobContext): Promise<void> {
     return
   }
 
-  ctx.setStep('Suggesting', 'Generating suggestions')
+  const lang = settings.uiLanguage
+  ctx.setStep(message(lang, 'suggest.step.running'), message(lang, 'suggest.step.detail'))
 
   const list = db.prepare('SELECT name FROM lists WHERE id = ?').get(task.listId) as { name: string } | undefined
   const myDayTitles = (
@@ -29,6 +31,9 @@ export async function runSuggestionJob(ctx: JobContext): Promise<void> {
     }[]
   ).map((r) => r.title)
 
+  // Deliberately fixed: this string goes INTO A PROMPT, so it must not follow
+  // the interface language. The agent's output language is the agent's own;
+  // `uiLanguage` is a presentation setting and never reaches model input.
   const localTime = new Date().toLocaleString('en-US', {
     weekday: 'long',
     hour: 'numeric',
@@ -58,6 +63,9 @@ Return your answer as a JSON array of 2 to 3 strings. Each string must be a sing
   for (const text of items) {
     addSuggestion(db, taskId, text)
   }
-  ctx.setStep('Complete', `${items.length} suggestions generated`)
+  ctx.setStep(
+    message(lang, 'job.step.complete'),
+    plural(lang, items.length, { one: 'suggest.done.one', other: 'suggest.done.other' })
+  )
   void listSuggestions(db, taskId)
 }

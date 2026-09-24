@@ -1,4 +1,6 @@
 import { useApp } from '../../store'
+import { useLanguage, useT } from '../../lib/useT'
+import { plural } from '../../../../core/i18n'
 
 // Lists rail — the first column of the board. v0.8.1 simplifies it to two
 // first-class views at the same level: My Day (today's flagged tasks) and To
@@ -6,6 +8,8 @@ import { useApp } from '../../store'
 // the agent-presence footer remains.
 export function ListsRail() {
   const { snapshot, activeView, setActiveView, liveJobs, activity, ingestSteps, openDrawer } = useApp()
+  const t = useT()
+  const language = useLanguage()
 
   // Agent presence line (spec agent-presence): idle / working (with live
   // step) / queued count; clicking opens the Activity drawer.
@@ -25,7 +29,7 @@ export function ListsRail() {
         onClick={() => setActiveView('my-day')}
       >
         <span className="rail-ico">☀️</span>
-        My Day
+        {t('nav.myDay')}
         <span className="rail-cnt">{myDayCount}</span>
       </button>
 
@@ -34,22 +38,27 @@ export function ListsRail() {
         onClick={() => setActiveView('todo')}
       >
         <span className="rail-ico">📋</span>
-        To Do
+        {t('nav.todo')}
         <span className="rail-cnt">{todoCount}</span>
       </button>
 
       <div className="sidebar-foot">
-        <div className="ai-status" onClick={() => openDrawer('activity')} title="Agent status — open Activity">
+        <div className="ai-status" onClick={() => openDrawer('activity')} title={t('agent.statusHint')}>
           {runningJob ? (
-            <span className="ai-working"><span className="presence-dot" />{runningJob.stepLabel ?? 'working…'}</span>
+            <span className="ai-working"><span className="presence-dot" />{runningJob.stepLabel ?? t('agent.working')}</span>
           ) : runningIngest ? (
-            <span className="ai-working"><span className="presence-dot" />{ingestSteps[runningIngest.id] ?? 'ingesting…'}</span>
+            <span className="ai-working"><span className="presence-dot" />{ingestSteps[runningIngest.id] ?? t('agent.ingesting')}</span>
           ) : queuedCount > 0 ? (
-            <span className="ai-queued"><span className="presence-dot" />{queuedCount} job{queuedCount > 1 ? 's' : ''} queued</span>
+            // A count the language decides how to phrase: English has "job" and
+            // "jobs", Chinese has one form.
+            <span className="ai-queued">
+              <span className="presence-dot" />
+              {plural(language, queuedCount, { one: 'queue.queued.one', other: 'queue.queued.other' })}
+            </span>
           ) : snapshot?.aiConfigured ? (
-            <span className="ai-on"><span className="presence-dot" />AI ready — agent idle</span>
+            <span className="ai-on"><span className="presence-dot" />{t('agent.ready')}</span>
           ) : (
-            <span className="ai-off"><span className="presence-dot" />AI not configured</span>
+            <span className="ai-off"><span className="presence-dot" />{t('agent.notConfigured')}</span>
           )}
         </div>
       </div>

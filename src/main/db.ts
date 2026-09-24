@@ -20,6 +20,8 @@ import type {
   TaskTypeDef
 } from '../shared/types'
 import { NO_GRANT } from '../shared/types'
+import { DEFAULT_LANGUAGE, isLanguage } from '../core/i18n/language'
+import { en } from '../core/i18n/en'
 import { dbPathIn, defaultMeetingMinutesPath, userDataDir } from './paths'
 
 export interface DB {
@@ -155,29 +157,78 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 // these into task_types (INSERT OR IGNORE so later user edits to
 // presentation survive re-migration); custom types of a kind inherit that
 // kind's inputSchema unless they declare their own subset.
+//
+// The human-readable strings come from the English catalog rather than being
+// written here. One home for each string, and — because a stored label is
+// recognised as still-default by comparing it against that catalog — the
+// comparison cannot drift from what was actually seeded.
 export const LEARNING_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
-  { key: 'target', label: 'Target', type: 'text', required: true, placeholder: 'The concept or question to learn' },
-  { key: 'filePath', label: 'File', type: 'file', placeholder: 'Optional markdown (.md) attachment' },
-  { key: 'purpose', label: 'Prompt', type: 'textarea', placeholder: 'What you want the learning note to cover (injected into the learning prompt)' },
-  { key: 'learningNotePath', label: 'Learning-note path', type: 'text', placeholder: 'Defaults inside the wiki' }
+  {
+    key: 'target',
+    label: en['type.learning.field.target.label'],
+    type: 'text',
+    required: true,
+    placeholder: en['type.learning.field.target.placeholder']
+  },
+  {
+    key: 'filePath',
+    label: en['type.learning.field.filePath.label'],
+    type: 'file',
+    placeholder: en['type.learning.field.filePath.placeholder']
+  },
+  {
+    key: 'purpose',
+    label: en['type.learning.field.purpose.label'],
+    type: 'textarea',
+    placeholder: en['type.learning.field.purpose.placeholder']
+  },
+  {
+    key: 'learningNotePath',
+    label: en['type.learning.field.learningNotePath.label'],
+    type: 'text',
+    placeholder: en['type.learning.field.learningNotePath.placeholder']
+  }
 ]
 
 export const JIRA_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
   {
     key: 'sourceKind',
-    label: 'Source kind',
+    label: en['type.jira.field.sourceKind.label'],
     type: 'select',
     required: true,
     immutable: true,
     options: [
-      { value: 'issue', label: 'JIRA issue' },
-      { value: 'page', label: 'Confluence page' }
+      { value: 'issue', label: en['type.jira.field.sourceKind.option.issue'] },
+      { value: 'page', label: en['type.jira.field.sourceKind.option.page'] }
     ]
   },
-  { key: 'sourceLink', label: 'Link', type: 'url', placeholder: 'Ticket/page URL (reference only in v0.8)' },
-  { key: 'sourceText', label: 'Source content', type: 'textarea', required: true, placeholder: 'Paste the issue/page content' },
-  { key: 'target', label: 'Target / Purpose', type: 'textarea', required: true, placeholder: 'What you want done with it' },
-  { key: 'comments', label: 'Comment drafts', type: 'textarea', hidden: true, placeholder: 'Draft comments for the issue/page (local only)' }
+  {
+    key: 'sourceLink',
+    label: en['type.jira.field.sourceLink.label'],
+    type: 'url',
+    placeholder: en['type.jira.field.sourceLink.placeholder']
+  },
+  {
+    key: 'sourceText',
+    label: en['type.jira.field.sourceText.label'],
+    type: 'textarea',
+    required: true,
+    placeholder: en['type.jira.field.sourceText.placeholder']
+  },
+  {
+    key: 'target',
+    label: en['type.jira.field.target.label'],
+    type: 'textarea',
+    required: true,
+    placeholder: en['type.jira.field.target.placeholder']
+  },
+  {
+    key: 'comments',
+    label: en['type.jira.field.comments.label'],
+    type: 'textarea',
+    hidden: true,
+    placeholder: en['type.jira.field.comments.placeholder']
+  }
 ]
 
 // Meeting minutes: the objective drives the agenda, the attachment is
@@ -187,17 +238,22 @@ export const JIRA_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
 export const MEETING_INPUT_SCHEMA: TaskTypeDef['inputSchema'] = [
   {
     key: 'target',
-    label: 'Objective',
+    label: en['type.meeting.field.target.label'],
     type: 'text',
     required: true,
-    placeholder: 'What the meeting is about and what it should achieve'
+    placeholder: en['type.meeting.field.target.placeholder']
   },
-  { key: 'filePath', label: 'File', type: 'file', placeholder: 'Optional markdown (.md) attachment' },
+  {
+    key: 'filePath',
+    label: en['type.meeting.field.filePath.label'],
+    type: 'file',
+    placeholder: en['type.meeting.field.filePath.placeholder']
+  },
   {
     key: 'purpose',
-    label: 'Prompt',
+    label: en['type.meeting.field.purpose.label'],
     type: 'textarea',
-    placeholder: 'What the agenda and core topics should focus on'
+    placeholder: en['type.meeting.field.purpose.placeholder']
   }
 ]
 
@@ -215,9 +271,9 @@ export function builtinTypeSeeds(): TaskTypeDef[] {
     {
       key: 'plain',
       kind: 'plain',
-      label: 'Plain task',
+      label: en['type.plain.label'],
       emoji: '📝',
-      description: 'A plain task — notes and suggestions only, no AI pre-process',
+      description: en['type.plain.description'],
       inputSchema: [],
       isBuiltin: true,
       finishBehaviour: 'complete-only',
@@ -226,9 +282,9 @@ export function builtinTypeSeeds(): TaskTypeDef[] {
     {
       key: 'learning',
       kind: 'learning',
-      label: 'Learning',
+      label: en['type.learning.label'],
       emoji: '🎓',
-      description: 'Learn a concept: AI prompt + summary, markdown note, Finish ingests to the wiki',
+      description: en['type.learning.description'],
       inputSchema: LEARNING_INPUT_SCHEMA,
       isBuiltin: true,
       // The existing Learning flow, declared: deposit the raw material first,
@@ -240,9 +296,9 @@ export function builtinTypeSeeds(): TaskTypeDef[] {
     {
       key: 'jira',
       kind: 'jira',
-      label: 'JIRA / Confluence',
+      label: en['type.jira.label'],
       emoji: '🎫',
-      description: 'Work an issue or page from pasted content: summaries, chat, comment drafts',
+      description: en['type.jira.description'],
       inputSchema: JIRA_INPUT_SCHEMA,
       isBuiltin: true,
       finishBehaviour: 'complete-only',
@@ -251,9 +307,9 @@ export function builtinTypeSeeds(): TaskTypeDef[] {
     {
       key: 'meeting',
       kind: 'meeting',
-      label: 'Meeting',
+      label: en['type.meeting.label'],
       emoji: '🗓',
-      description: 'Prepare for a meeting: AI agenda + core topics, minutes in the working area, polished into a folder you own',
+      description: en['type.meeting.description'],
       inputSchema: MEETING_INPUT_SCHEMA,
       isBuiltin: true,
       finishBehaviour: 'polish-then-file',
@@ -396,7 +452,6 @@ function mapPreprocess(r: any): TaskPreprocess {
     summary: r.summary,
     analysis: r.analysis ?? '',
     suggestions,
-    generatedPrompt: r.generated_prompt,
     status: r.status,
     inputsHash: r.inputs_hash ?? '',
     updatedAt: r.updated_at
@@ -851,6 +906,87 @@ export function migrate(db: DatabaseSync): void {
     mark(7)
   }
 
+  // v7 → v8: the wiki location moves from a global setting into the types
+  // destined for it.
+  //
+  // The `wikiPath` setting and the built-in `~/Documents/WorkBoard-Wiki`
+  // default are retired: a `store: 'wiki'` destination now carries its own
+  // absolute rootPath, exactly like a folder destination, and a type without
+  // one is refused at Finish rather than silently pointed somewhere.
+  //
+  // A database whose owner HAD configured a wiki location is not stranded:
+  // the stored value is copied into every wiki-rooted destination before the
+  // row is dropped. A database that had never set one — it had been riding on
+  // the default — is deliberately left unconfigured: materializing the old
+  // default here would re-create, in the user's data, the hidden fallback
+  // this migration exists to remove.
+  if (!ran(8)) {
+    const wikiRow = db.prepare("SELECT value FROM settings WHERE key = 'wikiPath'").get() as { value: string } | undefined
+    const configured = (wikiRow?.value ?? '').trim()
+    if (configured) {
+      const rows = db.prepare('SELECT key, destination_json FROM task_types WHERE destination_json IS NOT NULL').all() as {
+        key: string
+        destination_json: string
+      }[]
+      const update = db.prepare('UPDATE task_types SET destination_json = ? WHERE key = ?')
+      for (const r of rows) {
+        const dest = parseDestination(r.destination_json)
+        if (dest && dest.store === 'wiki' && !(dest.rootPath ?? '').trim()) {
+          update.run(JSON.stringify({ ...dest, rootPath: configured }), r.key)
+        }
+      }
+    }
+    db.prepare("DELETE FROM settings WHERE key = 'wikiPath'").run()
+    mark(8)
+  }
+
+  // v8 → v9: an MCP server row carries the FULL standard server config.
+  //
+  // The old shape was the app's own invention — `{name, transport: {type:
+  // 'stdio', command, args?, env?}}` — which could not express remote servers
+  // or any of the adapter's options, i.e. "the input information is not
+  // enough to make a MCP working". v9 rewrites every row to
+  // `{name, config: {...}}`, where config is the standard `mcpServers.<name>`
+  // object the adapter consumes directly. A stdio row maps its fields out of
+  // the transport envelope; anything already migrated (or already a full
+  // config) passes through untouched, so the step is idempotent; a corrupt
+  // value is cleared here rather than surfacing as an unexplained empty list.
+  if (!ran(9)) {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'mcpServers'").get() as { value: string } | undefined
+    if (row) {
+      let out = '[]'
+      try {
+        const arr = JSON.parse(row.value)
+        if (Array.isArray(arr)) {
+          out = JSON.stringify(
+            arr.map((e: any) => {
+              if (!e || typeof e !== 'object') return e
+              if (e.config !== undefined) return { name: e.name, config: e.config }
+              const t = e.transport
+              if (t && typeof t === 'object' && typeof t.command === 'string') {
+                return {
+                  name: e.name,
+                  config: {
+                    command: t.command,
+                    ...(Array.isArray(t.args) && t.args.length ? { args: t.args } : {}),
+                    ...(t.env && typeof t.env === 'object' && !Array.isArray(t.env) && Object.keys(t.env).length
+                      ? { env: t.env }
+                      : {})
+                  }
+                }
+              }
+              return e
+            })
+          )
+        }
+      } catch {
+        out = '[]'
+      }
+      db.prepare("UPDATE settings SET value = ? WHERE key = 'mcpServers'").run(out)
+    }
+    mark(9)
+  }
+
   // Seed a default list on first open.
   const row = db.prepare('SELECT COUNT(*) AS n FROM lists').get() as { n: number }
   if (row.n === 0) {
@@ -891,11 +1027,11 @@ const DEFAULT_SETTINGS: Settings = {
   provider: 'openai',
   model: '',
   apiKey: null,
-  wikiPath: '',
   defaultListId: null,
   maxConcurrentJobs: 2,
   showWelcome: true,
   theme: 'light',
+  uiLanguage: DEFAULT_LANGUAGE,
   skills: [],
   mcpServers: []
 }
@@ -916,14 +1052,12 @@ function parseMcpServers(value: unknown): McpServerEntry[] {
   try {
     const parsed = JSON.parse(String(value))
     if (!Array.isArray(parsed)) return []
+    // Structural parse only — a row with a bad config must still surface so
+    // the Settings form can show it and let the user fix or remove it; the
+    // domain validator (plugins.ts → mcpConfig.ts) refuses it on save.
     return parsed.filter(
       (s): s is McpServerEntry =>
-        s &&
-        typeof s.name === 'string' &&
-        s.transport &&
-        typeof s.transport === 'object' &&
-        s.transport.type === 'stdio' &&
-        typeof s.transport.command === 'string'
+        s && typeof s.name === 'string' && s.config && typeof s.config === 'object' && !Array.isArray(s.config)
     )
   } catch {
     return []
@@ -938,11 +1072,13 @@ export function loadSettings(db: DatabaseSync): Settings {
     if (r.key === 'provider') out.provider = r.value
     else if (r.key === 'model') out.model = r.value
     else if (r.key === 'apiKey') out.apiKey = r.value || null
-    else if (r.key === 'wikiPath') out.wikiPath = r.value
     else if (r.key === 'defaultListId') out.defaultListId = r.value || null
     else if (r.key === 'maxConcurrentJobs') out.maxConcurrentJobs = parseInt(r.value, 10) || 2
     else if (r.key === 'showWelcome') out.showWelcome = r.value !== '0'
     else if (r.key === 'theme') out.theme = r.value === 'dark' ? 'dark' : 'light'
+    // Clamped rather than trusted: a value written by a newer version, or
+    // hand-edited, must leave the app in a language it can actually render.
+    else if (r.key === 'uiLanguage') out.uiLanguage = isLanguage(r.value) ? r.value : DEFAULT_LANGUAGE
     else if (r.key === 'skills') out.skills = parseSkills(r.value)
     else if (r.key === 'mcpServers') out.mcpServers = parseMcpServers(r.value)
   }
@@ -954,11 +1090,11 @@ export function saveSettings(db: DatabaseSync, s: Settings): void {
   upsert.run('provider', s.provider)
   upsert.run('model', s.model)
   upsert.run('apiKey', s.apiKey ?? '')
-  upsert.run('wikiPath', s.wikiPath)
   upsert.run('defaultListId', s.defaultListId ?? '')
   upsert.run('maxConcurrentJobs', String(s.maxConcurrentJobs))
   upsert.run('showWelcome', s.showWelcome ? '1' : '0')
   upsert.run('theme', s.theme === 'dark' ? 'dark' : 'light')
+  upsert.run('uiLanguage', isLanguage(s.uiLanguage) ? s.uiLanguage : DEFAULT_LANGUAGE)
   upsert.run('skills', JSON.stringify(s.skills ?? []))
   upsert.run('mcpServers', JSON.stringify(s.mcpServers ?? []))
 }
@@ -1246,13 +1382,13 @@ export function savePreprocess(db: DatabaseSync, p: Omit<TaskPreprocess, 'update
   const existing = getPreprocess(db, p.taskId)
   if (existing) {
     db.prepare(
-      `UPDATE task_preprocess SET kind=?, summary=?, analysis=?, suggestions_json=?, generated_prompt=?, status=?, inputs_hash=?, updated_at=? WHERE task_id=?`
-    ).run(p.kind, p.summary, p.analysis, JSON.stringify(p.suggestions), p.generatedPrompt, p.status, p.inputsHash ?? '', now, p.taskId)
+      `UPDATE task_preprocess SET kind=?, summary=?, analysis=?, suggestions_json=?, status=?, inputs_hash=?, updated_at=? WHERE task_id=?`
+    ).run(p.kind, p.summary, p.analysis, JSON.stringify(p.suggestions), p.status, p.inputsHash ?? '', now, p.taskId)
   } else {
     db.prepare(
-      `INSERT INTO task_preprocess (task_id, kind, summary, analysis, suggestions_json, generated_prompt, status, inputs_hash, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(p.taskId, p.kind, p.summary, p.analysis, JSON.stringify(p.suggestions), p.generatedPrompt, p.status, p.inputsHash ?? '', now)
+      `INSERT INTO task_preprocess (task_id, kind, summary, analysis, suggestions_json, status, inputs_hash, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(p.taskId, p.kind, p.summary, p.analysis, JSON.stringify(p.suggestions), p.status, p.inputsHash ?? '', now)
   }
   return getPreprocess(db, p.taskId)!
 }

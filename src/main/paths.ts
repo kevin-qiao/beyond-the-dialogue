@@ -57,17 +57,26 @@ export function piModelsPath(): string {
   return path.join(piAgentDir(), 'models.json')
 }
 
+// The app-owned MCP config file, in the standard `{"mcpServers": {...}}`
+// shape. It is an OUTPUT: the Settings rows are the source of truth and this
+// file is rewritten from them (src/main/mcpConfigFile.ts). The agent runtime
+// is never pointed here — sessions receive an in-memory isolated config
+// snapshot built from the rows (contracts/plugin-grants.md §5) — so this path
+// is for user inspection and external-tool interop, and must live beside
+// auth.json/models.json under userData, never in a global config location.
+export function piMcpConfigPath(): string {
+  return path.join(piAgentDir(), 'mcp.json')
+}
+
 export function skillsDir(): string {
   return path.join(userDataDir(), 'skills')
 }
 
-export function defaultWikiPath(): string {
-  return path.join(os.homedir(), 'Documents', 'WorkBoard-Wiki')
-}
-
 // The default destination for the Meeting type's minutes: a plain folder under
-// the user's documents, mirroring how the wiki location already defaults. The
-// user can re-point it per type in Settings; this is only the initial value.
+// the user's documents. The user can re-point it per type in Settings; this is
+// only the initial value. Note the wiki has NO such default — a `store: wiki`
+// destination carries its own rootPath, declared per type, and a type without
+// one is refused rather than pointed at a built-in path.
 export function defaultMeetingMinutesPath(): string {
   return path.join(os.homedir(), 'Documents', 'WorkBoard-Meeting-Minutes')
 }

@@ -95,7 +95,7 @@ function makeCtx(opts: {
   return {
     task,
     typeDef,
-    destination: resolveArtifact(nodePathPort, dest, opts.root, task.title, task.id),
+    destination: resolveArtifact(nodePathPort, dest, task.title, task.id),
     workingContent: opts.content ?? MINUTES,
     declaredInputs: {},
     store: folderArtifactStore,
@@ -177,7 +177,7 @@ test('a complete-only type declaring a destination is a validation error', async
   const result = validateTypeDefinition(def, { paths: nodePathPort, existing: null, mode: 'create' })
   assert.equal(result.ok, false)
   assert.ok(
-    result.errors.some((e) => e.includes('complete-only type must not declare a destination')),
+    result.errors.some((e) => e.key === 'validation.completeOnlyNoDestination'),
     `got ${result.errors}`
   )
 })
@@ -195,7 +195,10 @@ test('a writing behaviour without a destination is a validation error', () => {
   }
   const result = validateTypeDefinition(def, { paths: nodePathPort, existing: null, mode: 'create' })
   assert.equal(result.ok, false)
-  assert.ok(result.errors.some((e) => e.includes('must declare a destination')), `got ${result.errors}`)
+  assert.ok(
+    result.errors.some((e) => e.key === 'validation.needsDestination'),
+    `got ${JSON.stringify(result.errors)}`
+  )
 })
 
 // ---- the polish bound (FR-009, SC-011) ----

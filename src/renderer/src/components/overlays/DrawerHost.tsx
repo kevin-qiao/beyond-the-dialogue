@@ -1,18 +1,23 @@
 import { useApp } from '../../store'
+import { useT } from '../../lib/useT'
+import type { MessageKey } from '../../../../core/i18n'
 import { ActivityView } from './ActivityView'
 import { SettingsView } from './SettingsView'
 import { ChatView } from './ChatView'
 
-const TITLES: Record<'activity' | 'settings' | 'chat', { title: string; sub: string }> = {
-  activity: { title: 'Activity', sub: 'agent jobs · ingest history · live progress' },
-  settings: { title: 'Settings', sub: 'ai provider · theme · preferences' },
-  chat: { title: 'Debug chat', sub: 'agent session · stream events' }
+// Each drawer's heading, as keys rather than text: the title and subtitle are
+// looked up when the drawer opens, so they follow the language like the rest.
+const TITLES: Record<'activity' | 'settings' | 'chat', { title: MessageKey; sub: MessageKey }> = {
+  activity: { title: 'drawer.activity.title', sub: 'drawer.activity.sub' },
+  settings: { title: 'drawer.settings.title', sub: 'drawer.settings.sub' },
+  chat: { title: 'drawer.chat.title', sub: 'drawer.chat.sub' }
 }
 
 // Drawer host (spec app-layout): Activity, Settings, and the debug chat open
 // as right-side drawers overlaying the board, which stays mounted behind them.
 export function DrawerHost() {
   const { drawer, closeDrawer } = useApp()
+  const t = useT()
   if (!drawer) return null
 
   const { title, sub } = TITLES[drawer]
@@ -23,11 +28,11 @@ export function DrawerHost() {
       <aside className="drawer">
         <div className="drawer-head">
           <div>
-            <h2>{title}</h2>
-            <div className="drawer-sub">{sub}</div>
+            <h2>{t(title)}</h2>
+            <div className="drawer-sub">{t(sub)}</div>
           </div>
           <button className="mini-btn" onClick={closeDrawer}>
-            ✕ Close
+            ✕ {t('common.close')}
           </button>
         </div>
         <div className="drawer-body">

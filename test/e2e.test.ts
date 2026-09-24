@@ -4,6 +4,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { openDB, migrate, saveSettings, loadSettings, getTask, getPreprocess, getNotes, listIngest, listSuggestions, getJob, saveNotes, updateTask, type DB } from '../src/main/db'
+import { message, isMessageKey } from '../src/core/i18n'
 import { JobQueue } from '../src/main/job-queue'
 import { runPreprocessJob } from '../src/main/preprocess'
 import { runSuggestionJob } from '../src/main/suggestions'
@@ -24,7 +25,6 @@ import { workingAreaFor } from '../src/core/domain/workingArea'
 import { PREPROCESS_INSTRUCTIONS, hasPreprocess, preprocessInstruction } from '../src/core/domain/preprocess'
 
 const SCRIPTED_PREPROCESS = JSON.stringify({
-  generatedPrompt: 'You are helping me learn blockchain applications for math education. Start from the NFTrig paper\'s core claim.',
   summary: 'A learning task about applying blockchain techniques to math education, based on the NFTrig paper.',
   suggestions: ['Summarize the paper\'s mechanism in your own words', 'Compare with traditional LMS approaches', 'Sketch a small demo idea']
 })
@@ -92,13 +92,15 @@ async function finishMeeting(conn: DB, minutesDir: string, taskId: string) {
     destination: { store: 'folder', rootPath: minutesDir, subdir: '' }
   })
   const deps: FinishDeps = {
+    // Tests render English; the language is explicit rather than absent so a
+    // missing one cannot hide as a silent fallback.
+    language: 'en',
     paths: nodePathPort,
     storage: createSqliteStorage(conn.db),
     storeFor: () => folderArtifactStore,
     session: createAgentSessionAdapter(() => loadSettings(conn.db)),
     clock: systemClock,
     notifier: { toast: () => {}, progress: () => {} },
-    wikiRoot: () => loadSettings(conn.db).wikiPath,
     enqueueCurate: () => {}
   }
   return finishTask(deps, taskId)
@@ -128,11 +130,17 @@ test('8.1 flagship scenario: learning task -> My Day -> preprocess -> note -> Fi
     provider: 'openai',
     model: 'gpt-4o',
     apiKey: 'sk-scripted',
-    wikiPath,
     defaultListId: null,
     maxConcurrentJobs: 2, showWelcome: false, theme: 'light', skills: [], mcpServers: []
   })
   ensureVault()
+
+  // The learning type declares where its wiki lives — there is no global
+  // wiki directory setting anymore, so the flagship runs the configured flow.
+  updateTypeDef(conn.db, {
+    ...getTypeDef(conn.db, 'learning')!,
+    destination: { store: 'wiki', rootPath: wikiPath, subdir: 'learning-notes' }
+  })
 
   // 1. Create a learning task with its target input.
   const list = serviceCreateList(conn.db, 'Research')
@@ -159,7 +167,6 @@ test('8.1 flagship scenario: learning task -> My Day -> preprocess -> note -> Fi
   const processed = getTask(conn.db, task.id)!
   assert.equal(processed.preprocessStatus, 'ready')
   const pp = getPreprocess(conn.db, task.id)!
-  assert.ok(pp.generatedPrompt.length > 0, 'working prompt generated')
   assert.ok(pp.summary.includes('blockchain'), 'summary derived from task context')
   assert.equal(pp.kind, 'learning')
   assert.ok(pp.inputsHash, 'inputs hash recorded for the re-run gate')
@@ -221,7 +228,6 @@ test('8.1b re-running after input change refreshes outputs (hash gate)', { timeo
     provider: 'openai',
     model: 'gpt-4o',
     apiKey: 'sk-scripted',
-    wikiPath: path.join(dir, 'wiki-space'),
     defaultListId: null,
     maxConcurrentJobs: 2, showWelcome: false, theme: 'light', skills: [], mcpServers: []
   })
@@ -254,7 +260,6 @@ test('8.1b re-running after input change refreshes outputs (hash gate)', { timeo
 // ---- US1: the Meeting journey end to end (quickstart S1) ----
 
 const MEETING_PREPROCESS = JSON.stringify({
-  generatedPrompt: 'You are preparing for the weekly sync. Start from the roadmap decision.',
   summary:
     '## Suggested agenda\n1. Roadmap review (10 min)\n2. Beta launch date (15 min)\n\n## Core topics\n- Whether the March beta date still holds\n- The onboarding drop-off Ana raised',
   analysis: 'The user wants to walk into the weekly sync with a settled beta date.',
@@ -279,7 +284,6 @@ test('8.1c meeting journey: agenda -> minutes -> polished file in a configured f
     provider: 'openai',
     model: 'gpt-4o',
     apiKey: 'sk-scripted',
-    wikiPath: path.join(dir, 'wiki-space'),
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,
@@ -375,7 +379,6 @@ test('8.1d a polished finish never files a fact the user did not record (FR-009,
     provider: 'openai',
     model: 'gpt-4o',
     apiKey: 'sk-scripted',
-    wikiPath: path.join(dir, 'wiki-space'),
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,
@@ -445,7 +448,12 @@ test('8.1e a meeting task routes to the meeting surface and meeting pre-process,
   assert.equal(hasPreprocess('meeting'), true)
   assert.equal(preprocessInstruction('meeting'), PREPROCESS_INSTRUCTIONS.meeting)
   assert.notEqual(preprocessInstruction('meeting'), PREPROCESS_INSTRUCTIONS.jira)
-  assert.ok(preprocessInstruction('meeting')!.step.includes('agenda'))
+  // The declaration holds a message KEY now, since the job that emits it is
+  // what knows the language — so the assertion is on the label it resolves to.
+  const meetingStep = preprocessInstruction('meeting')!.step
+  assert.ok(isMessageKey(meetingStep), 'the step label must be a catalog key')
+  assert.equal(message('en', meetingStep), 'Proposing an agenda')
+  assert.notEqual(message('en', meetingStep), message('en', preprocessInstruction('jira')!.step))
 
   // plain genuinely has none — the fallback would be indistinguishable from a
   // correct answer if the registry ever lost its meeting entry.

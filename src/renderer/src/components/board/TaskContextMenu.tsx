@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useT } from '../../lib/useT'
 
 // Right-click context menu for a task row. Presentational: it reports the
 // chosen action to the parent (TaskColumn) and closes on outside click or
@@ -17,6 +18,7 @@ export function TaskContextMenu({
   onDelete: () => void
   onClose: () => void
 }) {
+  const t = useT()
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -37,10 +39,10 @@ export function TaskContextMenu({
   return (
     <div className="ctx-menu" ref={ref} style={{ top: y, left: x }}>
       <button className="ctx-item" onClick={onEdit}>
-        ✎ Edit
+        ✎ {t('common.edit')}
       </button>
       <button className="ctx-item danger" onClick={onDelete}>
-        🗑 Delete
+        🗑 {t('common.delete')}
       </button>
     </div>
   )

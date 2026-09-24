@@ -6,6 +6,7 @@
 // `TaskType` and `TaskKind` are retained as the names the rest of the code
 // already uses; they denote the same set.
 import type { TaskCategory, FinishBehaviour, DestinationStore } from '../core/domain/categories'
+import type { Language } from '../core/i18n/language'
 
 export type { TaskCategory, FinishBehaviour, DestinationStore }
 
@@ -22,8 +23,10 @@ export type TaskKind = TaskCategory
 // and resolved at write time, so confinement is checkable by construction.
 export interface Destination {
   store: DestinationStore
-  // Absolute; required for 'folder', MUST be null for 'wiki' (the configured
-  // wiki location is used instead).
+  // Absolute; required for BOTH stores — the location is declared per type,
+  // never inherited from a global setting or a built-in default. A wiki-
+  // destined type with no rootPath is refused at Finish, never silently
+  // pointed somewhere.
   rootPath: string | null
   // Relative directory under the root; '' means the root itself.
   subdir: string
@@ -107,7 +110,7 @@ export interface TaskTypeDef {
   grants: PluginGrant
 }
 
-// ---- Skills & MCP (configuration entries, inert in v0.8 — design D6) ----
+// ---- Skills & MCP (managed plugin entries) ----
 
 export interface SkillEntry {
   name: string
@@ -116,16 +119,17 @@ export interface SkillEntry {
   path: string
 }
 
-export interface McpTransportConfig {
-  type: 'stdio'
-  command: string
-  args?: string[]
-  env?: Record<string, string>
-}
-
+/**
+ * One registered MCP server. `config` is the STANDARD server object — whatever
+ * `mcpServers.<name>` would hold in a normal `mcp.json` (command/args/env/cwd
+ * for stdio, url/headers for HTTP, plus the adapter's optional fields). The
+ * app validates only structural sanity (`src/core/domain/mcpConfig.ts`) and
+ * passes the rest through to pi-mcp-adapter uninterpreted, which is what makes
+ * the full standard configuration round-trippable into mcp.json.
+ */
 export interface McpServerEntry {
   name: string
-  transport: McpTransportConfig
+  config: Record<string, unknown>
 }
 
 // ---- Task management ----
@@ -180,16 +184,49 @@ export interface Settings {
   provider: string
   model: string
   apiKey: string | null
-  wikiPath: string
   defaultListId: string | null
   maxConcurrentJobs: number
   showWelcome: boolean
   theme: 'light' | 'dark'
-  // Managed plugin entries (config-only in v0.8; nothing on the agent path
-  // reads them). Custom task types moved to the task_types table.
+  // The language the app's OWN text is shown in (labels, buttons, dialogs,
+  // messages) — named `uiLanguage` rather than `language` to say so: it is a
+  // presentation choice and must never reach a prompt or shape model output.
+  uiLanguage: Language
+  // Managed plugin entries. MCP servers here are the source of truth for the
+  // pi-mcp-adapter grant-gated sessions and are auto-materialized to the
+  // app-owned mcp.json (output only). Custom task types live in the task_types
+  // table.
   skills: SkillEntry[]
   mcpServers: McpServerEntry[]
 }
+
+/**
+ * Every field of `Settings`, declared once.
+ *
+ * Two places need to enumerate the settings: the persistence layer (which reads
+ * and writes them one key at a time) and the Settings form's dirty check, which
+ * is hand-written field by field — and silently stops enabling Save when a new
+ * field is not listed. Both read this instead. The check under the list is what
+ * makes that guarantee real: adding a field to `Settings` without naming it here
+ * is a compile error.
+ */
+export const SETTINGS_KEYS = [
+  'provider',
+  'model',
+  'apiKey',
+  'defaultListId',
+  'maxConcurrentJobs',
+  'showWelcome',
+  'theme',
+  'uiLanguage',
+  'skills',
+  'mcpServers'
+] as const satisfies readonly (keyof Settings)[]
+
+type UnlistedSettingKey = Exclude<keyof Settings, (typeof SETTINGS_KEYS)[number]>
+// `never` when every field is listed; naming the bare type below is the error.
+const _everySettingIsListed: UnlistedSettingKey[] = []
+void _everySettingIsListed
 
 // ---- Jobs ----
 
@@ -222,8 +259,6 @@ export interface TaskPreprocess {
   // Dismissible activity suggestion chips (also mirrored into the
   // suggestions table for the existing chip UI).
   suggestions: string[]
-  // Working prompt that seeds the task's chat context.
-  generatedPrompt: string
   status: PreprocessStatus
   // Hash of the inputs this output was computed from — gates re-runs when
   // relevant inputs change while the task sits in My Day (design D3).

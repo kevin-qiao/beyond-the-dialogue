@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { issueKeysOf, issueParamsOf } from './helpers/issues'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -31,7 +32,6 @@ function harness() {
     provider: 'openai',
     model: 'gpt-4o',
     apiKey: 'sk-scripted',
-    wikiPath: path.join(dir, 'wiki'),
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,
@@ -61,15 +61,17 @@ function harness() {
   return { dir, conn, destDir, task }
 }
 
-function depsFor(conn: DB, session: AgentSessionPort, wikiRoot: string): FinishDeps {
+function depsFor(conn: DB, session: AgentSessionPort): FinishDeps {
   return {
+    // Tests render English; the language is explicit rather than absent so a
+    // missing one cannot hide as a silent fallback.
+    language: 'en',
     paths: nodePathPort,
     storage: createSqliteStorage(conn.db),
     storeFor: () => folderArtifactStore,
     session,
     clock: systemClock,
     notifier: { toast: () => {}, progress: () => {} },
-    wikiRoot: () => wikiRoot,
     enqueueCurate: () => {}
   }
 }
@@ -87,7 +89,7 @@ const polishedSession = (): AgentSessionPort => ({
 
 test('a successful finish marks the task complete and records the artifact', async () => {
   const { conn, destDir, task } = harness()
-  const outcome = await finishTask(depsFor(conn, polishedSession(), destDir), task.id)
+  const outcome = await finishTask(depsFor(conn, polishedSession()), task.id)
 
   assert.equal(outcome.behaviour, 'polish-then-file')
   assert.equal(outcome.deferred, false)
@@ -110,7 +112,7 @@ test('the destination is validated BEFORE the task is marked complete', async ()
   const { conn, dir, task } = harness()
   // The configured folder disappears between saving the type and finishing.
   const gone = path.join(dir, 'vanished')
-  const deps = depsFor(conn, polishedSession(), gone)
+  const deps = depsFor(conn, polishedSession())
   deps.storage.listTypes = () =>
     [
       {
@@ -126,7 +128,11 @@ test('the destination is validated BEFORE the task is marked complete', async ()
       } as TaskTypeDef
     ]
 
-  await assert.rejects(() => finishTask(deps, task.id), /does not exist/)
+  // The destination's own refusal, passed through with its code intact.
+  await assert.rejects(() => finishTask(deps, task.id), (e: unknown) => {
+    assert.deepEqual(issueKeysOf(e), ['artifact.folderMissing'])
+    return true
+  })
 
   // Not completed, so the user can fix the destination and try again (FR-027).
   assert.equal(getTask(conn.db, task.id)!.completed, false)
@@ -138,7 +144,7 @@ test('the destination is validated BEFORE the task is marked complete', async ()
 test('the task is NOT marked complete when the artifact step fails', async () => {
   const { conn, destDir, task } = harness()
   // The destination exists and is writable, but the write itself fails.
-  const deps = depsFor(conn, polishedSession(), destDir)
+  const deps = depsFor(conn, polishedSession())
   deps.storeFor = () => ({
     ...folderArtifactStore,
     async prepare() {},
@@ -155,7 +161,7 @@ test('the task is NOT marked complete when the artifact step fails', async () =>
 
 test('a failure reaches the activity record', async () => {
   const { conn, destDir, task } = harness()
-  const deps = depsFor(conn, polishedSession(), destDir)
+  const deps = depsFor(conn, polishedSession())
   deps.storeFor = () => ({
     ...folderArtifactStore,
     async prepare() {},
@@ -174,7 +180,7 @@ test('a failure reaches the activity record', async () => {
 
 test('missing required inputs refuse the finish before anything else happens', async () => {
   const { conn, destDir, task } = harness()
-  const deps = depsFor(conn, polishedSession(), destDir)
+  const deps = depsFor(conn, polishedSession())
   deps.storage.listTypes = () =>
     [
       {
@@ -190,7 +196,11 @@ test('missing required inputs refuse the finish before anything else happens', a
       } as TaskTypeDef
     ]
 
-  await assert.rejects(() => finishTask(deps, task.id), /missing required input\(s\): Objective/)
+  await assert.rejects(() => finishTask(deps, task.id), (e: unknown) => {
+    assert.deepEqual(issueKeysOf(e), ['finish.missingInputs'])
+    assert.deepEqual(issueParamsOf(e).fields, 'Objective')
+    return true
+  })
   assert.equal(getTask(conn.db, task.id)!.completed, false)
   assert.deepEqual(fs.readdirSync(destDir), [])
   conn.close()
@@ -201,7 +211,7 @@ test('no AI provider still completes the finish and files the user content', asy
   const unavailable: AgentSessionPort = { isAvailable: () => false, async run() {
     throw new Error('must not be called')
   } }
-  const outcome = await finishTask(depsFor(conn, unavailable, destDir), task.id)
+  const outcome = await finishTask(depsFor(conn, unavailable), task.id)
 
   assert.equal(outcome.task.completed, true, 'finishing never fails solely because AI is unavailable')
   assert.equal(outcome.result!.assistantStep, 'failed')
@@ -215,9 +225,37 @@ test('no AI provider still completes the finish and files the user content', asy
 
 test('finishing twice leaves both versions, neither overwritten', async () => {
   const { conn, destDir, task } = harness()
-  await finishTask(depsFor(conn, polishedSession(), destDir), task.id)
-  await finishTask(depsFor(conn, polishedSession(), destDir), task.id)
+  await finishTask(depsFor(conn, polishedSession()), task.id)
+  await finishTask(depsFor(conn, polishedSession()), task.id)
 
   assert.deepEqual(fs.readdirSync(destDir).sort(), ['weekly-sync-2.md', 'weekly-sync.md'])
   conn.close()
+})
+
+test('a wiki-destined type with no directory is refused, not defaulted', async () => {
+  const { conn, task } = harness()
+  // The classic row: a built-in seeded before its owner ever set a wiki
+  // directory. There is no global location to inherit and no built-in default,
+  // so this must refuse while the task is still actionable.
+  const deps = depsFor(conn, polishedSession())
+  deps.storage.listTypes = () =>
+    [
+      {
+        key: 'minutes',
+        kind: 'meeting',
+        label: 'Minutes',
+        emoji: '🗓',
+        inputSchema: [],
+        isBuiltin: false,
+        finishBehaviour: 'polish-then-file',
+        destination: { store: 'wiki', rootPath: null, subdir: 'learning-notes' },
+        grants: { skills: [], toolServers: [] }
+      } as TaskTypeDef
+    ]
+
+  await assert.rejects(() => finishTask(deps, task.id), (e: unknown) => {
+    assert.deepEqual(issueKeysOf(e), ['wiki.notConfigured'])
+    return true
+  })
+  assert.equal(getTask(conn.db, task.id)!.completed, false, 'refused while still actionable, never half-completed')
 })

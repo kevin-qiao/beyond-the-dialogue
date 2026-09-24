@@ -2,6 +2,7 @@ import * as path from 'node:path'
 import type { PluginGrant, Settings, TaskTypeDef } from '../../shared/types'
 import { resolveGrant } from '../../core/domain/grant'
 import type { SessionPurpose } from '../../core/ports/agent'
+import { buildMcpExtension } from '../adapters/agent/mcpAdapter'
 
 // Central factory for job agent sessions. Isolates all Pi session creation so
 // jobs stay thin, and gives tests a seam to inject scripted sessions.
@@ -20,6 +21,15 @@ export interface JobSessionLike {
   prompt: (text: string, opts?: { expandPromptTemplates?: boolean }) => Promise<void>
   messages: any[]
   abort: () => Promise<void>
+  /**
+   * End the session for good: extensions are told to shut down — which is
+   * how pi-mcp-adapter tears down its (lazy) MCP child processes — and the
+   * session's listeners are removed. abort() alone settles the turn but does
+   * NOT emit session_shutdown; leaving a granted session undisposed would
+   * leak the servers its proxy started. Optional so scripted test doubles
+   * need not implement it.
+   */
+  dispose?: () => Promise<void>
 }
 
 export interface CreateJobSessionOptions {
@@ -74,6 +84,26 @@ export async function createJobSession(opts: CreateJobSessionOptions): Promise<J
   const grant = resolveGrant({ purpose: opts.purpose ?? 'confined', typeDef: opts.typeDef ?? null })
   const grantedSkillPaths = grantedSkillDirs(grant, skillsDir())
 
+  // MCP tool servers, from the SAME resolved grant: a session reaches the
+  // outside network only through servers its type declared. This is the one
+  // place the agent path reads settings.mcpServers (design D6's scan updated
+  // by add-mcp-support); a confined run arrives with no tool servers, so it
+  // constructs no adapter at all. A setup failure degrades the build rather
+  // than failing the run — but it is reported, never swallowed (FR-024).
+  const extensionFactories: unknown[] = []
+  let mcpToolNames: string[] = []
+  try {
+    const mcp = await buildMcpExtension(settings.mcpServers ?? [], grant)
+    if (mcp.extension) {
+      extensionFactories.push(mcp.extension)
+      mcpToolNames = mcp.toolNames
+    }
+    if (mcp.missingGranted.length)
+      console.warn(`[mcp] type grants tool servers that are not configured: ${mcp.missingGranted.join(', ')}`)
+  } catch (e) {
+    console.warn('[mcp] tool-server setup failed; building the session without MCP:', e)
+  }
+
   const runtime = await getRuntime()
   const model = resolveModel(settings.provider, settings.model)
   if (!model) throw new Error(`no model available for provider ${settings.provider}`)
@@ -89,10 +119,23 @@ export async function createJobSession(opts: CreateJobSessionOptions): Promise<J
     // driven by the resolved grant, not by a flag the caller could set.
     noSkills: grantedSkillPaths.length === 0,
     additionalSkillPaths: grantedSkillPaths,
+    // Inline factories load even under noExtensions: true — that option only
+    // suppresses DISCOVERED extensions, which is exactly the ambient behavior
+    // the isolation contract forbids. The MCP adapter registers here (or not
+    // at all); pi-mcp-adapter's inline-config mode also disables its own
+    // interactive setup commands, so there is no code path to ambient files.
+    extensionFactories: extensionFactories as never[],
     noPromptTemplates: true,
     noThemes: true,
     systemPrompt
   })
+
+  // The loader's getters (extensions, skills, prompts…) are populated by
+  // reload(); the constructor only seeds them empty. Skipping this — which the
+  // SDK's own docs always do before createAgentSession — leaves both the
+  // granted skills and the inline MCP factory invisible to the session: built,
+  // but never loaded.
+  await loader.reload()
 
   const { session } = await createAgentSession({
     cwd,
@@ -102,11 +145,48 @@ export async function createJobSession(opts: CreateJobSessionOptions): Promise<J
     resourceLoader: loader,
     sessionManager: SessionManager.inMemory(cwd),
     settingsManager: SettingsManager.create(cwd, piAgentDir()),
-    tools,
+    // The SDK allowlist must name every extension tool it should enable, so
+    // the MCP proxy tool has to be added HERE (and nothing else — confined
+    // runs have no mcpToolNames to add).
+    tools: [...new Set([...tools, ...mcpToolNames])],
     customTools: customTools as any[],
     noTools: 'builtin'
   })
-  return session as unknown as JobSessionLike
+
+  // A granted session may have started (lazily) MCP child processes that only
+  // the adapter's session_shutdown handler tears down. The SDK's own
+  // runtime.dispose() emits that event then disposes; this in-memory job
+  // session is not a runtime, so we replicate the order here: emit shutdown
+  // first (stops the servers), then dispose (drops listeners). Skipping the
+  // emit would leak every spawned server for the life of the main process.
+  const raw = session as unknown as {
+    subscribe: JobSessionLike['subscribe']
+    prompt: JobSessionLike['prompt']
+    messages: any[]
+    abort: () => Promise<void>
+    dispose: () => void
+    extensionRunner?: { emit: (ev: { type: 'session_shutdown'; reason: 'quit' }) => Promise<unknown> }
+  }
+  return {
+    subscribe: (cb) => raw.subscribe(cb),
+    prompt: (text, o) => raw.prompt(text, o),
+    get messages() {
+      return raw.messages
+    },
+    abort: () => raw.abort(),
+    dispose: async () => {
+      try {
+        await raw.extensionRunner?.emit({ type: 'session_shutdown', reason: 'quit' })
+      } catch (e) {
+        console.warn('[mcp] session_shutdown emission failed:', e)
+      }
+      try {
+        raw.dispose()
+      } catch {
+        // Dispose must not throw into a job's finally.
+      }
+    }
+  }
 }
 
 /**

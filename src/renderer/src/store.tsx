@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { CreateTaskArgs, JobProgressEvent, RemoteOutcomeView, RemoteProposalView, ToastPayload, UpdateTaskArgs } from '../../shared/ipc'
 import type { AppSnapshot, ChatMessage, IngestRecord, List, Settings, Suggestion, Task, TaskTypeDef } from '../../shared/types'
+import { DEFAULT_LANGUAGE, localeOf, translator, type Language, type Translate } from '../../core/i18n'
 
 interface AppState {
   snapshot: AppSnapshot | null
@@ -18,6 +19,12 @@ export type View = 'my-day' | 'todo'
 export type DrawerView = 'activity' | 'settings' | 'chat'
 
 interface AppContextValue extends AppState {
+  /** The language the app's own text is shown in (Settings → Appearance). */
+  language: Language
+  /** The BCP-47 tag dates are formatted with, derived from `language`. */
+  locale: string
+  /** `message(language, …)`, bound. Stable per language, so it is safe in deps. */
+  t: Translate
   setActiveView: (v: View) => void
   drawer: DrawerView | null
   openDrawer: (d: DrawerView) => void
@@ -30,12 +37,10 @@ interface AppContextValue extends AppState {
   dismissToast: () => void
   liveJobs: JobProgressEvent[]
   ingestSteps: Record<string, string | null>
-  chatMessages: ChatMessage[]
-  chatStreaming: string | null
-  chatRunning: boolean
-  chatError: string | null
+  /** The transcript of one chat surface. `taskId` undefined = the debug chat. */
+  chatFor: (taskId?: string) => ChatSurface
   sendChat: (text: string, taskId?: string) => Promise<void>
-  resetChat: () => Promise<void>
+  resetChat: (taskId?: string) => Promise<void>
   setQuery: (q: string) => void
   searchTasks: (tasks: Task[]) => Task[]
   createList: (name: string) => Promise<List>
@@ -67,6 +72,23 @@ interface AppContextValue extends AppState {
   types: TaskTypeDef[]
 }
 
+// One chat surface's transcript and its in-flight state. The app holds one per
+// surface (per task, plus the debug drawer) rather than a single shared
+// conversation: with one array, opening another task's chat showed the
+// previous task's exchange, and sending from it threw the other one away.
+export interface ChatSurface {
+  messages: ChatMessage[]
+  streaming: string | null
+  running: boolean
+  error: string | null
+}
+
+const NO_CHAT: ChatSurface = { messages: [], streaming: null, running: false, error: null }
+
+// Surface key: a task id, or the debug chat's empty string. Mirrors the main
+// process's `chatKeyOf`.
+const chatKey = (taskId?: string | null): string => taskId ?? ''
+
 const AppCtx = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -84,13 +106,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [query, setQuery] = useState('')
   const [liveJobs, setLiveJobs] = useState<Record<string, JobProgressEvent>>({})
   const [ingestSteps, setIngestSteps] = useState<Record<string, string | null>>({})
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
-  const [chatStreaming, setChatStreaming] = useState<string | null>(null)
-  const [chatRunning, setChatRunning] = useState(false)
-  const [chatError, setChatError] = useState<string | null>(null)
+  const [chats, setChats] = useState<Record<string, ChatSurface>>({})
   const snapshotRef = useRef<AppSnapshot | null>(null)
-  // Which surface (task id | null = debug chat) owns the current transcript.
-  const chatOwnerRef = useRef<string | null>(null)
+
+  // Update one surface's transcript without touching the others.
+  const patchChat = useCallback((key: string, fn: (cur: ChatSurface) => ChatSurface) => {
+    setChats((prev) => ({ ...prev, [key]: fn(prev[key] ?? NO_CHAT) }))
+  }, [])
 
   useEffect(() => {
     snapshotRef.current = snapshot
@@ -160,10 +182,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { ...prev, preprocess: { ...prev.preprocess, [p.taskId]: p } }
       })
     })
-    const offSug = window.api.onSuggestionsUpdated((s: Suggestion[]) => {
+    // The event carries one task's suggestions, so it is merged: replacing the
+    // list outright dropped every other task's chips.
+    const offSug = window.api.onSuggestionsUpdated((e) => {
       setSnapshot((prev) => {
         if (!prev) return prev
-        return { ...prev, suggestions: s }
+        return {
+          ...prev,
+          suggestions: [...prev.suggestions.filter((s) => s.taskId !== e.taskId), ...e.suggestions]
+        }
       })
     })
     const offSettings = window.api.onSettingsUpdated((s) => {
@@ -190,18 +217,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const offIngestProgress = window.api.onIngestProgress((e) => {
       setIngestSteps((prev) => ({ ...prev, [e.ingestId]: e.stepLabel }))
     })
+    // Chat events are routed by owner, so a reply lands in the transcript of
+    // the surface that asked for it — never in whichever panel is on screen.
     const offChatDelta = window.api.onChatDelta((e) => {
-      setChatStreaming((prev) => (prev ?? '') + e.delta)
+      patchChat(chatKey(e.owner), (cur) => ({ ...cur, streaming: (cur.streaming ?? '') + e.delta }))
     })
     const offChatDone = window.api.onChatDone((e) => {
-      setChatMessages((prev) => [...prev, { role: 'assistant', content: e.text }])
-      setChatStreaming(null)
-      setChatRunning(false)
+      patchChat(chatKey(e.owner), (cur) => ({
+        ...cur,
+        messages: [...cur.messages, { role: 'assistant', content: e.text }],
+        streaming: null,
+        running: false
+      }))
     })
     const offChatError = window.api.onChatError((e) => {
-      setChatStreaming(null)
-      setChatRunning(false)
-      setChatError(e.error)
+      patchChat(chatKey(e.owner), (cur) => ({ ...cur, streaming: null, running: false, error: e.error }))
     })
     const offOpenTask = window.api.onOpenTask((taskId) => {
       setSelectedTaskId(taskId)
@@ -223,12 +253,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       offChatError()
       offOpenTask()
     }
-  }, [mutateTask, refresh])
+  }, [mutateTask, refresh, patchChat])
+
+  // The language rides the snapshot, so it arrives with every settings change
+  // and needs no context of its own. Derived here rather than inside the value
+  // memo so `t` keeps one identity per language: a component that memoises on
+  // `t` should recompute when the language changes, not on every task update.
+  //
+  // Note for anyone tempted to call `useT()` in this component: AppProvider IS
+  // the provider, so `useApp()` would throw. It reads `t` from here directly.
+  const language = snapshot?.settings.uiLanguage ?? DEFAULT_LANGUAGE
+  const t = useMemo(() => translator(language), [language])
+  const locale = localeOf(language)
 
   const value = useMemo<AppContextValue>(() => {
     const snap = snapshot
     return {
       snapshot: snap,
+      language,
+      locale,
+      t,
       loading,
       activeView,
       drawer,
@@ -245,27 +289,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dismissToast: () => setToast(null),
       liveJobs: Object.values(liveJobs).sort((a, b) => a.jobId.localeCompare(b.jobId)),
       ingestSteps,
-      chatMessages,
-      chatStreaming,
-      chatRunning,
-      chatError,
+      chatFor: (taskId) => chats[chatKey(taskId)] ?? NO_CHAT,
       sendChat: async (text, taskId) => {
-        setChatError(null)
-        // Conversations are per-surface (design D4): a different owner task
-        // starts a fresh transcript — mirroring the main-side conversation
-        // reset, which captures grounding context on the first send.
-        const ownerChanged = (chatOwnerRef.current ?? null) !== (taskId ?? null)
-        if (ownerChanged) chatOwnerRef.current = taskId ?? null
-        setChatMessages((prev) => (ownerChanged ? [{ role: 'user', content: text }] : [...prev, { role: 'user', content: text }]))
-        setChatRunning(true)
-        await window.api.sendChat({ text, taskId })
+        const key = chatKey(taskId)
+        patchChat(key, (cur) => ({
+          ...cur,
+          error: null,
+          streaming: null,
+          running: true,
+          messages: [...cur.messages, { role: 'user', content: text }]
+        }))
+        try {
+          await window.api.sendChat({ text, taskId })
+        } catch (e: any) {
+          // The call itself rejected, so no chat:error event will follow.
+          // Roll the message back — main never recorded it either, and a
+          // transcript that shows a message the model never saw is worse than
+          // losing one — and clear the running state so the composer is not
+          // left disabled on "the model is replying…" until a restart.
+          patchChat(key, (cur) => ({
+            ...cur,
+            running: false,
+            streaming: null,
+            messages: cur.messages.slice(0, -1),
+            error: e?.message ?? t('error.mainUnreachable')
+          }))
+        }
       },
-      resetChat: async () => {
-        await window.api.resetChat()
-        setChatMessages([])
-        setChatStreaming(null)
-        setChatRunning(false)
-        setChatError(null)
+      resetChat: async (taskId) => {
+        await window.api.resetChat({ taskId })
+        setChats((prev) => ({ ...prev, [chatKey(taskId)]: NO_CHAT }))
       },
       setActiveView,
       selectList,
@@ -377,6 +430,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [
     snapshot,
+    language,
+    locale,
+    t,
     loading,
     activeView,
     drawer,
@@ -386,10 +442,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast,
     liveJobs,
     ingestSteps,
-    chatMessages,
-    chatStreaming,
-    chatRunning,
-    chatError,
+    chats,
     query,
     setActiveView,
     openDrawer,
@@ -397,7 +450,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     selectList,
     selectTask,
     refresh,
-    mutateTask
+    mutateTask,
+    patchChat
   ])
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>

@@ -1,6 +1,8 @@
 import type { JobContext } from '../job-queue'
 import type { IngestRecord, TaskPreprocess } from '../../shared/types'
 import { getTask, listTypes, loadSettings, updateIngest } from '../db'
+import { message } from '../../core/i18n'
+import { LocalizedError } from '../../core/i18n/issues'
 import { effectiveType } from '../../core/domain/taskType'
 import { declaredWorkflow } from '../../core/domain/taskType'
 import { depositThenCurate } from '../../core/domain/finish'
@@ -10,7 +12,6 @@ import { wikiArtifactStoreFor } from '../adapters/artifacts/wikiStore'
 import { createAgentSessionAdapter } from '../adapters/agent/sessionAdapter'
 import { systemClock } from '../../core/ports/clock'
 import { nodePathPort } from '../adapters/paths'
-import { resolveWikiPath } from './wiki'
 
 // The background half of a `deposit-then-curate` finish.
 //
@@ -27,18 +28,24 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   if (!task) throw new Error('task not found')
 
   const settings = loadSettings(db)
-  const wikiRoot = resolveWikiPath(settings.wikiPath)
   const def = effectiveType(listTypes(db), task)
   if (!def) throw new Error('no type definition resolves for this task')
 
   const workflow = declaredWorkflow(def)
   const dest = workflow.destination
   if (!dest || dest.store !== 'wiki') {
-    throw new Error(`type "${def.label}" is not destined for the wiki`)
+    throw new LocalizedError([{ key: 'ingest.typeNotDestined', params: { type: def.label } }])
+  }
+  // The wiki directory is declared on the type; there is no global location
+  // and no default, so a blank root is a refusal rather than a surprise
+  // scaffold in the working directory.
+  const wikiRoot = (dest.rootPath ?? '').trim()
+  if (!wikiRoot) {
+    throw new LocalizedError([{ key: 'wiki.notConfigured' }])
   }
 
   const storage = createSqliteStorage(db)
-  const target = resolveArtifact(nodePathPort, dest, wikiRoot, task.title, task.id)
+  const target = resolveArtifact(nodePathPort, dest, task.title, task.id)
   const session = createAgentSessionAdapter(() => loadSettings(db))
   const preprocess = storage.getPreprocess(taskId)
 
@@ -51,14 +58,17 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   const override = typeof rawOverride === 'string' && rawOverride.trim() ? rawOverride.trim() : ''
   // Confined through the same check the destination uses; an override that
   // escapes is refused rather than quietly replaced by the default.
-  const confined = override ? confineOverride(nodePathPort, dest, wikiRoot, override) : null
+  const confined = override ? confineOverride(nodePathPort, dest, override) : null
   if (override && !confined) {
-    throw new Error(`learning-note path "${override}" is outside the current wiki — re-point it in the task inputs`)
+    throw new LocalizedError([{ key: 'ingest.notePathOutside', params: { path: override } }])
   }
   const noteTargetRel = confined?.rootRel
 
   const result = await depositThenCurate({
     task,
+    // The curating step's labels are produced here, so this is where the
+    // language is known — the strategy is handed the answer, not the question.
+    language: settings.uiLanguage,
     typeDef: def,
     destination: target,
     workingContent: (storage.getNotes(taskId)?.content ?? '').trim(),
@@ -79,18 +89,18 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
 
   // What the agent actually created or modified.
   record({ touchedFiles: result.touchedFiles })
-  ctx.setStep('Complete', 'Wiki ingestion complete')
+  ctx.setStep(message(settings.uiLanguage, 'job.step.complete'), message(settings.uiLanguage, 'ingest.done'))
 }
 
 function renderSummary(taskId: string, p: TaskPreprocess | null): string | undefined {
   if (!p) return undefined
   return `# AI Pre-process Summary — ${taskId}
 
-## Generated working prompt
-${p.generatedPrompt || '(none)'}
-
 ## Summary
 ${p.summary || '(none)'}
+
+## Analysis
+${p.analysis || '(none)'}
 
 ## Activity suggestions
 ${p.suggestions.map((s) => `- ${s}`).join('\n') || '(none)'}

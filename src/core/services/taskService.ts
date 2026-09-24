@@ -3,6 +3,7 @@ import type { StoragePort, CreateTaskInput } from '../ports/storage'
 import { effectiveCategory, effectiveType } from '../domain/taskType'
 import { validateInputsForWrite } from '../domain/validation'
 import { preprocessInputHash } from '../domain/hashing'
+import { LocalizedError } from '../i18n/issues'
 import { hasPreprocess } from '../domain/preprocess'
 import { isConfigured } from '../domain/config'
 
@@ -30,7 +31,7 @@ export function createTask(storage: StoragePort, args: CreateTaskInput): Task {
     // Inputs are validated in exactly one place before persistence; the
     // renderer never writes arbitrary columns (design D1).
     const v = validateInputsForWrite(def, inputs, {})
-    if (!v.ok) throw new Error(v.errors.join('; '))
+    if (!v.ok) throw new LocalizedError(v.errors)
   }
   return storage.createTask({ ...args, inputs })
 }
@@ -71,7 +72,7 @@ export function updateTask(storage: StoragePort, args: UpdateTaskInput, settings
     const def = effectiveType(storage.listTypes(), before)
     if (def) {
       const v = validateInputsForWrite(def, args.inputs, before.inputs)
-      if (!v.ok) throw new Error(v.errors.join('; '))
+      if (!v.ok) throw new LocalizedError(v.errors)
     }
     patch.inputs = args.inputs
   }

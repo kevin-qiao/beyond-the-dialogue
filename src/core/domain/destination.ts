@@ -1,7 +1,8 @@
 import type { Destination, ResolvedDestination } from '../../shared/types'
 import type { PathPort } from '../ports/paths'
 import { slugify } from './slug'
-import { isDestinationStore } from './categories'
+import { DESTINATION_STORES, isDestinationStore } from './categories'
+import type { IssueList } from '../i18n/issues'
 
 // Output destinations: where a type's finished artifacts are written
 // (contracts/destination.md).
@@ -25,13 +26,15 @@ export interface ArtifactTarget extends ResolvedDestination {
 }
 
 /**
- * The absolute root a destination resolves against.
- * `wiki` uses the app's configured wiki location; `folder` uses its own
- * declared absolute path.
+ * The absolute root a destination resolves against. Both stores declare their
+ * own location: `store` says what happens when an artifact is written (the
+ * wiki scaffolds itself and gets curated; a folder is left alone), not where
+ * the path comes from. There is no global wiki location and no default — a
+ * blank root is refused by the caller that has to write, never resolved
+ * against the working directory or some built-in path.
  */
-export function resolveRoot(paths: PathPort, dest: Destination, wikiRoot: string): string {
-  if (dest.store === 'wiki') return paths.normalize(wikiRoot)
-  return paths.normalize(dest.rootPath ?? '')
+export function resolveRoot(paths: PathPort, dest: Destination): string {
+  return paths.normalize((dest.rootPath ?? '').trim())
 }
 
 /**
@@ -44,9 +47,9 @@ export function isInsideRoot(paths: PathPort, root: string, abs: string): boolea
   return !!rel && !rel.startsWith('..') && !paths.isAbsolute(rel)
 }
 
-export function resolveDestination(paths: PathPort, dest: Destination, wikiRoot: string): ResolvedDestination {
-  const root = resolveRoot(paths, dest, wikiRoot)
-  const subdir = dest.store === 'wiki' ? (dest.subdir ?? '') : (dest.subdir ?? '')
+export function resolveDestination(paths: PathPort, dest: Destination): ResolvedDestination {
+  const root = resolveRoot(paths, dest)
+  const subdir = dest.subdir ?? ''
   const absRoot = subdir ? paths.normalize(paths.join(root, subdir)) : root
   return { store: dest.store, root, subdir, absRoot }
 }
@@ -59,11 +62,10 @@ export function resolveDestination(paths: PathPort, dest: Destination, wikiRoot:
 export function resolveArtifact(
   paths: PathPort,
   dest: Destination,
-  wikiRoot: string,
   title: string,
   taskId: string
 ): ArtifactTarget {
-  const resolved = resolveDestination(paths, dest, wikiRoot)
+  const resolved = resolveDestination(paths, dest)
   const abs = paths.normalize(paths.join(resolved.absRoot, `${slugify(title, taskId)}.md`))
   const inside = isInsideRoot(paths, resolved.absRoot, abs)
   const rawRel = inside ? paths.relative(resolved.absRoot, abs) : ''
@@ -101,10 +103,9 @@ export function isAbsolutePath(paths: PathPort, p: unknown): boolean {
 export function confineOverride(
   paths: PathPort,
   dest: Destination,
-  wikiRoot: string,
   override: string
 ): { rootRel: string } | null {
-  const resolved = resolveDestination(paths, dest, wikiRoot)
+  const resolved = resolveDestination(paths, dest)
   const trimmed = override.trim()
   if (!trimmed) return null
   const abs = paths.isAbsolute(trimmed) ? paths.normalize(trimmed) : paths.normalize(paths.join(resolved.root, trimmed))
@@ -115,33 +116,41 @@ export function confineOverride(
 
 /**
  * Configuration-time validation (contracts/destination.md §5, first four
- * rows). Returns human-readable errors; an empty array means valid.
+ * rows). Returns codes for the caller to phrase; an empty array means valid.
  *
  * The last two rows of that table — the path resolves inside the root, and
  * the root is writable — are runtime conditions checked when a finish runs,
  * because a folder can disappear after the type was saved.
  */
-export function validateDestination(paths: PathPort, dest: Destination | undefined | null): string[] {
+export function validateDestination(paths: PathPort, dest: Destination | undefined | null): IssueList {
   if (!dest) return []
-  const errors: string[] = []
+  const errors: IssueList = []
   if (!isDestinationStore(dest.store)) {
-    errors.push(`destination store must be one of: wiki, folder`)
+    errors.push({ key: 'destination.storeUnknown', params: { stores: DESTINATION_STORES.join(', ') } })
     return errors
   }
-  if (dest.store === 'folder') {
-    if (!isAbsolutePath(paths, dest.rootPath)) {
-      errors.push('a folder destination requires an absolute rootPath')
+  // Both stores declare their own location — there is no global wiki path to
+  // inherit and no built-in default. The stores differ in WHEN the absence of
+  // a root is wrong: a folder destination means nothing without one, so it is
+  // a save-time error; a wiki destination may legitimately be saved before it
+  // has been pointed (the seeded Learning type starts that way), so a blank
+  // root is an INCOMPLETE config refused at Finish, while a named-but-relative
+  // root is the save-time error.
+  if (dest.store === 'wiki') {
+    const root = (dest.rootPath ?? '').trim()
+    if (root && !isAbsolutePath(paths, root)) {
+      errors.push({ key: 'destination.wikiNeedsRoot' })
     }
-  } else if (dest.rootPath !== null && dest.rootPath !== undefined) {
-    errors.push('a wiki destination must not declare a rootPath (the configured wiki location is used)')
+  } else if (!isAbsolutePath(paths, dest.rootPath)) {
+    errors.push({ key: 'destination.folderNeedsAbsoluteRoot' })
   }
   const subdir = dest.subdir ?? ''
   if (typeof subdir !== 'string') {
-    errors.push('destination subdir must be a string')
+    errors.push({ key: 'destination.subdirNotString' })
   } else if (paths.isAbsolute(subdir)) {
-    errors.push('destination subdir must be relative, not absolute')
+    errors.push({ key: 'destination.subdirAbsolute' })
   } else if (subdir.split(/[\\/]/).some((seg) => seg === '..')) {
-    errors.push('destination subdir must not contain a ".." segment')
+    errors.push({ key: 'destination.subdirTraversal' })
   }
   return errors
 }
@@ -150,10 +159,12 @@ export function validateDestination(paths: PathPort, dest: Destination | undefin
  * A short human description of a destination, for toasts and error messages.
  * Storage locations are shown as a path the user can recognise.
  */
-export function describeDestination(dest: Destination | undefined | null, wikiRoot?: string): string {
+export function describeDestination(dest: Destination | undefined | null): string {
   if (!dest) return '(none)'
-  if (dest.store === 'wiki') return `the wiki${dest.subdir ? ` (${dest.subdir}/)` : ''}`
   const base = dest.rootPath ?? '(unset)'
+  if (dest.store === 'wiki') {
+    return `the wiki at ${base}${dest.subdir ? ` (${dest.subdir}/)` : ''}`
+  }
   return dest.subdir ? `${base}/${dest.subdir}` : base
 }
 

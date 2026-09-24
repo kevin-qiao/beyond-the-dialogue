@@ -125,6 +125,12 @@ worse outcome than failing.
 - *Reuse `Settings.wikiPath` with a subfolder per type*: rejected. It forces every type into
   one root, which cannot express a plain meeting-minutes folder outside the wiki.
 
+> *Addendum (2026-09)*: the second alternative's premise — a global wiki location — was later
+> removed outright. The wiki directory is now a per-type `rootPath` (the first alternative, as
+> shipped for folders since this feature itself), and the confinement concern is answered by the
+> single `relative()`/`..` containment check applied at every write. A wiki-destined type with no
+> root is refused at Finish (`wiki.notConfigured`).
+
 ---
 
 ## R5. Widening the set of behaviour categories
@@ -309,6 +315,66 @@ tool-server half is not built in this version, and the spec's status notes it. T
 Complexity Tracking carries the same outcome. `test/mcpAdapter.test.ts` is added as a
 regression guard for the isolation property that must hold *when* the adapter lands: no
 global MCP config path is read or written, and nothing reaches `~/.pi`.
+
+---
+
+## R7b. The reproducibility gate clears — the transport is re-adopted
+
+**Decision (2026-09-22, `add-mcp-support`)**: lift the R7a deferral. Adopt
+`pi-mcp-adapter@2.35.0`, **pinned exactly**, driven through the same isolated in-memory
+form R7 named non-negotiable: `createMcpAdapter({ config })`, the config built per session
+from the type's granted servers.
+
+**Why the deferral no longer holds.** R7a invoked the fallback on one disqualifying fact:
+v2.33.0 pinned `@modelcontextprotocol/client` and `@modelcontextprotocol/core` to
+`pkg.pr.new` preview-commit URLs. v2.35.0 pins both to **published npm `2.0.0`** with
+ordinary provenance, and drops the `fs-native-extensions` native dependency entirely. T061
+re-run: a clean install from this project's mirror resolves those artifacts and writes no
+`pkg.pr.new` URL into the lockfile — and that is now asserted on every test run
+(`test/mcpAdapter.test.ts` fails if either property regresses), so the gate cannot be
+undone quietly by a future bump.
+
+**Gates still open, recorded rather than assumed.**
+
+- **T062 (native, both platforms): half-passed.** Only Linux (WSL2) is exercised here.
+  `@napi-rs/keyring` is prebuilt (no compile step) and loads lazily — the isolated-config
+  spike proved neither it nor `recheck` is touched at import — but it is a native `.node`
+  that must be available to the packaged app (handled via asar-unpack of the package's
+  platform binaries). Windows was NOT exercised; that half remains a limitation, not an
+  assumption.
+- **T063 (terminal-UI peer): satisfied without shipping a renderer.** The peer is pinned at
+  the root purely to resolve; nothing imports `pi-tui`.
+- **T064 (credential surface): unchanged posture.** The app never invokes OAuth/keyring
+  code. Those live only inside user-pasted server config (`!` secret helpers, `auth`,
+  `bearerTokenStore`) that the ADAPTER acts on at the user's own instruction — the same
+  trust boundary the settings copy states: "a server you add runs with your permissions;
+  the app never invokes it on its own." The isolated-config mode also disables the
+  adapter's own interactive `/mcp` setup, so there is no ambient code path.
+
+**The one place it plugs in, and what it does not claim.** The adapter is constructed at
+the existing session-build seam (`src/main/ai/session-factory.ts`), fed by
+`resolveGrant`, registered as an inline extension factory so it loads without opening the
+SDK's ambient-extension discovery. A confined run gets NO_GRANT by construction and so
+constructs nothing — the confinement guarantee is honored by the same mechanism that made
+it provable during the deferral, now with a live transport behind it. Sessions are
+disposed with `session_shutdown` emitted, because the adapter's child-process teardown
+hangs off that event and `abort()` alone does not fire it.
+
+**What this deliberately does not claim.** The per-change remote-write execution of
+FR-022 still needs an out-of-model tool call the adapter's public SDK surface does not
+expose, so the confirmation bar keeps reporting the deferral honestly rather than reaching
+a system it cannot safely drive from there. And the app has no user-facing interactive
+session yet, so the transport is proven at the seam and by a scripted harness, not a
+screen. Both gaps are stated in FR-018/FR-021/FR-022's second amendments rather than left
+as discoveries.
+
+**Recorded at packaging (Linux).** The packaged layout was verified: the adapter and the
+published MCP clients ship inside `app.asar`, `@napi-rs/keyring`'s platform binary is
+asar-unpacked (a `.node` cannot dlopen from inside an asar), and `libsecret-1-0` joined the
+deb prerequisites. The one thing not exercisable offline: jiti resolving `pi-mcp-adapter`
+through Electron's asar-patched fs in a packaged run (the dev/proven path loads it from
+plain `node_modules`). It is the same bundle and the same seam; it is listed as the first
+check for whoever lands the interactive-session surface, not assumed as a pass.
 
 ---
 

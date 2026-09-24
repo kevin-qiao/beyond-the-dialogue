@@ -1,4 +1,5 @@
 import type { Task, TaskTypeDef } from '../../../../shared/types'
+import type { MessageKey, Translate } from '../../../../core/i18n'
 import { effectiveKind, effectiveType } from '../../lib/typeCatalog'
 
 // Shared v2 visuals (docs/workboard-ux.html): per-type emoji/label and the
@@ -31,21 +32,24 @@ export function dotStateOf(task: Task, types?: TaskTypeDef[] | null, jobStep?: J
   return 'none'
 }
 
-const LABEL: Record<DotState, string> = {
-  running: 'working',
-  ready: 'ready',
-  failed: 'failed',
-  queued: 'queued',
-  none: ''
+const LABEL: Record<DotState, MessageKey | null> = {
+  running: 'task.status.working',
+  ready: 'task.status.ready',
+  failed: 'task.status.failed',
+  queued: 'task.status.queued',
+  none: null
 }
 
-export function statusChip(task: Task, types?: TaskTypeDef[] | null, jobStep?: JobStepLike | null) {
+// `t` is passed rather than read: this is a plain function, not a component,
+// so it has no hook of its own to call.
+export function statusChip(t: Translate, task: Task, types?: TaskTypeDef[] | null, jobStep?: JobStepLike | null) {
   const state = dotStateOf(task, types, jobStep)
-  if (state === 'none') return null
+  const key = LABEL[state]
+  if (!key) return null
   return (
     <span className={`st-chip ${state}`}>
       <span className="dot" />
-      {LABEL[state]}
+      {t(key)}
     </span>
   )
 }

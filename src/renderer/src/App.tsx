@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useApp } from './store'
+import { useT } from './lib/useT'
 import { ListsRail } from './components/board/ListsRail'
 import { TaskColumn } from './components/board/TaskColumn'
 import { FocusColumn } from './components/focus/FocusColumn'
@@ -15,6 +16,7 @@ const MOD_KEY = navigator.platform.toLowerCase().includes('mac') ? '⌘K' : 'Ctr
 // Small circular progress ring used in the topbar to show today's completion
 // ratio. Clickable — jumps back to My Day view.
 function TodayProgress({ done, total, onClick }: { done: number; total: number; onClick: () => void }) {
+  const t = useT()
   const pct = total === 0 ? 0 : Math.round((done / total) * 100)
   const r = 9
   const c = 2 * Math.PI * r
@@ -24,7 +26,7 @@ function TodayProgress({ done, total, onClick }: { done: number; total: number; 
     <button
       className={`today-ring ${complete ? 'complete' : ''}`}
       onClick={onClick}
-      title={`My Day · ${done}/${total} done`}
+      title={t('today.progress', { done, total })}
     >
       <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden>
         <circle cx="11" cy="11" r={r} stroke="var(--surface-3)" strokeWidth="2" fill="none" />
@@ -43,7 +45,7 @@ function TodayProgress({ done, total, onClick }: { done: number; total: number; 
         />
       </svg>
       <span className="pct">{pct}%</span>
-      <span style={{ color: 'var(--text-faint)' }}>today</span>
+      <span style={{ color: 'var(--text-faint)' }}>{t('today.label')}</span>
     </button>
   )
 }
@@ -54,6 +56,7 @@ function TodayProgress({ done, total, onClick }: { done: number; total: number; 
 // drawers (DrawerHost); on first run a welcome overlay sits above the board.
 export function App() {
   const { loading, snapshot, selectedTaskId, toast, dismissToast, setActiveView, openDrawer, query, setQuery, saveSettings } = useApp()
+  const t = useT()
   // Whole focus-column collapse is App-local state — deliberately not in the
   // shared context (a context/memo staleness bug left it unrenderable).
   const [focusCollapsed, setFocusCollapsed] = useState(false)
@@ -101,7 +104,7 @@ export function App() {
   }, [setActiveView, openDrawer])
 
   if (loading || !snapshot) {
-    return <div className="app-loading" data-theme={snapshot?.settings.theme ?? 'light'}>Loading…</div>
+    return <div className="app-loading" data-theme={snapshot?.settings.theme ?? 'light'}>{t('app.loading')}</div>
   }
 
   const showWelcome = snapshot.settings.showWelcome && !snapshot.aiConfigured
@@ -129,7 +132,7 @@ export function App() {
           className="search-wrap"
           role="button"
           tabIndex={0}
-          title="Command palette (⌘K) — click the icon or ⌘K"
+          title={t('palette.hint', { mod: MOD_KEY })}
           // Only the icon / kbd hint / wrap-background open the palette; clicking
           // directly in the input keeps the live filter UX untouched.
           onMouseDown={(e) => {
@@ -149,7 +152,7 @@ export function App() {
           <input
             id="global-search"
             className="search-input"
-            placeholder="Search tasks, notes, summaries…"
+            placeholder={t('search.placeholder')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -161,7 +164,7 @@ export function App() {
                 setQuery('')
               }}
             >
-              ✕ clear
+              ✕ {t('search.clear')}
             </button>
           ) : (
             <span className="kbd-hint">{MOD_KEY}</span>
@@ -170,24 +173,24 @@ export function App() {
         <div className="topbar-actions">
           <button
             className={`icon-btn top-action ${snapshot && snapshot.ingestHistory.some((r) => r.state === 'running') ? 'has-dot' : ''}`}
-            title="Activity — agent work"
+            title={t('nav.activityHint')}
             onClick={() => openDrawer('activity')}
           >
             <IconActivity />
           </button>
-          <button className="icon-btn top-action" title="Debug chat" onClick={() => openDrawer('chat')}>
+          <button className="icon-btn top-action" title={t('drawer.chat.title')} onClick={() => openDrawer('chat')}>
             <IconChat />
           </button>
           <button
             className="icon-btn top-action"
-            title={snapshot?.settings.theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
+            title={snapshot?.settings.theme === 'light' ? t('nav.theme.toDark') : t('nav.theme.toLight')}
             onClick={() =>
               void saveSettings({ ...snapshot.settings, theme: snapshot.settings.theme === 'light' ? 'dark' : 'light' })
             }
           >
             {snapshot?.settings.theme === 'light' ? <IconMoon /> : <IconSun />}
           </button>
-          <button className="icon-btn top-action" title="Settings" onClick={() => openDrawer('settings')}>
+          <button className="icon-btn top-action" title={t('drawer.settings.title')} onClick={() => openDrawer('settings')}>
             <IconSettings />
           </button>
         </div>
@@ -227,7 +230,7 @@ export function App() {
                 openDrawer('activity')
               }}
             >
-              View
+              {t('common.view')}
             </button>
           )}
         </div>

@@ -7,9 +7,12 @@ import { wikiArtifactStoreFor } from './wikiStore'
 // adapter, so adding a storage location is a new entry here plus an
 // implementation — the finish service never learns about either.
 
-export function artifactStoreFor(wikiRoot: string) {
+// The wiki store is built from the DESTINATION's own root: every type that
+// files into the wiki declares its directory, and there is no global wiki
+// location to bind here. A blank root reaches `prepare()` as a refusal.
+export function artifactStoreFor() {
   return (dest: Destination): ArtifactStorePort => {
-    if (dest.store === 'wiki') return wikiArtifactStoreFor(wikiRoot)
+    if (dest.store === 'wiki') return wikiArtifactStoreFor((dest.rootPath ?? '').trim())
     return folderArtifactStore
   }
 }

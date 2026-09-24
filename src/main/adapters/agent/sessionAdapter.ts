@@ -65,6 +65,11 @@ export function createAgentSessionAdapter(getSettings: () => Settings): AgentSes
       } finally {
         req.signal?.removeEventListener('abort', onAbort)
         await session.abort().catch(() => undefined)
+        // Dispose the session so the MCP adapter's session_shutdown handler
+        // runs (stopping any child processes). Confined sessions have no
+        // such handler and dispose is harmless. Optional so scripted
+        // doubles — which do not implement it — are unaffected.
+        await session.dispose?.().catch(() => undefined)
       }
     }
   }

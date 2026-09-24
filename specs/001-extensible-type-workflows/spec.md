@@ -151,7 +151,7 @@ A user has registered skills and external tool servers in Settings. They grant a
 
 **Skills, connectors, and agent tooling**
 
-- **FR-018** *(amended — see the note below)*: Skills registered in Settings MUST become usable as tools by assistant sessions, rather than only being stored and displayed. External **tool servers** MUST be grantable, and every confinement, egress and confirmation rule that governs their use (FR-019 to FR-024, FR-029) MUST hold; the **transport** that connects a granted tool server to an assistant session is deferred to a follow-up specification, so a granted tool server does not yet reach its external system.
+- **FR-018** *(amended twice — see the notes below)*: Skills registered in Settings MUST become usable as tools by assistant sessions, rather than only being stored and displayed. External **tool servers** MUST be grantable, and every confinement, egress and confirmation rule that governs their use (FR-019 to FR-024, FR-029) MUST hold; the **transport** that connects a granted tool server to an assistant session landed with `add-mcp-support` (2026-09-22): a session of a type granted a registered server reaches it through the adapter's `mcp` proxy tool.
 
   > **Amendment, 2026-09-12.** The transport was to be adopted from the community package
   > `pi-mcp-adapter`, pinned to an exact version, subject to verification gates
@@ -165,14 +165,51 @@ A user has registered skills and external tool servers in Settings. They grant a
   > the egress boundary (SC-010) and the propose-then-confirm model (SC-005) all ship and
   > are tested against a scripted tool double; only the live external connection is deferred.
   > This requirement is amended rather than left claiming behaviour that is not built.
+
+  > **Second amendment, 2026-09-22 (`add-mcp-support`).** The deferral is lifted by the
+  > release it was waiting on: `pi-mcp-adapter@2.35.0` pins `@modelcontextprotocol/client`
+  > and `@modelcontextprotocol/core` to published npm `2.0.0`, so the reproducibility gate
+  > (T061) that stopped v2.33.0 now passes — and re-runs mechanically on every test run
+  > (`test/mcpAdapter.test.ts`), because a future bump back to a preview URL should fail
+  > CI, not silently reopen the question. The transport is driven through the in-memory
+  > isolated-config form the contract names (`contracts/plugin-grants.md` §5), registered
+  > at the one session-build seam, and confined runs construct no adapter at all — so the
+  > guarantee the deferral protected is unchanged, not newly trusted. Servers are managed
+  > manually in Settings as the standard `mcp.json` shape and written to the app's own
+  > `mcp.json` under the data directory as an inspection copy the runtime never reads
+  > back. **What still does not ship:** the per-change remote-write execution of FR-022
+  > (see its second amendment), and the app has no user-facing interactive session surface
+  > yet — every job path is confined and chat is single-shot — so the transport is proven
+  > through the session seam and a scripted harness rather than a UI. Adding that surface
+  > is the named follow-up; this requirement claims the connection exists at the seam,
+  > which is exactly what is built.
 - **FR-019**: Tool availability MUST be granted per task type, so a type receives only the entries granted to it.
 - **FR-020**: Confined background operations — material ingestion, minute polishing, and suggestion generation — MUST NOT receive externally granted tools under any configuration.
-- **FR-021** *(amended — see the note below)*: For a type granted a tool server, the assistant MUST be able to read current information about the referenced external item rather than relying solely on content pasted into the task. The **grant resolution and the instruction** that stops telling a granted session it has no access MUST hold; the **read itself** depends on the tool-server transport deferred under FR-018, so a granted session does not yet fetch anything.
+- **FR-021** *(amended twice — see the notes below)*: For a type granted a tool server, the assistant MUST be able to read current information about the referenced external item rather than relying solely on content pasted into the task. The **grant resolution and the instruction** that stops telling a granted session it has no access MUST hold; the **read itself** is now possible — the transport landed under FR-018 — for any interactive session of a granted type, though the app does not yet surface such a session in its UI.
 
   > **Amendment, 2026-09-12.** The FR-018 amendment defers the tool-server transport, and this requirement cannot be honoured without it. Rather than leave a second requirement claiming capability the application does not have, it is marked here as dependent on the same deferral (`research.md` R7a). What ships today: a granted type resolves to a real grant at the session-build seam, and its pre-process instruction no longer asserts "no access to the remote system" — it is told to prefer a live source when it has one. What does not ship: the connection that would let it look.
+
+  > **Second amendment, 2026-09-22 (`add-mcp-support`).** The connection exists: a granted
+  > interactive session receives the `mcp` proxy tool backed by its type's servers. The read
+  > is therefore available at the seam. Because every currently-shipped session path is
+  > confined (background jobs) and chat is single-shot, no user-facing screen drives a live
+  > read yet — that awaits the interactive-session surface named in FR-018's second
+  > amendment. Marked here so the capability is claimed where it is real and the gap stays
+  > explicit rather than glossed.
 - **FR-022** *(amended — see the note below)*: The assistant MUST be able to prepare a remote change (such as a status change or a comment) when the user requests one, and MUST report the outcome once it is performed. The **preparation and the per-change confirmation** MUST hold; **performing** the change depends on the tool-server transport deferred under FR-018.
 
   > **Amendment, 2026-09-12.** As with FR-021, the transport this depends on is deferred (FR-018, `research.md` R7a). What ships today is the whole safety model around the change: the assistant proposes, the proposal carries the literal payload for the user to inspect, nothing is sent without a per-change confirmation, a confirmation applies exactly one change and cannot be replayed, and the mutating operation is unreachable from the model's tool surface. What does not ship is the call that would reach the external system — confirming currently reports that no transport is connected, rather than reporting success. That reporting is itself FR-024 satisfied.
+
+  > **Second amendment, 2026-09-22 (`add-mcp-support`).** A transport now exists at the
+  > session seam (FR-018 second amendment), but this requirement's **perform** step is
+  > deliberately still deferred: connecting it would mean executing a remote mutation from
+  > the application on the user's confirmation, which needs the adapter's out-of-model
+  > tool-call surface — not something the adapter's public SDK entry cleanly offers yet.
+  > The confirmation bar therefore continues to report the deferral as a failure rather than
+  > pretend to send; the message is now phrased honestly (the transport exists for
+  > agent-driven calls within a granted session, but per-change confirmation-driven
+  > execution is not wired) and localized through the catalog instead of a hardcoded
+  > string. The propose-then-confirm safety model is unchanged.
 - **FR-023**: Every individual remote change MUST be confirmed by the user immediately before it executes, regardless of how it was requested. A request made in conversation MUST NOT by itself cause a remote change.
 - **FR-024**: When a granted tool server is unavailable or a remote operation fails, the failure MUST be reported to the user and MUST NOT be silently presented as success.
 
@@ -191,7 +228,7 @@ A user has registered skills and external tool servers in Settings. They grant a
 - **Output Destination**: The configured location a type's finished artifacts are written to. Owned by the type, editable by the user, and constrained to a permitted root.
 - **Finished Artifact**: The document produced when a task is finished — a curated learning note or polished meeting minutes. Has a location, a pre-finish form, and any earlier versions, which coexist alongside it as separate files rather than replacing one another.
 - **Plugin Grant**: The association between a task type and the specific skills or tool servers its assistant sessions may use. Absent for confined background operations by construction.
-- **Skill**: A user-imported capability entry that the assistant can be granted.
+- **Skill**: A user-imported capability entry — from a local folder or a GitHub repository URL — that the assistant can be granted.
 - **Tool Server**: A registered external system whose capabilities the assistant can be granted access to, so it can read current information from and act upon that system on the user's behalf.
 
 ## Success Criteria *(mandatory)*
@@ -226,7 +263,7 @@ This specification describes the delta from an existing MVP. The following are a
 
 **Behavioural assumptions**
 
-- The default meeting-minutes destination is a folder under the user's documents, mirroring how the wiki location already defaults, and is user-configurable.
+- The default meeting-minutes destination is a folder under the user's documents, and is user-configurable. (The wiki location has no such default: it is declared per type and refused at Finish when unset.)
 - Polishing uses the user's configured AI provider. With no provider configured, minutes are saved in their written form, unpolished.
 - The set of finish behaviours is fixed at the four named in FR-014; users select among them rather than defining new ones. Composing custom step sequences, and finish behaviours that act on an external system, are out of scope for this version.
 - Reading current external information and performing remote changes both require a tool server granted to the type; absent a grant, the assistant continues to work only from content the user pasted in, exactly as today.

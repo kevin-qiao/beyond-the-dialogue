@@ -1,7 +1,8 @@
 import type { Task } from '../../../../shared/types'
 import { useApp } from '../../store'
+import { useLanguage, useLocale, useT } from '../../lib/useT'
 import { statusChip } from './status'
-import { effectiveType } from '../../lib/typeCatalog'
+import { displayTypeLabel, effectiveType } from '../../lib/typeCatalog'
 
 interface Props {
   task: Task
@@ -11,49 +12,37 @@ interface Props {
   onContextMenu: (e: React.MouseEvent, task: Task) => void
 }
 
-// Board task row: emoji · title · type label + status dot-chip on the first
-// line; quick actions (star/complete/cancel) on the right, revealed on hover
-// so the row stays scannable. Pre-processing is triggered from My Day / the
-// focus band — the row never runs jobs itself.
+// Board task row: title, then type label + status dot-chip, and the quick
+// actions (star/complete/cancel) on the right, revealed on hover so the row
+// stays scannable.
+//
+// The row stays this thin on purpose — it is the scanning surface. The agent's
+// suggestions are not repeated here; they live in the focus band, where they
+// can be read and dismissed without turning every row into a card. A running
+// job still shows through the status chip, and the Cancel action stays with
+// the other row actions.
 export function TaskRow({ task, jobStep, selected, onSelect, onContextMenu }: Props) {
-  const { snapshot, types, toggleTask, setMyDay, cancelJob, liveJobs } = useApp()
-  const suggestions = snapshot?.suggestions.filter((s) => s.taskId === task.id && !s.dismissed) ?? []
+  const { types, toggleTask, setMyDay, cancelJob, liveJobs } = useApp()
+  const t = useT()
+  const language = useLanguage()
+  const locale = useLocale()
   const activeJob = liveJobs.find((j) => j.taskId === task.id && (j.state === 'running' || j.state === 'queued'))
   const def = effectiveType(task, types)
-  const chip = statusChip(task, types, jobStep)
+  const chip = statusChip(t, task, types, jobStep)
 
   return (
     <div className={`task-row ${task.completed ? 'done' : ''} ${selected ? 'selected' : ''}`} onClick={onSelect} onContextMenu={(e) => onContextMenu(e, task)}>
-      <span className="t-emoji">{def.emoji}</span>
       <div className="task-main">
         <div className="task-title">{task.title}</div>
         <div className="task-meta">
-          <span className="type-tag">{def.label}</span>
+          <span className="type-tag">{displayTypeLabel(def, language)}</span>
           {chip}
-          {task.alarmAt && <span className="badge" title={`Alarm ${new Date(task.alarmAt).toLocaleString()}`}>⏰</span>}
-          {task.inMyDay && !task.completed && suggestions.length === 0 && !jobStep && (
-            <span className="muted suggest-hint">suggestions pending</span>
+          {task.alarmAt && (
+            <span className="badge" title={t('task.alarm.title', { when: new Date(task.alarmAt).toLocaleString(locale) })}>
+              ⏰
+            </span>
           )}
         </div>
-        {jobStep && <div className="task-step">{jobStep.stepLabel ?? 'working…'}</div>}
-        {suggestions.length > 0 && (
-          <div className="suggestion-chips">
-            {suggestions.map((s) => (
-              <span key={s.id} className="chip subtle-chip">
-                {s.text}
-                <button
-                  className="chip-x"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void window.api.dismissSuggestion({ suggestionId: s.id })
-                  }}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
       </div>
       <div className="task-actions">
         {activeJob && (
@@ -63,9 +52,9 @@ export function TaskRow({ task, jobStep, selected, onSelect, onContextMenu }: Pr
               e.stopPropagation()
               void cancelJob(activeJob.jobId)
             }}
-            title="Stop the running job"
+            title={t('task.cancelJob')}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         )}
         <button
@@ -74,7 +63,7 @@ export function TaskRow({ task, jobStep, selected, onSelect, onContextMenu }: Pr
             e.stopPropagation()
             void setMyDay(task.id, !task.inMyDay)
           }}
-          title={task.inMyDay ? 'Remove from My Day' : 'Add to My Day'}
+          title={task.inMyDay ? t('task.myDay.remove') : t('task.myDay.add')}
         >
           {task.inMyDay ? '★' : '☆'}
         </button>
@@ -84,7 +73,7 @@ export function TaskRow({ task, jobStep, selected, onSelect, onContextMenu }: Pr
             e.stopPropagation()
             void toggleTask(task.id)
           }}
-          title={task.completed ? 'Mark incomplete' : 'Mark complete'}
+          title={task.completed ? t('task.toggle.incomplete') : t('task.toggle.complete')}
         />
       </div>
     </div>

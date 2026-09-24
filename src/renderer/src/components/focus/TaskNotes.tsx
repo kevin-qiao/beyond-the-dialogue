@@ -1,9 +1,9 @@
 import { useApp } from '../../store'
+import { useT } from '../../lib/useT'
 import type { Task } from '../../../../shared/types'
 import { effectiveType } from '../../lib/typeCatalog'
 import { emptyContentWarning, finishActionLabel, workingAreaFor } from '../../../../core/domain/workingArea'
 import { NotesEditor } from './NotesEditor'
-import { ChatPanel } from './ChatPanel'
 import { RemoteProposalBar } from './RemoteProposalBar'
 import { useDialog } from '../ui/Dialog'
 
@@ -14,9 +14,12 @@ import { useDialog } from '../ui/Dialog'
 // describes what will actually happen — "ingest to wiki" is true for one
 // behaviour out of four, and saying it for a meeting would be a lie.
 
-/** The markdown editing surface: live editor with autosave, Finish, and chat. */
+/** The markdown editing surface: the editor's Write/Preview tabs over one
+ *  body, plus Finish and any proposed remote change. The chat is not here — it
+ *  lives in the band above (FocusColumn). */
 function MarkdownArea({ task }: { task: Task }) {
   const { snapshot, saveNote, finishTask, notify } = useApp()
+  const t = useT()
   const notes = snapshot?.notes[task.id]
   const def = effectiveType(task, snapshot?.taskTypes)
   const { confirm } = useDialog()
@@ -26,9 +29,9 @@ function MarkdownArea({ task }: { task: Task }) {
     const warning = emptyContentWarning(def)
     if (!hasContent && warning) {
       const ok = await confirm({
-        title: 'Finish with nothing written?',
+        title: t('task.finishEmpty.title'),
         message: warning,
-        confirmLabel: 'Finish anyway',
+        confirmLabel: t('task.finishEmpty.confirm'),
         danger: true
       })
       if (!ok) return
@@ -36,7 +39,7 @@ function MarkdownArea({ task }: { task: Task }) {
     try {
       await finishTask(task.id)
     } catch (e: any) {
-      notify(e?.message ?? 'Finish failed')
+      notify(e?.message ?? t('task.finish.failed'))
     }
   }
 
@@ -55,12 +58,9 @@ function MarkdownArea({ task }: { task: Task }) {
           </button>
         </div>
       )}
-      {/* A proposed remote change appears above the chat, where the user is
-          already working, and shows exactly what would be sent. */}
+      {/* A proposed remote change appears under the Finish action, where the
+          user is already working, and shows exactly what would be sent. */}
       <RemoteProposalBar />
-      <section className="learning-chat">
-        <ChatPanel taskId={task.id} label="" />
-      </section>
     </div>
   )
 }
@@ -68,13 +68,14 @@ function MarkdownArea({ task }: { task: Task }) {
 /** The plain surface: a single textarea, no AI band content of its own. */
 function PlainArea({ task }: { task: Task }) {
   const { snapshot, saveNote } = useApp()
+  const t = useT()
   const notes = snapshot?.notes[task.id]
   return (
     <div className="plain-notes focus-notes">
       <textarea
         value={notes?.content ?? ''}
         onChange={(e) => void saveNote(task.id, e.target.value)}
-        placeholder="Add details…"
+        placeholder={t('task.notes.placeholder')}
         rows={12}
       />
     </div>

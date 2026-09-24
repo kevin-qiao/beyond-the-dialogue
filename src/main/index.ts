@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, Notification } from 'electron'
 import { AlarmScheduler } from './alarms'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
@@ -7,6 +8,7 @@ import type { DatabaseSync } from 'node:sqlite'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 import { openDB, migrate, loadSettings, saveSettings, type DB } from './db'
+import { materializeMcpConfig } from './mcpConfigFile'
 import { ensureVault, writeNote } from './wiki/vault'
 import {
   serviceCreateList,
@@ -27,10 +29,10 @@ import { configureRuntimeFromSettings, isConfigured, listModelsForProvider, list
 import { ChatSession } from './ai/chat'
 import { getPreprocess, getNotes, listIngest, listSuggestions, listAllSuggestions, getTask, saveNotes, dismissSuggestion, getJob, updateTask } from './db'
 import { notePathFor } from './wiki/vault'
-import { resolveWikiPath } from './wiki/wiki'
 import { createTypeDef, deleteTypeDef, effectiveKind, effectiveTypeDef, getTypeDef, listTypeDefs, updateTypeDef } from './types'
 import { importSkillFolder } from './skills'
-import { IPC, type AppEvents } from '../shared/ipc'
+import { importSkillFromGitHub } from './skills-github'
+import { IPC, type AppCommands, type AppEvents } from '../shared/ipc'
 import type { AppSnapshot, Settings, Task, TaskTypeDef } from '../shared/types'
 import type { RemoteProposalView } from '../shared/ipc'
 import { finishTask as runFinishTask, type FinishDeps } from '../core/services/finishService'
@@ -39,6 +41,8 @@ import { saveSettings as saveSettingsService } from '../core/services/settingsSe
 import { runPreprocess as runPreprocessService } from '../core/services/preprocessService'
 import { buildSessionContext, createProposalQueue } from '../core/domain/grant'
 import { buildChatContext } from '../core/domain/chatContext'
+import { message } from '../core/i18n'
+import { localizeThrown } from './errors'
 import {
   createTask as createTaskService,
   setMyDay as setMyDayService,
@@ -54,11 +58,36 @@ import { systemClock } from '../core/ports/clock'
 let mainWindow: BrowserWindow | null = null
 let db: DB | null = null
 let queue: JobQueue | null = null
-// Debug chat + task-grounded working-area chat: one in-memory conversation at
-// a time (design D4), keyed by the task whose panel owns it.
-const chatSession = new ChatSession()
-let chatTaskId: string | null = null
+// Debug chat + task-grounded working-area chat: one in-memory conversation per
+// SURFACE (design D4), not one per app. A single shared session made every
+// panel share one transcript — opening another task's chat showed the previous
+// task's exchange, and sending from it discarded the other conversation.
+const chatSessions = new Map<string, ChatEntry>()
 let alarms: AlarmScheduler | null = null
+
+interface ChatEntry {
+  session: ChatSession
+  // Identifies the grounding this conversation was built from. The session
+  // captures its context on the first message, so without comparing this a
+  // pre-process that landed mid-conversation would never reach the model.
+  grounding: string
+}
+
+// The surface key: a task id, or the debug chat's empty string. The wire
+// carries `null` for the debug surface; this is the in-process key for it.
+function chatKeyOf(taskId: string | null): string {
+  return taskId ?? ''
+}
+
+function chatEntryFor(taskId: string | null): ChatEntry {
+  const key = chatKeyOf(taskId)
+  let entry = chatSessions.get(key)
+  if (!entry) {
+    entry = { session: new ChatSession(), grounding: '' }
+    chatSessions.set(key, entry)
+  }
+  return entry
+}
 
 function rescheduleAlarms(): void {
   alarms?.reschedule()
@@ -108,6 +137,16 @@ function fullChatContext(d: DatabaseSync, task: Task): string | undefined {
     preprocess: getPreprocess(d, task.id),
     workingContent: getNotes(d, task.id)?.content ?? null
   })
+}
+
+// What the grounding behind a conversation is worth, as a comparable string.
+// The pre-process is the part that can move under an open conversation: it is
+// written by a background job that may land — or be re-run — while the user is
+// chatting.
+function chatGroundingVersion(d: DatabaseSync, taskId: string | null): string {
+  if (!taskId) return ''
+  const p = getPreprocess(d, taskId)
+  return p ? `${p.status}|${p.updatedAt}|${p.inputsHash}` : 'none'
 }
 
 function buildSnapshot(): AppSnapshot {
@@ -170,7 +209,8 @@ function wireJobEvents(q: JobQueue): void {
       if (t) broadcast(IPC.evTaskUpdated, t)
     }
     if (job.kind === 'suggestion' && job.taskId) {
-      broadcast(IPC.evSuggestionsUpdated, listSuggestions(d(), job.taskId))
+      const taskId = job.taskId
+      broadcast(IPC.evSuggestionsUpdated, { taskId, suggestions: listSuggestions(d(), taskId) })
     }
   })
   q.on('failed', (job) => {
@@ -254,29 +294,31 @@ function defFor(db: DatabaseSync, type: Task['type'] | undefined, customTypeKey:
   return effectiveTypeDef(db, { type: type ?? 'plain', customTypeKey: customTypeKey ?? null })
 }
 
-// Adapters + services for a finish. Built per call so the store factory and the
-// wiki root always reflect the current settings.
+// Adapters + services for a finish. Built per call so the store factory and
+// the type-declared destinations always reflect the current state of the DB.
 function finishDeps(): FinishDeps {
   const d = db!.db
+  const language = loadSettings(d).uiLanguage
   return {
+    language,
     paths: nodePathPort,
     storage: createSqliteStorage(d),
-    storeFor: artifactStoreFor(resolveWikiPath(loadSettings(d).wikiPath)),
+    storeFor: artifactStoreFor(),
     session: createAgentSessionAdapter(() => loadSettings(d)),
     clock: systemClock,
     notifier: createNotifier({
-      toast: (message, opts) => broadcast(IPC.evToast, { message, view: opts?.view }),
+      toast: (text, opts) => broadcast(IPC.evToast, { message: text, view: opts?.view }),
       progress: (stepLabel, progress) =>
         broadcast(IPC.evJobProgress, {
           jobId: 'finish',
           kind: 'ingest',
           taskId: null,
           state: 'running',
-          stepLabel: progress ? `${stepLabel} — ${progress}` : stepLabel,
+          // The joiner is a message: its spacing and glyph differ by language.
+          stepLabel: progress ? `${stepLabel}${message(language, 'common.stepJoiner')}${progress}` : stepLabel,
           error: null
         })
     }),
-    wikiRoot: () => resolveWikiPath(loadSettings(d).wikiPath),
     taskTargetOverride: (task) =>
       typeof task.inputs.learningNotePath === 'string' ? task.inputs.learningNotePath : undefined,
     // deposit-then-curate hands the long-running curating agent to the queue,
@@ -285,6 +327,31 @@ function finishDeps(): FinishDeps {
       queue!.enqueueIngest(task.id, task.title, [])
     }
   }
+}
+
+// A handler that can refuse something the user did.
+//
+// The domain states its refusals as codes (src/core/i18n/issues.ts) because it
+// has no language of its own; this is where the language is known on the way
+// out, and where the code becomes a sentence. It has to happen before the
+// throw: an `ipcRenderer.invoke` rejection arrives in the renderer as Electron's
+// own wrapper around a string, and nothing structured survives that.
+//
+// Applied only to the handlers that can refuse user input. A handler left alone
+// still works — `localizeThrown` passes anything that is not a code-carrying
+// error through untouched — but a refusal from an unwrapped handler would reach
+// the user as its key.
+function handleCommand<C extends keyof AppCommands>(
+  channel: C,
+  fn: (args: AppCommands[C]['args']) => AppCommands[C]['result'] | Promise<AppCommands[C]['result']>
+): void {
+  ipcMain.handle(channel, async (_e, args) => {
+    try {
+      return await fn(args)
+    } catch (e) {
+      throw localizeThrown(e, loadSettings(db!.db).uiLanguage)
+    }
+  })
 }
 
 function registerIpc(): void {
@@ -306,7 +373,7 @@ function registerIpc(): void {
     broadcast(IPC.evListUpdated, null)
     return undefined
   })
-  ipcMain.handle(IPC.createTask, (_e, args) => {
+  handleCommand(IPC.createTask, (args) => {
     const task = createTaskService(createSqliteStorage(d()), {
       listId: args.listId,
       title: args.title,
@@ -318,7 +385,7 @@ function registerIpc(): void {
     broadcast(IPC.evTaskUpdated, task)
     return task
   })
-  ipcMain.handle(IPC.updateTask, (_e, args) => {
+  handleCommand(IPC.updateTask, (args) => {
     // The routing rules live in the service; this handler only reports the
     // result and performs the background work the service asked for.
     const outcome = updateTaskService(createSqliteStorage(d()), args, loadSettings(d()))
@@ -326,7 +393,7 @@ function registerIpc(): void {
     broadcast(IPC.evTaskUpdated, outcome.task)
     return outcome.task
   })
-  ipcMain.handle(IPC.runPreprocess, (_e, args) => {
+  handleCommand(IPC.runPreprocess, (args) => {
     // The guards live in the service; this handler only acts on its decision.
     const outcome = runPreprocessService(createSqliteStorage(d()), args.id, loadSettings(d()))
     for (const work of outcome.enqueue) queue!.enqueue(work, outcome.task.id)
@@ -335,6 +402,9 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.deleteTask, (_e, args) => {
     serviceDeleteTask(d(), args.id)
+    // A deleted task's conversation can never be reopened, so it is dropped
+    // rather than kept for the life of the process.
+    chatSessions.delete(chatKeyOf(args.id))
     rescheduleAlarms()
     broadcast(IPC.evTaskUpdated, { id: args.id, deleted: true })
     return undefined
@@ -375,7 +445,7 @@ function registerIpc(): void {
     broadcastTask(args.taskId)
     return notes
   })
-  ipcMain.handle(IPC.finishTask, async (_e, args) => {
+  handleCommand(IPC.finishTask, async (args) => {
     // Finish is dispatched on the type's DECLARED behaviour, not on a hardcoded
     // category comparison (contracts/finish-behaviours.md). The service
     // validates and confines before anything is marked complete, so a bad
@@ -427,14 +497,18 @@ function registerIpc(): void {
     if (res.canceled || res.filePaths.length === 0) return null
     return importSkillFolder(res.filePaths[0]!)
   })
+  // handleCommand, not a bare ipcMain.handle: this path refuses in codes
+  // (bad URL, 404, unsafe archive, missing SKILL.md) and the codes must be
+  // phrased in the user's language before they cross the IPC boundary.
+  handleCommand(IPC.importSkillGitHub, (args) => importSkillFromGitHub(args.url))
   ipcMain.handle(IPC.listTypes, () => listTypeDefs(d()))
-  ipcMain.handle(IPC.saveType, (_e, args) => {
+  handleCommand(IPC.saveType, (args) => {
     const existing = args.type?.key ? getTypeDef(d(), args.type.key) : null
     const saved = existing ? updateTypeDef(d(), args.type) : createTypeDef(d(), args.type)
     broadcast(IPC.evTypesUpdated, listTypeDefs(d()))
     return saved
   })
-  ipcMain.handle(IPC.deleteType, (_e, args) => {
+  handleCommand(IPC.deleteType, (args) => {
     deleteTypeDef(d(), args.key)
     broadcast(IPC.evTypesUpdated, listTypeDefs(d()))
     return undefined
@@ -455,9 +529,21 @@ function registerIpc(): void {
     return undefined
   })
   ipcMain.handle(IPC.getSettings, () => loadSettings(d()))
-  ipcMain.handle(IPC.saveSettings, async (_e, args: { settings: Settings }) => {
+  handleCommand(IPC.saveSettings, async (args) => {
     // The validation and the first-run rule live in the service.
     const saved = saveSettingsService(createSqliteStorage(d()), args.settings)
+    // The user asked the app to keep mcp.json current. The save already
+    // committed — a failed file write must not pretend the settings were lost,
+    // but it must be reported (FR-024: a failure never presents as success).
+    try {
+      materializeMcpConfig(saved.mcpServers ?? [])
+    } catch (e: any) {
+      broadcast(IPC.evToast, {
+        message: message(saved.uiLanguage, 'settings.mcp.materializeFailed', {
+          error: e instanceof Error ? e.message : String(e)
+        })
+      })
+    }
     await configureRuntimeFromSettings(saved)
     broadcast(IPC.evSettingsUpdated, saved)
     return saved
@@ -467,37 +553,51 @@ function registerIpc(): void {
   ipcMain.handle(IPC.testConnection, async (_e, settings: Settings) => testPrompt(settings, 'Reply with exactly: OK'))
   ipcMain.handle(IPC.sendChat, async (_e, args: { text: string; taskId?: string }) => {
     const settings = loadSettings(d())
-    // Chat conversations are per-surface: switching task (or returning to the
-    // debug chat) starts a fresh conversation with fresh grounding.
-    if ((chatTaskId ?? null) !== (args.taskId ?? null)) {
-      chatSession.reset()
-      chatTaskId = args.taskId ?? null
-    }
-    const context = args.taskId ? chatContextFor(d(), args.taskId) : undefined
+    const taskId = args.taskId ?? null
+    // Conversations are per-surface: the entry is created on the surface's
+    // first message and kept for as long as the app runs, so a task's chat is
+    // still there when the user comes back to it.
+    const entry = chatEntryFor(taskId)
+    const context = taskId ? chatContextFor(d(), taskId) : undefined
+    // The same conversation with newer grounding: swap the context in rather
+    // than restarting, so a pre-process that has just landed reaches the reply
+    // without discarding the exchange so far.
+    const grounding = chatGroundingVersion(d(), taskId)
+    if (grounding !== entry.grounding) entry.session.refreshContext(context)
+    entry.grounding = grounding
     try {
-      const reply = await chatSession.send(args.text, settings, (delta) => broadcast(IPC.evChatDelta, { delta }), context)
-      broadcast(IPC.evChatDone, { text: reply })
+      const reply = await entry.session.send(
+        args.text,
+        settings,
+        (delta) => broadcast(IPC.evChatDelta, { owner: taskId, delta }),
+        context
+      )
+      broadcast(IPC.evChatDone, { owner: taskId, text: reply })
     } catch (e: any) {
-      broadcast(IPC.evChatError, { error: e?.message ?? String(e) })
+      broadcast(IPC.evChatError, { owner: taskId, error: e?.message ?? String(e) })
     }
   })
-  ipcMain.handle(IPC.resetChat, () => {
-    chatSession.reset()
+  ipcMain.handle(IPC.resetChat, (_e, args: { taskId?: string }) => {
+    const taskId = args?.taskId ?? null
+    chatEntryFor(taskId).session.reset()
   })
   ipcMain.handle(IPC.dismissSuggestion, (_e, args) => {
     const s = dismissSuggestion(d(), args.suggestionId)
-    broadcast(IPC.evSuggestionsUpdated, listSuggestions(d(), s.taskId))
+    broadcast(IPC.evSuggestionsUpdated, { taskId: s.taskId, suggestions: listSuggestions(d(), s.taskId) })
     return s
   })
   ipcMain.handle(IPC.getProposals, () => proposalViews())
   ipcMain.handle(IPC.confirmRemoteChange, async (_e, args: { proposalId: string }) => {
-    // The remote transport is deferred (research R7a), so there is nothing that
-    // can actually reach an external system. That is reported as a failure —
-    // never as a success (FR-024).
+    // The per-change confirmation EXECUTION (mutating an external system from
+    // this bar) is still deferred (research R7a): the MCP transport is now
+    // live at the session seam for granted types, but this flow needs
+    // out-of-model tool execution the adapter's public surface does not yet
+    // offer. That is reported as a failure — never as a success (FR-024),
+    // and phrased in the user's language rather than a hardcoded literal.
     const outcome = await proposals.confirm(args.proposalId, {
       apply: async () => ({
         ok: false,
-        error: 'no tool-server transport is connected in this version (see research R7a) — the change was not sent'
+        error: message(loadSettings(d()).uiLanguage, 'remote.confirmDeferred')
       })
     })
     broadcastProposals()
@@ -531,11 +631,27 @@ function registerIpc(): void {
   })
 }
 
+// The window/taskbar icon. Same file electron-builder uses as the installer
+// icon source (build/icon.png from directories.buildResources); resolved like
+// the wiki guide — repo checkout first (dev), then the packaged extraResources
+// copy next to the app.
+function appIconPath(): string | undefined {
+  const candidates = [
+    path.resolve(process.cwd(), 'build', 'icon.png'),
+    typeof process.resourcesPath === 'string' ? path.join(process.resourcesPath, 'icon.png') : undefined
+  ]
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate
+  }
+  return undefined
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
     title: 'Beyond the Dialogue',
+    icon: appIconPath(),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -560,6 +676,15 @@ app.whenReady().then(async () => {
   db = d
   migrate(d.db)
   ensureVault()
+  // Converge the app-owned mcp.json with the settings on every startup — a
+  // save that crashed between the commit and the file write leaves the copy
+  // stale, and here it is rewritten from the source of truth. A failure must
+  // not block boot; the file is an inspection copy.
+  try {
+    materializeMcpConfig(loadSettings(d.db).mcpServers ?? [])
+  } catch (e) {
+    console.warn('[mcp] could not write the app mcp.json:', e)
+  }
 
   // Day rollover on first open after a date change.
   rolloverMyDay(d.db)

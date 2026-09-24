@@ -89,7 +89,13 @@ interface AppEvents {
   ingestProgress: IngestProgressEvent
   openTask: { taskId: string }
   toast: ToastPayload
+  // Chat events name the surface they belong to — `{ owner: string | null }`,
+  // the owning task id or null for the debug chat. Transcripts are per-surface,
+  // so a host that drops the owner streams one task's reply into another
+  // task's panel.
   chatDelta: ChatDeltaEvent
+  chatDone: ChatDoneEvent
+  chatError: ChatErrorEvent
   // ...
 }
 
@@ -133,8 +139,9 @@ be rewritten to move a second host in is a defect in this layering, not future w
 ## 5. Composition root obligations
 
 `src/main/index.ts` currently holds both the Electron shell *and* the application's
-singleton state and workflow orchestration: `let db`, `mainWindow`, `queue`, `chatSession`,
-`chatTaskId`, `alarms` (`:39-46`), with roughly ten handlers carrying real logic
+singleton state and workflow orchestration: `let db`, `mainWindow`, `queue`, `chatSessions`
+(one conversation per chat surface), `alarms` (`:39-46`), with roughly ten handlers carrying
+real logic
 (`:202-255`, `:256-266`, `:279-296`, `:321-355`, `:397-427`).
 
 After this change the composition root does exactly three things:

@@ -1,4 +1,5 @@
-import type { Task, TaskKind, TaskTypeDef } from '../../../shared/types'
+import type { Task, TaskKind, TaskTypeDef, TypeInputField } from '../../../shared/types'
+import { en, isMessageKey, message, type Language, type MessageKey } from '../../../core/i18n'
 
 // Centralized type catalog (design D2): tasks carry a built-in `type` and an
 // optional `customTypeKey` resolved against the task_types registry (delivered
@@ -11,7 +12,10 @@ import type { Task, TaskKind, TaskTypeDef } from '../../../shared/types'
 const FALLBACK_PLAIN: TaskTypeDef = {
   key: 'plain',
   kind: 'plain',
-  label: 'Plain task',
+  // From the catalog, not a second copy of the string: this is what renders
+  // before the first snapshot lands, and a hardcoded English label would flash
+  // English in a Chinese interface on every start.
+  label: en['type.plain.label'],
   emoji: '📝',
   inputSchema: [],
   isBuiltin: true,
@@ -46,12 +50,82 @@ export function effectiveKind(task: Pick<Task, 'type' | 'customTypeKey'>, types?
   return effectiveType(task, types).kind
 }
 
-export function typeLabel(task: Pick<Task, 'type' | 'customTypeKey'>, types?: TaskTypeDef[] | null): string {
-  return effectiveType(task, types).label
-}
-
 export function typeEmoji(task: Pick<Task, 'type' | 'customTypeKey'>, types?: TaskTypeDef[] | null): string {
   return effectiveType(task, types).emoji
+}
+
+// ---- showing a seeded type in the active language ----
+//
+// The built-ins' labels, descriptions and field labels are seeded ROWS, and the
+// Types tab lets the user rename them. So a stored value is shown translated
+// only while it is still exactly what was seeded: the moment it differs, it is
+// the user's words and is shown as written. That needs no migration and cannot
+// clobber a rename — the comparison is done at render time, and nothing is
+// written back.
+//
+// The keys are derived, so a type that has no catalog entry (every custom one)
+// simply does not translate.
+
+function builtinKey(typeKey: string, part: 'label' | 'description'): MessageKey | null {
+  const key = `type.${typeKey}.${part}`
+  return isMessageKey(key) ? key : null
+}
+
+/** The stored value in the active language, or as written when the user owns it. */
+function display(stored: string | undefined, key: MessageKey | null, language: Language): string | undefined {
+  if (stored === undefined) return undefined
+  if (!key) return stored
+  return stored === en[key] ? message(language, key) : stored
+}
+
+export function displayTypeLabel(def: TaskTypeDef, language: Language): string {
+  return display(def.label, builtinKey(def.key, 'label'), language) ?? def.label
+}
+
+export function displayTypeDescription(def: TaskTypeDef, language: Language): string | undefined {
+  return display(def.description, builtinKey(def.key, 'description'), language)
+}
+
+export function displayFieldLabel(def: TaskTypeDef, field: TypeInputField, language: Language): string {
+  const key = builtinKey(def.key, 'label')
+  // A field's label translates when its type does and the field itself is
+  // unchanged; a field the user added to a custom type has no key at all.
+  const fieldKey = key ? (`type.${def.key}.field.${field.key}.label` as const) : null
+  const usable = fieldKey && isMessageKey(fieldKey) ? fieldKey : null
+  return display(field.label, usable, language) ?? field.label
+}
+
+export function displayFieldPlaceholder(def: TaskTypeDef, field: TypeInputField, language: Language): string | undefined {
+  const fieldKey = `type.${def.key}.field.${field.key}.placeholder`
+  const usable = isMessageKey(fieldKey) ? fieldKey : null
+  return display(field.placeholder, usable, language)
+}
+
+/** A copy of the type with every seeded string shown in the active language. */
+export function localizeTypeDef(def: TaskTypeDef, language: Language): TaskTypeDef {
+  return {
+    ...def,
+    label: displayTypeLabel(def, language),
+    description: displayTypeDescription(def, language),
+    inputSchema: def.inputSchema.map((field) => ({
+      ...field,
+      label: displayFieldLabel(def, field, language),
+      placeholder: displayFieldPlaceholder(def, field, language),
+      options: field.options?.map((option) => {
+        const optionKey = `type.${def.key}.field.${field.key}.option.${option.value}`
+        return { ...option, label: display(option.label, isMessageKey(optionKey) ? optionKey : null, language) ?? option.label }
+      })
+    }))
+  }
+}
+
+/** The label on a type's chip or row, in the active language. */
+export function typeLabel(
+  task: Pick<Task, 'type' | 'customTypeKey'>,
+  types: TaskTypeDef[] | null | undefined,
+  language: Language
+): string {
+  return displayTypeLabel(effectiveType(task, types), language)
 }
 
 // Filter-chip key for grouping: customTypeKey if set, else the built-in.

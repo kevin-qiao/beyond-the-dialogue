@@ -122,7 +122,7 @@ test('3.5 persistence across restart (reopen DB file)', () => {
 
 test('2.2 settings persist and stay in DB', () => {
   const { db } = freshDB()
-  saveSettings(db.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test', wikiPath: '/tmp/wiki', defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
+  saveSettings(db.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test', defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
   const s = loadSettings(db.db)
   assert.equal(s.provider, 'openai')
   assert.equal(s.model, 'gpt-4o')
@@ -524,6 +524,46 @@ test('v7 strips the retired placeholder inputs from schemas and from tasks', () 
   const before = db.db.prepare('SELECT inputs FROM tasks ORDER BY id').all()
   migrate(db.db)
   assert.deepEqual(db.db.prepare('SELECT inputs FROM tasks ORDER BY id').all(), before)
+  db.close()
+})
+
+// ---- v8: the wiki location moves from the settings row into the types ----
+
+test('v8 copies a configured wikiPath into every wiki-destined type and drops the setting', () => {
+  const { db } = freshDB()
+  // Recreate the pre-v8 state: a user who HAD pointed the app at a wiki. The
+  // seeded wiki destinations carry no root because they used to resolve the
+  // global setting lazily, at write time.
+  db.db
+    .prepare("INSERT INTO settings (key, value) VALUES ('wikiPath', '/home/u/old-wiki') ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .run()
+  db.db.prepare('DELETE FROM schema_migrations WHERE version = 8').run()
+  migrate(db.db)
+
+  const learning = JSON.parse((db.db.prepare("SELECT destination_json FROM task_types WHERE key='learning'").get() as any).destination_json)
+  assert.deepEqual(learning, { store: 'wiki', rootPath: '/home/u/old-wiki', subdir: 'learning-notes' }, 'the configured wiki moved onto the type')
+  assert.equal(db.db.prepare("SELECT 1 FROM settings WHERE key = 'wikiPath'").get(), undefined, 'the global setting is gone')
+
+  // Idempotent — a second pass changes nothing.
+  migrate(db.db)
+  assert.deepEqual(
+    JSON.parse((db.db.prepare("SELECT destination_json FROM task_types WHERE key='learning'").get() as any).destination_json),
+    learning
+  )
+  db.close()
+})
+
+test('v8 never materializes the removed default in a database that had not set one', () => {
+  const { db } = freshDB()
+  db.db.prepare('DELETE FROM schema_migrations WHERE version = 8').run()
+  migrate(db.db)
+  // A database that had been riding on the default is left UNCONFIGURED on
+  // purpose: writing ~/Documents/WorkBoard-Wiki into the row would re-create
+  // the hidden fallback the migration exists to remove. Finish refuses with
+  // `wiki.notConfigured` until the type names a directory.
+  const learning = JSON.parse((db.db.prepare("SELECT destination_json FROM task_types WHERE key='learning'").get() as any).destination_json)
+  assert.equal(learning.rootPath, null)
+  assert.ok(!JSON.stringify(learning).includes('WorkBoard-Wiki'), 'the old default is not resurrected into user data')
   db.close()
 })
 

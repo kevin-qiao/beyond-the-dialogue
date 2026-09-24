@@ -16,7 +16,7 @@ type DestinationStore = 'wiki' | 'folder'
 
 interface Destination {
   store: DestinationStore
-  rootPath: string | null   // absolute; required for 'folder', must be null for 'wiki'
+  rootPath: string | null   // absolute; required for 'folder', declared by the type for 'wiki' (blank = refused at Finish)
   subdir: string            // relative dir under the root; '' means the root itself
 }
 
@@ -38,8 +38,9 @@ a separator or `..`.
 
 ```
 resolveRoot(dest):
-  wiki   → the configured wiki location (Settings.wikiPath, defaulting to
-           defaultWikiPath()); rootPath MUST be null
+  wiki   → dest.rootPath as declared by the type (there is no global wiki
+           location and no built-in default); blank is refused at Finish,
+           a named-but-relative root at save
   folder → dest.rootPath; MUST be absolute and non-empty
 
 resolveArtifact(dest, title, taskId):
@@ -139,7 +140,7 @@ same principle is generalized here rather than replaced.
 |---|---|
 | `store` is `wiki` or `folder` | reject the type |
 | `store: folder` requires an absolute `rootPath` | reject the type |
-| `store: wiki` requires `rootPath` to be null | reject the type |
+| `store: wiki` with a named `rootPath` requires it to be absolute; blank is incomplete and refused at Finish | reject the type |
 | `subdir` is relative and contains no `..` segment | reject the type |
 | A writing `finishBehaviour` requires a destination | reject the type |
 | `complete-only` forbids a destination | reject the type |

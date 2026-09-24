@@ -3,8 +3,10 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { ensureWikiDir, resolveWikiPath, depositTask, snapshotWikiFiles, diffTouchedFiles, slugify, resolveLearningNotePath } from '../src/main/wiki/wiki'
-import { openDB, migrate, createList, createTask, savePreprocess, saveNotes, listLists, saveSettings } from '../src/main/db'
+import { ensureWikiDir, depositTask, snapshotWikiFiles, diffTouchedFiles, slugify, resolveLearningNotePath } from '../src/main/wiki/wiki'
+import { openDB, migrate, createTask, savePreprocess, saveNotes, listLists } from '../src/main/db'
+import { getTypeDef, updateTypeDef } from '../src/main/types'
+import { issueKeysOf } from './helpers/issues'
 import { setUserDataRoot } from '../src/main/paths'
 
 function tmpdir() {
@@ -40,13 +42,18 @@ test('6.3 deposit writes note + AI summary into raw/ under a title-derived name'
   setUserDataRoot(dir)
   const conn = openDB(dir)
   migrate(conn.db)
-  saveSettings(conn.db, { provider: 'openai', model: '', apiKey: null, wikiPath, defaultListId: null, maxConcurrentJobs: 2, showWelcome: false, theme: 'light', skills: [], mcpServers: [] })
+  // The wiki directory is declared on the TYPE now — there is no global
+  // setting for the deposit to read.
+  updateTypeDef(conn.db, {
+    ...getTypeDef(conn.db, 'learning')!,
+    destination: { store: 'wiki', rootPath: wikiPath, subdir: 'learning-notes' }
+  })
   const l = listLists(conn.db)[0]!
   const t = createTask(conn.db, { listId: l.id, title: 'Linear algebra review', type: 'learning', inputs: { target: 'eigenvalues' } })
   const noteFile = path.join(dir, 'note.md')
   fs.writeFileSync(noteFile, '# my note')
   saveNotes(conn.db, { taskId: t.id, notePath: noteFile, content: '# my note' })
-  savePreprocess(conn.db, { taskId: t.id, kind: 'learning', summary: 'A summary.', analysis: 'Review eigenvalues.', suggestions: ['s'], generatedPrompt: 'p', status: 'ready', inputsHash: 'h' })
+  savePreprocess(conn.db, { taskId: t.id, kind: 'learning', summary: 'A summary.', analysis: 'Review eigenvalues.', suggestions: ['s'], status: 'ready', inputsHash: 'h' })
   const deposit = depositTask(conn.db, t.id)
   assert.ok(deposit.rawDir.startsWith(wikiPath))
   assert.ok(deposit.files.includes('linear-algebra-review.md'), `got ${deposit.files}`)
@@ -78,10 +85,25 @@ test('6.4 snapshot preserves prior contents of wiki files', () => {
   assert.equal(fs.readFileSync(path.join(newest, 'index.md'), 'utf-8'), 'OLD INDEX')
 })
 
-test('resolveWikiPath defaults to documents location when unset', () => {
-  const p = resolveWikiPath('')
-  assert.ok(p.endsWith('WorkBoard-Wiki'))
-  assert.equal(resolveWikiPath('/custom/w'), '/custom/w')
+test('depositing to the wiki refuses when the type declares no directory', () => {
+  const dir = tmpdir()
+  setUserDataRoot(dir)
+  const conn = openDB(dir)
+  migrate(conn.db)
+  // The seeded built-in learning destination: store 'wiki', rootPath null.
+  // There is no global wiki location and no built-in default to resolve it
+  // against, so the deposit is refused rather than pointed at a guess.
+  const l = listLists(conn.db)[0]!
+  const t = createTask(conn.db, { listId: l.id, title: 'Own the wiki location', type: 'learning', inputs: { target: 'x' } })
+  assert.throws(
+    () => depositTask(conn.db, t.id),
+    (e: unknown) => {
+      assert.deepEqual(issueKeysOf(e), ['wiki.notConfigured'])
+      return true
+    }
+  )
+  assert.equal(fs.existsSync(path.join(dir, 'raw')), false, 'nothing is scaffolded against a guessed path')
+  conn.close()
 })
 
 test('slugify derives safe filenames', () => {
@@ -91,7 +113,7 @@ test('slugify derives safe filenames', () => {
 })
 
 test('learning-note path resolves inside the wiki by default and flags escapes', () => {
-  const wiki = '/home/u/Documents/WorkBoard-Wiki'
+  const wiki = '/home/u/knowledge/wiki'
   const def = resolveLearningNotePath(wiki, undefined, 'Linear algebra review', 't1')
   assert.equal(def.insideWiki, true)
   assert.equal(def.rel, 'learning-notes/linear-algebra-review.md')

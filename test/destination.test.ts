@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { issueKeysOf } from './helpers/issues'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import {
@@ -20,36 +21,42 @@ import type { Destination } from '../src/shared/types'
 // inside the root; the root is writable) are covered by test/artifactStore.test.ts
 // and the finish tests.
 
-const WIKI = '/home/u/Documents/WorkBoard-Wiki'
+// The wiki store's directory is now declared on the destination itself —
+// there is no global wiki location the tests could stand behind it.
+const WIKI = '/home/u/knowledge/wiki'
 
-const wikiDest: Destination = { store: 'wiki', rootPath: null, subdir: 'learning-notes' }
+const wikiDest: Destination = { store: 'wiki', rootPath: WIKI, subdir: 'learning-notes' }
 const folderDest: Destination = { store: 'folder', rootPath: '/home/u/Documents/Minutes', subdir: '' }
 
 test('a folder destination requires an absolute rootPath', () => {
   assert.deepEqual(validateDestination(nodePathPort, folderDest), [])
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, rootPath: 'relative/minutes' }),
-    ['a folder destination requires an absolute rootPath']
+    [{ key: 'destination.folderNeedsAbsoluteRoot' }]
   )
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, rootPath: '' }),
-    ['a folder destination requires an absolute rootPath']
+    [{ key: 'destination.folderNeedsAbsoluteRoot' }]
   )
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, rootPath: '   ' }),
-    ['a folder destination requires an absolute rootPath']
+    [{ key: 'destination.folderNeedsAbsoluteRoot' }]
   )
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, rootPath: null }),
-    ['a folder destination requires an absolute rootPath']
+    [{ key: 'destination.folderNeedsAbsoluteRoot' }]
   )
 })
 
-test('a wiki destination requires rootPath to be null', () => {
+test('a wiki destination declares its own root; blank is incomplete, not inherited', () => {
   assert.deepEqual(validateDestination(nodePathPort, wikiDest), [])
+  // A blank root is an INCOMPLETE config, refused at Finish where it matters
+  // (the seeded Learning type is saved this way) — never resolved against a
+  // global location or a built-in default.
+  assert.deepEqual(validateDestination(nodePathPort, { ...wikiDest, rootPath: null }), [])
   assert.deepEqual(
-    validateDestination(nodePathPort, { ...wikiDest, rootPath: '/somewhere/else' }),
-    ['a wiki destination must not declare a rootPath (the configured wiki location is used)']
+    validateDestination(nodePathPort, { ...wikiDest, rootPath: 'relative/wiki' }),
+    [{ key: 'destination.wikiNeedsRoot' }]
   )
 })
 
@@ -58,30 +65,30 @@ test('subdir containing a ".." segment is rejected', () => {
   assert.deepEqual(validateDestination(nodePathPort, { ...folderDest, subdir: '' }), [])
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, subdir: '../escape' }),
-    ['destination subdir must not contain a ".." segment']
+    [{ key: 'destination.subdirTraversal' }]
   )
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, subdir: 'minutes/../../escape' }),
-    ['destination subdir must not contain a ".." segment']
+    [{ key: 'destination.subdirTraversal' }]
   )
   // Windows-shaped traversal is caught by the same rule.
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, subdir: '..\\escape' }),
-    ['destination subdir must not contain a ".." segment']
+    [{ key: 'destination.subdirTraversal' }]
   )
 })
 
 test('an absolute subdir is rejected', () => {
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, subdir: '/etc' }),
-    ['destination subdir must be relative, not absolute']
+    [{ key: 'destination.subdirAbsolute' }]
   )
 })
 
 test('an unrecognised store is rejected rather than ignored', () => {
   assert.deepEqual(
     validateDestination(nodePathPort, { ...folderDest, store: 'cloud' as never }),
-    ['destination store must be one of: wiki, folder']
+    [{ key: 'destination.storeUnknown', params: { stores: 'wiki, folder' } }]
   )
 })
 
@@ -104,35 +111,35 @@ test('a path resolving outside the root is refused', () => {
 })
 
 test('resolveDestination derives absRoot from root + subdir', () => {
-  assert.deepEqual(resolveDestination(nodePathPort, wikiDest, WIKI), {
+  assert.deepEqual(resolveDestination(nodePathPort, wikiDest), {
     store: 'wiki',
     root: WIKI,
     subdir: 'learning-notes',
     absRoot: `${WIKI}/learning-notes`
   })
-  assert.deepEqual(resolveDestination(nodePathPort, { ...folderDest, subdir: 'minutes/2026' }, WIKI), {
+  assert.deepEqual(resolveDestination(nodePathPort, { ...folderDest, subdir: 'minutes/2026' }), {
     store: 'folder',
     root: '/home/u/Documents/Minutes',
     subdir: 'minutes/2026',
     absRoot: '/home/u/Documents/Minutes/minutes/2026'
   })
   // An empty subdir means the root itself.
-  assert.equal(resolveDestination(nodePathPort, folderDest, WIKI).absRoot, '/home/u/Documents/Minutes')
+  assert.equal(resolveDestination(nodePathPort, folderDest).absRoot, '/home/u/Documents/Minutes')
 })
 
 test('resolveArtifact derives the filename from the title and lands inside', () => {
-  const t = resolveArtifact(nodePathPort, folderDest, WIKI, 'Weekly sync: roadmap & hiring!', 't1')
+  const t = resolveArtifact(nodePathPort, folderDest, 'Weekly sync: roadmap & hiring!', 't1')
   assert.equal(t.abs, '/home/u/Documents/Minutes/weekly-sync-roadmap-hiring.md')
   assert.equal(t.rel, 'weekly-sync-roadmap-hiring.md')
   assert.equal(t.inside, true)
   // A title with no usable characters still yields a safe, inside filename.
-  const fallback = resolveArtifact(nodePathPort, folderDest, WIKI, '！！！', 'abcdef123456')
+  const fallback = resolveArtifact(nodePathPort, folderDest, '！！！', 'abcdef123456')
   assert.equal(fallback.inside, true)
   assert.ok(fallback.rel.startsWith('note-abcdef12'), `got ${fallback.rel}`)
 })
 
-test('resolveArtifact honours the wiki store for the learning default', () => {
-  const t = resolveArtifact(nodePathPort, wikiDest, WIKI, 'Linear algebra review', 't1')
+test('resolveArtifact honours the wiki store declared on the type', () => {
+  const t = resolveArtifact(nodePathPort, wikiDest, 'Linear algebra review', 't1')
   assert.equal(t.absRoot, `${WIKI}/learning-notes`)
   assert.equal(t.abs, `${WIKI}/learning-notes/linear-algebra-review.md`)
   // `rel` is relative to absRoot (the confinement check's basis), so it is
@@ -156,7 +163,9 @@ test('slugify cannot produce a separator or a traversal segment', () => {
 test('describeDestination reads as a place a user would recognise', () => {
   assert.equal(describeDestination(folderDest), '/home/u/Documents/Minutes')
   assert.equal(describeDestination({ ...folderDest, subdir: 'minutes' }), '/home/u/Documents/Minutes/minutes')
-  assert.equal(describeDestination(wikiDest), 'the wiki (learning-notes/)')
+  assert.equal(describeDestination(wikiDest), 'the wiki at /home/u/knowledge/wiki (learning-notes/)')
+  assert.equal(describeDestination({ ...wikiDest, subdir: '' }), 'the wiki at /home/u/knowledge/wiki')
+  assert.equal(describeDestination({ ...wikiDest, rootPath: null }), 'the wiki at (unset) (learning-notes/)')
   assert.equal(describeDestination(undefined), '(none)')
 })
 
@@ -197,8 +206,14 @@ test('a target override that escapes the destination refuses the finish rather t
 
   await assert.rejects(
     () => finishWith(conn, firstDir, task.id, 'file-as-is'),
-    /outside the destination/,
-    'a path that no longer resolves must be surfaced, never silently defaulted'
+    (e: unknown) => {
+      assert.deepEqual(
+        issueKeysOf(e),
+        ['finish.overrideOutside'],
+        'a path that no longer resolves must be surfaced, never silently defaulted'
+      )
+      return true
+    }
   )
   assert.deepEqual(fs.readdirSync(firstDir), [], 'nothing was written')
   conn.close()
