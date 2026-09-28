@@ -1,250 +1,141 @@
-<!--
-Sync Impact Report
-==================
-Version change: 1.0.0 → 1.1.0
-Rationale: MINOR — a principle is added (VI. Avoid Hardcoding) and the
-  Development Workflow & Quality Gates section gains a corresponding gate.
-  No principle is removed or redefined, and no previously compliant work
-  becomes non-compliant.
-
-Modified principles:
-  - None renamed or redefined. Principle III (Layered Architecture) already
-    forbade hardcoded dispatch on a concrete key; Principle VI generalizes
-    that rule beyond dispatch and adds the comment obligation for the
-    unavoidable cases. The overlap is deliberate and cross-referenced, not
-    duplicated.
-
-Added sections:
-  - Core Principles → VI. Avoid Hardcoding
-  - Development Workflow & Quality Gates → gate 7
-
-Removed sections: none
-
-Follow-up TODOs: none.
--->
-
 # Beyond the Dialogue Constitution
 
 ## Core Principles
 
-### I. Cross-Platform Desktop First
+### I. Extensible Architecture, Decoupled Components (NON-NEGOTIABLE)
 
-The application is a desktop product and MUST run natively on both Windows and
-Linux from the same codebase. Platform-specific behavior MUST be isolated at
-defined boundaries rather than scattered through feature code.
+Every feature MUST be added by extension — declaration, registration, dispatch on declared
+capability — not by modifying existing behaviour.
 
-- No feature may be declared complete until it has been exercised on both
-  Windows and Linux, or an explicit, documented platform limitation is recorded.
-- Path handling MUST go through the centralized path module — never string
-  concatenation of separators, and never a hardcoded user-data location.
-- Shell invocations, file-mode assumptions, and anything that behaves
-  differently across platforms MUST be confined to a single adapter module so
-  the divergence is auditable in one place.
-- Platform-specific bugs are correctness bugs, not polish items; they block
-  release exactly as a failing test does.
+- Components MUST depend only toward stable abstractions: the domain/core layer performs no
+  I/O; all side effects enter through declared ports implemented at the edges.
+- Behaviour is dispatched on declarations (a type's declared inputs, instruction, finish
+  behaviour, grants), never on hardcoded identity: no branching on a type key, a name string,
+  or a `kind === …` comparison outside the dispatch registries themselves.
+- Cross-layer contracts (domain types, IPC channels, events) are defined once and changed in
+  lockstep; drift between producer and consumer MUST fail mechanically — a compile error or a
+  guard test — not at runtime on one host only.
+- Boundaries are enforced by tests, not by convention alone.
 
-Rationale: supporting two platforms is a product commitment. Scattered platform
-conditionals make that commitment unverifiable and expensive to keep.
+Rationale: the product is a type engine whose promise is that users extend it without
+forking it. Code that couples to a concrete identity turns every new capability into a
+rewrite of the old ones.
 
-### II. Clean, Simple UI — Function Before Polish
+### II. The Deterministic / Dynamic Boundary (NON-NEGOTIABLE)
 
-The interface MUST stay clean and simple. Completing the function is the first
-priority; visual refinement is secondary and MUST NOT delay or displace
-functional completeness.
+Every design MUST state explicitly which parts are deterministic (implemented in code) and
+which are dynamic (powered by an AI agent), and the guarantees each side carries.
 
-- Every feature MUST be functionally complete and usable before it receives
-  cosmetic refinement.
-- A screen MUST present only what the current task needs. Adding a control
-  requires that the control carry a function the user cannot reach otherwise.
-- Visual complexity MUST be justified by a functional requirement, not by
-  preference or novelty.
-- Consistency of interaction patterns across views is required; a new view MUST
-  reuse existing shared primitives rather than introduce a parallel idiom.
-- No feature may trade a broken or absent function for a better-looking shell.
+- Correctness, safety, and permission guarantees belong to deterministic code. A model's
+  compliance is never a control: operations that require confirmation or confinement MUST be
+  structurally unreachable from the agent's tool surface, not merely instructed against.
+- Agent output that reaches persisted state MUST pass a deterministic validation before
+  acceptance; when validation fails, the defined fallback (file the user's own content,
+  record the AI step as failed) applies.
+- No user-facing flow may fail solely because AI is unavailable or produced garbage — every
+  AI-powered step declares its degradation path.
+- Specs and plans MUST annotate the deterministic/dynamic split for each feature they
+  introduce; an un-annotated plan is incomplete.
 
-Rationale: the value of this product is the work it completes. Simplicity is a
-constraint on design, not an aesthetic preference.
+Rationale: an agentic app that cannot say which of its guarantees the model is load-bearing
+for has no guarantees. Keeping the boundary explicit is what makes AI output trustworthy
+and failures survivable.
 
-### III. Layered Architecture
+### III. Agentic by Design
 
-The design MUST be clearly layered, extensible, and honest about its
-boundaries. Each layer has a defined responsibility and MUST NOT reach across
-layers to shortcut work.
+This is an agentic application: agent cases are first-class in every design, from the happy
+path to failure, cancellation, and absence of a configured provider.
 
-- Process layers (main, preload, renderer, shared) MUST respect their
-  boundaries: the renderer reaches the main process only through the declared
-  IPC surface, never by direct import of main-process modules.
-- Feature dispatch MUST go through the declared abstraction (a type's kind, or
-  the equivalent extension point) — never through a hardcoded branch on a
-  specific concrete key.
-- External runtimes MUST be confined behind adapter seams so the rest of the
-  system depends on an interface rather than a vendor SDK. New external
-  dependencies follow the same rule: introduce the seam, then the dependency.
-- Adding a feature MUST mean extending the layer that owns the concern, not
-  editing every layer it passes through.
-- Persistence boundaries MUST be respected: serialization concerns (for example
-  column naming) stay in the storage layer and MUST NOT leak into domain types.
-- Layering violations are treated as defects and MUST be corrected before the
-  work is considered done.
+- The built-in agent runtime is the Pi coding agent (https://pi.dev/docs/latest). SDK usage
+  is confined to explicitly named seam modules; no other file imports the runtime directly.
+- Agent sessions are built from the run's declared purpose. A purpose that grants nothing
+  must be incapable of yielding a grant, even under a misconfigured type or setting.
+- Tests MUST be able to replace agent behaviour at the seams (scripted sessions, prompt
+  overrides); no test may require network access or a provider key.
+- Long-running agent work goes through the persisted job machinery — retries with backoff,
+  progress reporting, requeue-after-crash — never through an ad-hoc promise.
+- Sessions that own external resources (child processes, MCP servers) MUST have an explicit
+  disposal contract; aborting is not disposing.
 
-Rationale: a layered design is what makes the system extensible. A boundary
-that can be crossed casually provides no guarantee at all.
+Rationale: confining the runtime to seams keeps the domain headlessly testable, keeps
+confinement guarantees independent of configuration, and keeps a runtime or model failure
+from leaking into everything it touched.
 
-### IV. Complete Unit Test Coverage (NON-NEGOTIABLE)
+### IV. Unit Tests for Core Components (NON-NEGOTIABLE)
 
-Every behavior-bearing module MUST have unit tests. Work without tests is
-incomplete work, regardless of how small the change appears.
+- Core components — domain rules, application services, port contracts, and every dispatch
+  registry — require unit tests before the feature they support is considered complete.
+- Tests run headless: plain Node, no desktop host is launched, no network, no API key.
+- Every guard test added to protect a boundary (layering, naming, drift, totals over a
+  registry) MUST be verified to fail on a deliberate violation. A gate that cannot fail is
+  treated as broken, not as passing.
+- The full suite and the typecheck pass before any change lands; both name their targets
+  explicitly so neither can silently compile nothing.
 
-- Every module containing logic MUST have a corresponding test file under
-  `test/`, and new behavior MUST arrive with tests covering it.
-- Tests MUST run headless and MUST NOT require a GUI runtime, a network
-  connection, or an API key. External dependencies are replaced with scripted
-  test doubles through the designated seams.
-- Tests MUST be deterministic and self-contained: no dependence on wall-clock
-  time, execution order, or shared mutable state between cases. Each test
-  isolates its own storage root.
-- Bug fixes MUST be accompanied by a regression test that fails before the fix
-  and passes after.
-- The full suite (`npm test`) and the typecheck (`npm run typecheck`) MUST both
-  pass before any change is considered complete. A test skipped to make a build
-  green is a failure, not a pass.
+Rationale: the extensibility promise only holds if adding a feature provably does not break
+the others. A guard that quietly stopped guarding once cost the repo eleven hidden type
+errors; testability is the load-bearing part of the architecture, so it is itself tested.
 
-Rationale: the test suite is the mechanism that keeps a layered, extensible
-design from degrading. Coverage is a condition of correctness here, not a
-metric to optimize later.
+### V. Cross-Platform Desktop (Linux & Windows)
 
-### V. Git-Managed Development
+- The product targets desktop Linux and desktop Windows. Platform-sensitive behaviour —
+  paths, notifications, launch-at-login, packaging, credential storage — goes behind a
+  neutral interface with per-target implementations.
+- A feature MUST work on both targets or degrade explicitly and visibly on one; a design
+  that only works on the developer's machine does not ship.
+- Release artifacts follow the per-target convention (AppImage/deb for Linux, installer for
+  Windows); a change to packaging or paths is reviewed against both targets.
 
-All work is managed in git. The repository's history is the record of what
-changed and why.
+Rationale: two targets from day one is cheaper than retrofitted portability later; naming
+the targets is what makes "works for me" a failing condition.
 
-- Every change MUST land as a reviewable, self-contained commit or commit
-  series with a message that states the intent of the change.
-- Direct, unreviewed work on the main branch is prohibited; changes are
-  prepared on a branch first.
-- Generated output, local agent workspaces, and local workflow data MUST remain
-  untracked. Committing build artifacts or local state is prohibited.
-- Secrets and credentials MUST NOT be committed. Access credentials belong in
-  user data locations, never in the repository.
-- Specs and documentation MUST be updated in the same change as the code they
-  describe, so the repository never records a documented behavior the code does
-  not have.
+## Technology Baseline
 
-Rationale: traceability depends on the history being truthful and complete.
-
-### VI. Avoid Hardcoding
-
-Values and behavior that describe intent MUST be declared where that intent is
-owned, and consumed from there — never embedded in the logic that happens to
-use them. A literal that carries meaning is configuration, not a constant.
-
-- Values a user, operator, or future change could reasonably need to alter —
-  paths, limits, thresholds, labels, allowed values, lists, defaults — MUST be
-  declared in the place that owns them and read from there.
-- A meaningful literal appearing in more than one place MUST be extracted to a
-  single named declaration. Two occurrences are already one too many.
-- Behavior dispatch MUST NOT branch on a concrete key. That is the dispatch
-  case of Principle III and remains governed there.
-- Defaults MUST be declared exactly once. A default duplicated at a call site
-  and in its declaration is a defect, because the two will drift apart.
-- Hardcoded values MUST NOT be introduced to satisfy a test by matching a
-  fixture. Tests adapt to the declared source, never the reverse.
-
-**When hardcoding is genuinely unavoidable**, and only then, it MUST be made
-explicit rather than incidental:
-
-- A comment MUST state why the value is hardcoded, and what would have to
-  change for it to become configurable. "This is fixed" is not a reason. A
-  named external constraint, a protocol requirement, a platform behavior, or a
-  measured performance need is.
-- The value MUST be isolated to a single named location, never scattered as
-  bare literals across several files.
-- The comment MUST sit with the value itself, not in a commit message or a
-  document the next reader will not open.
-
-Rationale: hardcoding is how a codebase quietly stops being extensible. Each
-literal is cheap on its own and expensive in aggregate, and the cost only
-appears when someone finally needs to change one. The comment obligation exists
-because the unavoidable cases are legitimate; what is not legitimate is leaving
-the next reader unable to tell a deliberate constraint from an oversight.
-
-## Platform & Technology Constraints
-
-- **Runtime baseline**: Node.js ≥ 22 is required. The application depends on
-  runtime features unavailable in earlier versions, and this floor MUST NOT be
-  lowered without removing that dependency.
-- **Desktop shell**: Electron. The three-process split (main, preload,
-  renderer) is fixed; the preload bridge is the only sanctioned channel between
-  renderer and main.
-- **Language**: TypeScript throughout. Type checking is a build gate, not a
-  suggestion; `any` used to bypass a genuine type conflict MUST be justified in
-  the change.
-- **Module formats**: the main process builds as ESM. ESM-only dependencies
-  MUST be loaded through dynamic import at their adapter seam rather than
-  forcing a format change on the build.
-- **Storage**: local-first. All persisted state lives under the platform's user
-  data directory, resolved through the centralized path module. Tests MUST be
-  able to redirect that root so no test touches real user data.
-- **Build output**: build artifacts are disposable and are never committed.
-  A clean checkout MUST be buildable from the repository contents alone.
-- **Dependency pinning**: the embedded agent runtime is pinned to exact
-  versions. It MUST NOT be floated, and its usage MUST remain confined to the
-  designated adapter modules.
+- The sanctioned implementation languages are **TypeScript** and **Python**.
+  - TypeScript carries the application: desktop host, UI, domain, and integration layers,
+    built ESM with a strict typecheck as a hard gate.
+  - Python MUST be confined to agent-facing skills, tooling, and data components around
+    the app; it MUST NOT appear inside the desktop host, UI, or domain layers. Each such
+    component obeys Principle I's boundary rules like any other.
+  - Introducing any other language requires a constitution amendment (MAJOR or MINOR per
+    the Governance versioning policy).
+- The desktop host is Electron; the Node runtime floor is the version documented in
+  `CLAUDE.md` (currently ≥ 22, for its built-in SQLite).
+- Agent runtime packages (the Pi coding agent SDK and its peers) are pinned to exact
+  versions; a pin change is a supply-chain decision and goes through review.
+- Persistence is split by nature of the data: structured state in an embedded database,
+  user-owned documents as plain files the user can open anywhere, and history/snapshots as
+  the undo story.
 
 ## Development Workflow & Quality Gates
 
-A change is complete only when all of the following hold:
-
-1. **Tests pass.** The full suite passes locally with no skipped or disabled
-   cases related to the change.
-2. **Types pass.** The typecheck completes with no errors.
-3. **Behavior is covered.** New and changed behavior has unit tests that would
-   fail if the behavior regressed.
-4. **Layering holds.** No boundary described in Principle III was crossed, and
-   any new external dependency arrived behind a seam.
-5. **Both platforms are considered.** The change is exercised on Windows and
-   Linux, or its platform limitation is documented.
-6. **Specs are current.** The specification source of truth reflects the
-   behavior that shipped, updated within the same change.
-7. **No unexplained hardcoding.** No new meaningful literal is embedded in
-   logic, or any that is carries a comment stating why it is unavoidable and
-   what would make it configurable (Principle VI).
-
-Review of any change MUST verify these gates explicitly. A gate that cannot be
-verified is treated as not met.
-
-Complexity MUST be justified against the simplest alternative that satisfies
-the requirement. When a simpler design would meet the need, the simpler design
-is required.
+- Features follow the Spec Kit flow: `/speckit-specify` → `/speckit-clarify` (optional) →
+  `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`. Specs are updated alongside the
+  code; a change that contradicts the spec is a defect in one of them, found at review.
+- Planning MUST check each principle explicitly: the deterministic/dynamic annotation
+  (II), dispatch-by-declaration (I), agent failure paths (III), test obligations (IV), and
+  both-platform behaviour (V).
+- Merge gates: `npm run typecheck` and the full test suite pass; guard tests still fail on
+  deliberate violations when a boundary is touched.
+- UI text is bilingual: every user-visible string goes through the message catalog, and the
+  parity of the catalogs is a typechecked gate.
+- Runtime developer guidance lives in `CLAUDE.md`; it is subordinate to this constitution
+  and MUST NOT contradict it.
 
 ## Governance
 
-This constitution supersedes other development practices and conventions where
-they conflict. Where guidance documents describe runtime or architectural
-detail, those documents MUST be read as elaborations of these principles, not
-as replacements for them.
+- This constitution supersedes all other practice, guidance, and preference documents.
+  When they conflict, this document wins; `CLAUDE.md` and specs carry it into effect.
+- Amendments are proposed in writing (diff plus rationale), reviewed by the project owner,
+  and land in `.specify/memory/constitution.md` with the header version and dates updated.
+- Versioning policy (semantic):
+  - **MAJOR**: removing or redefining a principle in a way that changes existing obligations.
+  - **MINOR**: adding a principle or materially extending guidance.
+  - **PATCH**: clarifications, wording, non-semantic refinements.
+- Compliance review: every spec, plan, and change is checked against these principles;
+  unjustified complexity or a boundary exception must be recorded with its rationale in the
+  feature's artifacts or rejected.
+- The version and dates in the footer are authoritative for the document's state; the git
+  history of this file is the amendment log.
 
-**Amendment procedure**: an amendment is proposed as a written change to this
-file, stating the principle or section affected, the reason, and any migration
-required for work already in flight. Amendment requires explicit approval by
-the project maintainer before it is committed. Amending the constitution is
-itself a change subject to the workflow gates above, with the exception of the
-gates that the amendment itself alters.
-
-**Versioning policy**: versions follow semantic versioning.
-
-- **MAJOR** — a principle is removed or redefined in a way that makes
-  previously compliant work non-compliant.
-- **MINOR** — a principle or section is added, or existing guidance is
-  materially expanded.
-- **PATCH** — clarifications, wording corrections, and non-semantic
-  refinements that do not change what compliance requires.
-
-**Compliance review**: every change MUST be checked against the principles
-before it is considered complete. Non-compliance found in existing code MUST be
-either corrected or recorded as a known deviation with a plan to correct it;
-unrecorded non-compliance is a defect. When a principle is genuinely
-impractical for a specific case, the correct action is an amendment, not a
-silent exception.
-
-**Version**: 1.1.0 | **Ratified**: 2026-09-10 | **Last Amended**: 2026-09-11
+**Version**: 1.0.0 | **Ratified**: 2026-09-28 | **Last Amended**: 2026-09-28
