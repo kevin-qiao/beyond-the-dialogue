@@ -48,14 +48,28 @@ The space in which the user does the actual work on a task alongside the assist;
 layout may become user-decided (open, design phase).
 
 **Coding observer**:
-The stance of the Coding family: the application analyzes external development activity
-(the user's PRs and progress) and records it; it never writes or mutates code itself.
+The stance of the Coding family: the application reads and summarizes the user's
+development activity in a linked repo and records it; it never writes or mutates code.
+Further help beyond observation (running checks, drafting reviews) is scoped as its own
+question, not assumed.
+
+**Close-out**:
+The moment a Coding task is finished by the user: the trigger that reads the linked
+repo's changes and produces the summary of the day's work. Close-out is user-driven,
+never time-scheduled.
+_Avoid_: Schedule, end-of-day job (rejected in the grilling — the user's finish IS the
+trigger)
 
 ## External systems
 
 **Connector**:
 An integration that lets the application read from (and, under confirmation, write to) an
-external system such as GitHub, JIRA, or Confluence.
+external system such as GitHub, JIRA, or Confluence. Connectors are configured once at
+app level; a task only references external artifacts (a repo link, a page link).
+
+**Grant**:
+A Type's permission for its assist to use a configured connector. Default-deny: without an
+explicit grant a session has no external reach.
 
 **Proposal**:
 A candidate change to an external system, shown to the user with its literal payload;
