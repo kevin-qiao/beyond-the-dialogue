@@ -55,8 +55,9 @@ question, not assumed.
 
 **Close-out**:
 The moment a Coding task is finished by the user: the trigger that reads the linked
-repo's changes and produces the summary of the day's work. Close-out is user-driven,
-never time-scheduled.
+repo's changes and produces the summary of the day's work, filed through the Type's
+declared destination like every other family. Close-out is user-driven, never
+time-scheduled.
 _Avoid_: Schedule, end-of-day job (rejected in the grilling — the user's finish IS the
 trigger)
 
