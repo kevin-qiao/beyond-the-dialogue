@@ -8,6 +8,15 @@
 
 **Input**: User description: `doc/specification/Specification.md` — the v1.0 milestone's *To-do list* and *Built-in agent* rows. The *Document type AI assistant* row is feature 002 by the milestone mapping agreed in ADR-0001; it is out of scope here.
 
+## Clarifications
+
+### Session 2026-10-04
+
+- Q: Should task alarms still fire at their set time when the application is not running? → A: No — alarms fire while the application runs; missed alarms are presented once as overdue at next start (FR-008/FR-010 stand as written; OS-scheduled closed-app delivery is explicitly out of scope for this feature, not merely deferred by silence).
+- Q: How must the saved access secrets for the model service (and any tool server) be protected while the app is closed? → A: User-account-private files on the user's own machine only — no operating-system credential store integration in this feature; the storage must never reveal the secret in full or send it anywhere but the service it authenticates (new FR-020).
+- Q: What protection must exist for the accumulated board against disk loss or a move to another machine? → A: The application data folder *is* the board — copying it to a fresh setup restores everything except secrets, which are re-entered on use (new FR-021, SC-008). No dedicated export/import UI in this feature; that becomes worth its own design once 002's artifact formats exist.
+- Q: What must happen when a user deletes a task — is deletion final, and is it protected against a mis-click? → A: Final but never accidental: one confirmation showing the task's title, then the task, its alarm, and its attachments are gone; no recoverable "recently deleted" area in this feature (FR-004 amended).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Capture and run my daily board (Priority: P1)
@@ -140,8 +149,10 @@ type grants it (grants themselves arrive in a later feature).
   and additional information as free text, links, and attached files.
 - **FR-003**: The system MUST persist each attached file as the application's own copy
   so that moving, renaming, or deleting the original never breaks the task.
-- **FR-004**: The system MUST let the user edit and delete any task; deletion removes
-  the task from all views and cancels any pending alarm on it.
+- **FR-004**: The system MUST let the user edit and delete any task. A deletion MUST be
+  confirmed once — with the task's title shown — before it takes effect, then remove the
+  task and its attachments from all views and cancel any pending alarm on it; deletion is
+  final (no recoverable "recently deleted" area in this feature).
 - **FR-005**: The system MUST track each task as active or completed, MUST let the user
   complete and reopen it, and MUST present the two states as separate views plus an
   all-tasks view.
@@ -182,6 +193,16 @@ type grants it (grants themselves arrive in a later feature).
 - **FR-019**: The system MUST keep the user's task content on the user's machine; it
   leaves only when an explicit user-initiated assistance action sends it (from later
   features) — the board itself never transmits it.
+- **FR-020**: The system MUST persist model-service and tool-server access secrets only
+  in storage private to the user's own account on the user's machine, MUST NOT reveal a
+  stored secret in full in any interface, and MUST NOT transmit a secret anywhere other
+  than the service it authenticates to. Operating-system credential-store integration is
+  out of scope for this feature.
+- **FR-021**: The system MUST keep the entire board — tasks, Lists, attachments,
+  settings, and history — within one user-accessible application data folder such that
+  copying that folder to a fresh setup of the application reproduces the board
+  completely, with nothing bound to the original machine except stored secrets, which
+  are requested again on first use after a copy.
 
 ### Key Entities
 
@@ -221,6 +242,9 @@ type grants it (grants themselves arrive in a later feature).
   re-presents exactly once.
 - **SC-007**: The acceptance scenarios of all three stories pass unmodified on both
   Linux and Windows.
+- **SC-008**: With the application closed, copying the data folder to a fresh setup
+  restores 100 % of tasks, Lists, attachment readability, and settings; the first use of
+  a configured AI service after the copy asks for its secret once, then works.
 
 ## Assumptions
 
