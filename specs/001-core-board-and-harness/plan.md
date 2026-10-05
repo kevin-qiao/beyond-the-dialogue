@@ -108,12 +108,12 @@ src/
     └── store.tsx           # snapshot merge for redacted settings + attachments
 
 test/                    # unit + e2e-scripted additions per Constitution Check IV
-doc/                     # architecture-layers.drawio (already committed — the plan's shape)
+docs/                    # adr/ + specification/ + architecture-layers.drawio (the plan's shape)
 ```
 
 **Structure Decision**: keep the electron-vite three-host split with the pure
 `src/core` domain layer and port/adapter boundaries as drawn in
-`doc/architecture-layers.drawio`; the two new modules (`core/domain/attachment.ts`,
+`docs/architecture-layers.drawio`; the two new modules (`core/domain/attachment.ts`,
 `core/domain/assistant.ts`) live in the pure core because both encode deterministic
 rules the FRs test; `secrets.ts` is a main-process adapter because it is I/O. The
 assistant legacy code (wiki, ingest, chat, preprocess, MCP) is **not restructured in

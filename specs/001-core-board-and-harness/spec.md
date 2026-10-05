@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: `doc/specification/Specification.md` — the v1.0 milestone's *To-do list* and *Built-in agent* rows. The *Document type AI assistant* row is feature 002 by the milestone mapping agreed in ADR-0001; it is out of scope here.
+**Input**: User description: `docs/specification/Specification.md` — the v1.0 milestone's *To-do list* and *Built-in agent* rows. The *Document type AI assistant* row is feature 002 by the milestone mapping agreed in ADR-0001; it is out of scope here.
 
 ## Clarifications
 

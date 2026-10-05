@@ -1,7 +1,7 @@
 # The POC is reference only; the application is redesigned in-place under the master specification
 
 The current shipping code proved the shape of an AI-native work board, but its taxonomy
-and flows grew from prototypes, not from `doc/specification/Specification.md`. We
+and flows grew from prototypes, not from `docs/specification/Specification.md`. We
 decided to treat the whole application as a **redesign**: the POC is a reference to mine
 for useful ideas, conflicts between the master specification's taxonomy (`Document`,
 `Working system`, `Coding` families) and the POC's (`plain | learning | jira | meeting`
