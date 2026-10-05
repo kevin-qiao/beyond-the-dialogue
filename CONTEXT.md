@@ -7,7 +7,7 @@ _Avoid_ must not resurface in specs, plans, or code.
 ## Product & process
 
 **Master specification**:
-The product source of truth, `doc/specification/Specification.md`; every feature spec
+The product source of truth, `docs/specification/Specification.md`; every feature spec
 draws from it.
 _Avoid_: PRD, idea doc
 
