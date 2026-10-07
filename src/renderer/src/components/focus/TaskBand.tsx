@@ -6,6 +6,8 @@ import { displayTypeLabel, effectiveType } from '../../lib/typeCatalog'
 import { useLanguage, useLocale, useT } from '../../lib/useT'
 import { statusChip } from '../board/status'
 import { hasPreprocess } from '../../../../core/domain/preprocess'
+import { isConfigured } from '../../../../core/domain/config'
+import { isAssistantEnabled } from '../../../../core/domain/assistant'
 
 // AI band of the focus column (spec app-layout, design D4): everything about
 // the selected task except its working note — the header (title editing),
@@ -86,7 +88,7 @@ export function TaskBand({ task }: { task: Task }) {
   }
 
   const runPre = () => {
-    if (!snapshot?.aiConfigured) {
+    if (!snapshot || !isAssistantEnabled(snapshot.settings) || !isConfigured(snapshot.settings)) {
       notify(t('task.preprocess.aiNotConfigured'))
       return
     }
@@ -226,7 +228,7 @@ export function TaskBand({ task }: { task: Task }) {
 
           {!preprocess && !running && task.preprocessStatus !== 'failed' && (
             <div className="empty-hint">
-              {snapshot?.aiConfigured
+              {snapshot && isAssistantEnabled(snapshot.settings) && isConfigured(snapshot.settings)
                 ? t('task.preprocess.emptyHint', { kind: def.kind })
                 : t('task.preprocess.emptyHintNoAi')}
             </div>

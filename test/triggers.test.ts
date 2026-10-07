@@ -7,7 +7,7 @@ import type { Settings, Task, TaskTypeDef } from '../src/shared/types'
 const SETTINGS_ON: Settings = {
   provider: 'openai',
   model: 'gpt-4o',
-  apiKey: 'sk-test',
+  hasApiKey: true,
   defaultListId: null,
   maxConcurrentJobs: 2,
   showWelcome: false,
@@ -16,7 +16,7 @@ const SETTINGS_ON: Settings = {
   mcpServers: []
 }
 
-const SETTINGS_OFF: Settings = { ...SETTINGS_ON, apiKey: null }
+const SETTINGS_OFF: Settings = { ...SETTINGS_ON, hasApiKey: false }
 
 function baseTask(overrides: Partial<Task> = {}): Task {
   return {

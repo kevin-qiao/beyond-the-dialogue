@@ -4,7 +4,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { openDB, migrate, createList, listLists, createTask, listTasks, updateTask, getTask, loadSettings, saveSettings, deleteList } from '../src/main/db'
+import { openDB, migrate, createList, listLists, createTask, listTasks, updateTask, getTask, loadSettings, saveSettings, deleteList, createAttachment, getAttachment, listAttachments } from '../src/main/db'
 import { rolloverMyDay, todayStr, serviceToggleTask, serviceSetMyDay } from '../src/main/tasks'
 import { createTypeDef, effectiveTypeDef, getTypeDef, updateTypeDef, validateInputs } from '../src/main/types'
 import { reconcileInputsForType, LEARNING_INPUT_SCHEMA } from '../src/main/db'
@@ -25,15 +25,29 @@ test('2.1 schema applies cleanly on fresh DB with Inbox seeded', () => {
   db.close()
 })
 
-test('lists CRUD: create, rename, delete with tasks', () => {
+test('lists CRUD: create, rename, delete — deleting a List UNASSIGNS its tasks (FR-006)', () => {
   const { db } = freshDB()
   const l = createList(db.db, 'Research')
   assert.equal(l.name, 'Research')
   const t = createTask(db.db, { listId: l.id, title: 'Read paper', type: 'plain' })
   assert.ok(t.id)
   deleteList(db.db, l.id)
-  assert.equal(listTasks(db.db, l.id).length, 0)
+  // The v0.8 behavior was a cascade soft-delete of every task in the List.
+  // The clarification retired it: a List delete never destroys work.
+  const after = getTask(db.db, t.id)!
+  assert.equal(after.deletedAt, null, 'the task survives the delete of its list')
+  assert.equal(after.listId, null, 'and is unassigned')
+  assert.ok(listTasks(db.db).some((x) => x.id === t.id), 'reachable through the all-tasks query')
+  assert.equal(listTasks(db.db, l.id).length, 0, 'the list itself is gone')
   assert.equal(listLists(db.db).some((x) => x.id === l.id), false)
+
+  // Renaming into another List's name is allowed; both stay distinct and are
+  // shown as entered (edge case).
+  const a = createList(db.db, 'Work')
+  const b = createList(db.db, 'Work')
+  assert.ok(a.id !== b.id)
+  const works = listLists(db.db).filter((x) => x.name === 'Work')
+  assert.equal(works.length, 2, 'duplicate names are stored as entered')
   db.close()
 })
 
@@ -120,13 +134,27 @@ test('3.5 persistence across restart (reopen DB file)', () => {
   db.close()
 })
 
-test('2.2 settings persist and stay in DB', () => {
+test('2.2 settings persist and stay in DB — with no secret the Settings table could hold', () => {
   const { db } = freshDB()
-  saveSettings(db.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test', defaultListId: null, maxConcurrentJobs: 2, showWelcome: false })
+  saveSettings(db.db, {
+    provider: 'openai', model: 'gpt-4o', hasApiKey: true, defaultListId: null,
+    maxConcurrentJobs: 2, showWelcome: false, theme: 'light', uiLanguage: 'en',
+    assistantRuntime: 'on', lastCheck: null, skills: [], mcpServers: []
+  })
   const s = loadSettings(db.db)
   assert.equal(s.provider, 'openai')
   assert.equal(s.model, 'gpt-4o')
-  assert.equal(s.apiKey, 'sk-test')
+  // v10 (FR-020): the table records PRESENCE only. There is no apiKey field
+  // in the Settings shape anymore, and no plaintext row in the table — even
+  // a hand-inserted one is deleted on the next save.
+  assert.equal(s.hasApiKey, true)
+  assert.equal('apiKey' in s, false)
+  assert.equal(db.db.prepare("SELECT 1 FROM settings WHERE key = 'apiKey'").get(), undefined)
+  db.db.prepare("INSERT INTO settings (key, value) VALUES ('apiKey', 'sk-legacy') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run()
+  saveSettings(db.db, { ...s, model: 'gpt-4o-mini' })
+  assert.equal(db.db.prepare("SELECT 1 FROM settings WHERE key = 'apiKey'").get(), undefined)
+  // The two new declared settings (T002) round-trip.
+  assert.equal(loadSettings(db.db).assistantRuntime, 'on')
   db.close()
 })
 
@@ -579,5 +607,97 @@ test('a fresh database ships no inert placeholder inputs at all', () => {
     // is retained without a user (see src/shared/types.ts).
     assert.ok(!def.inputSchema.some((f) => f.inert), `"${key}" declares an inert field`)
   }
+  db.close()
+})
+
+// ---- feature 001: the migration ladder v10–v12 ----
+
+import { setUserDataRoot } from '../src/main/paths'
+import { readSecrets } from '../src/main/secrets'
+
+test('v10 lifts plaintext secrets into the machine-bound store and leaves presence (T008/T009)', () => {
+  const { db, dir } = freshDB()
+  setUserDataRoot(dir)
+  // Recreate the POC state: a plaintext key and an MCP server with env.
+  db.db.prepare("INSERT INTO settings (key, value) VALUES ('apiKey', 'sk-plaintext') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run()
+  db.db
+    .prepare("INSERT INTO settings (key, value) VALUES ('mcpServers', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .run(JSON.stringify([{ name: 'jira', config: { command: 'npx', args: ['-y', 'x'], env: { TOKEN: 't0k3n' } } }]))
+  db.db.prepare('DELETE FROM schema_migrations WHERE version = 10').run()
+  migrate(db.db)
+
+  // The settings table no longer holds either value.
+  assert.equal(db.db.prepare("SELECT 1 FROM settings WHERE key = 'apiKey'").get(), undefined, 'the plaintext row is deleted')
+  const row = db.db.prepare("SELECT value FROM settings WHERE key = 'mcpServers'").get() as { value: string }
+  assert.ok(!row.value.includes('t0k3n'), 'no env value survives in the row')
+  assert.ok(row.value.includes('npx'), 'and the row keeps its shape')
+  assert.equal(db.db.prepare("SELECT value FROM settings WHERE key = 'hasApiKey'").get() ? (db.db.prepare("SELECT value FROM settings WHERE key = 'hasApiKey'").get() as any).value : undefined, '1')
+
+  // The store holds them, gated, with the machine fingerprint recorded.
+  const { available, secrets } = readSecrets()
+  assert.equal(available, true)
+  assert.equal(secrets.providerKeys['openai'], 'sk-plaintext')
+  assert.deepEqual(secrets.mcpEnv['jira'], { TOKEN: 't0k3n' })
+
+  // Idempotent: a re-run finds no plaintext and changes nothing.
+  const before = db.db.prepare('SELECT key, value FROM settings ORDER BY key').all()
+  db.db.prepare('DELETE FROM schema_migrations WHERE version = 10').run()
+  migrate(db.db)
+  assert.deepEqual(db.db.prepare('SELECT key, value FROM settings ORDER BY key').all(), before)
+
+  // loadSettings sees presence, never a value.
+  const s = loadSettings(db.db)
+  assert.equal(s.hasApiKey, true)
+  assert.equal('apiKey' in s, false)
+  db.close()
+})
+
+test('v11 makes list_id nullable and adds background/target, preserving rows and children (T010/T011)', () => {
+  // legacyV4DB: tasks with `list_id TEXT NOT NULL` and no background/target,
+  // plus a child suggestions row (the FK trap the v5 precedent documents).
+  const dir = legacyV4DB()
+  const db = openDB(dir)
+  setUserDataRoot(dir)
+  migrate(db.db)
+
+  const cols = db.db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]
+  assert.ok(cols.some((c) => c.name === 'background'), 'background column')
+  assert.ok(cols.some((c) => c.name === 'target'), 'target column')
+
+  // The pre-existing task survived the rebuild, and a child row did too.
+  assert.equal(getTask(db.db, 't1')!.title, 'Keep me')
+  assert.ok(db.db.prepare("SELECT 1 FROM suggestions WHERE id='s1' AND task_id='t1'").get(), 'child row survived the rebuild')
+
+  // NULL membership now writes fine, and FK enforcement still holds.
+  const now = new Date().toISOString()
+  db.db.prepare(`INSERT INTO tasks (id,list_id,title,created_at,updated_at) VALUES ('t9', NULL, 'unassigned', ?, ?)`).run(now, now)
+  assert.equal(getTask(db.db, 't9')!.listId, null)
+  assert.equal(getTask(db.db, 't9')!.background, '')
+  assert.throws(() =>
+    db.db.prepare(`INSERT INTO tasks (id,list_id,title,created_at,updated_at) VALUES ('t8', 'no-such-list', 'x', ?, ?)`).run(now, now)
+  )
+
+  // Idempotent.
+  const before = listTasks(db.db).length
+  db.db.prepare('DELETE FROM schema_migrations WHERE version = 11').run()
+  migrate(db.db)
+  assert.equal(listTasks(db.db).length, before)
+  assert.equal((db.db.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 11').get() as any).n, 1)
+  db.close()
+})
+
+test('v12 creates the attachment table; rows round-trip and survive an idempotent re-run (T012/T013)', () => {
+  const { db } = freshDB()
+  const l = listLists(db.db)[0]!
+  const t = createTask(db.db, { listId: l.id, title: 'with file' })
+  const a = createAttachment(db.db, { taskId: t.id, name: 'paper.pdf', mime: 'application/pdf', path: 'attachments/xyz/paper.pdf', size: 1234 })
+  assert.ok(a.id)
+  assert.equal(a.taskId, t.id)
+  assert.equal(a.size, 1234)
+  assert.deepEqual(listAttachments(db.db, t.id).map((x) => x.id), [a.id])
+
+  db.db.prepare('DELETE FROM schema_migrations WHERE version = 12').run()
+  migrate(db.db)
+  assert.ok(getAttachment(db.db, a.id), 'the row survives an idempotent re-run')
   db.close()
 })

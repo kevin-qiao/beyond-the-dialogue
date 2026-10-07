@@ -15,9 +15,28 @@ import { piMcpConfigPath } from './paths'
 // diffed, and picked up by external tools that understand the standard shape —
 // and because writing a config INTO a file by hand is exactly what manual
 // server management should feel like, even though the app does it here.
+//
+// Feature 001 changed WHERE the env values are stored (migration v10 moved
+// them to the machine-bound secret store), not the file's shape: T047 merges
+// them back at write time through `envFor`, which the caller wires to the
+// gated store — so on a copied folder the re-entry story applies here too,
+// and this file only ever carries what THIS machine's store already holds.
+// The record of that accepted trade-off lives in the spec analysis (M4).
 
-export function materializeMcpConfig(entries: readonly McpServerEntry[]): void {
+export function materializeMcpConfig(
+  entries: readonly McpServerEntry[],
+  envFor?: (serverName: string) => Record<string, string>
+): void {
   const file = piMcpConfigPath()
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, buildMcpSettingsJson(entries))
+  const merged: McpServerEntry[] = !envFor
+    ? [...entries]
+    : entries.map((e) => {
+        const env = envFor(e.name)
+        if (!env || Object.keys(env).length === 0) return e
+        // A row's own stored config wins nowhere else: env lives in the
+        // store, so the merge is the only place the value re-appears.
+        return { ...e, config: { ...e.config, env: { ...env } } }
+      })
+  fs.writeFileSync(file, buildMcpSettingsJson(merged))
 }

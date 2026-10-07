@@ -1,4 +1,4 @@
-import type { AppSnapshot, List, Settings, SkillEntry, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from './types'
+import type { AppSnapshot, Attachment, List, RedactedSettings, SettingsInput, SkillEntry, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from './types'
 
 // IPC channel names. Commands are renderer -> main invokes; events are
 // main -> renderer pushes.
@@ -41,6 +41,9 @@ export const IPC = {
   dismissSuggestion: 'suggestions:dismiss',
   getActivity: 'wiki:activity',
   retryIngest: 'wiki:retry-ingest',
+  attachmentsAddFromDialog: 'attachments:add-from-dialog',
+  attachmentsRemove: 'attachments:remove',
+  attachmentsOpen: 'attachments:open',
   // events (main -> renderer)
   evTaskUpdated: 'ev:task-updated',
   evListUpdated: 'ev:list-updated',
@@ -139,8 +142,11 @@ export interface CreateListArgs {
 }
 
 export interface CreateTaskArgs {
-  listId: string
+  /** null = unassigned (FR-006); visible in the all-tasks view. */
+  listId: string | null
   title: string
+  background?: string
+  target?: string
   notes?: string
   type?: Task['type']
   customTypeKey?: string | null
@@ -150,10 +156,25 @@ export interface CreateTaskArgs {
 export interface UpdateTaskArgs {
   id: string
   title?: string
+  background?: string
+  target?: string
   notes?: string
+  listId?: string | null
   type?: Task['type']
   customTypeKey?: string | null
   inputs?: Record<string, unknown>
+}
+
+export interface AttachmentAddArgs {
+  taskId: string
+}
+
+export interface AttachmentRemoveArgs {
+  attachmentId: string
+}
+
+export interface AttachmentOpenArgs {
+  attachmentId: string
 }
 
 export interface SaveNoteArgs {
@@ -171,7 +192,9 @@ export interface SaveTypeArgs {
 }
 
 export interface SaveSettingsArgs {
-  settings: Settings
+  // The only secret-bearing request on the map (contract guard): write-only
+  // apiKey, merged by `splitInput`; absent/empty means "keep existing".
+  settings: SettingsInput
 }
 
 export interface SendChatArgs {
@@ -223,11 +246,17 @@ export interface RendererApi {
   deleteType: (args: { key: string }) => Promise<void>
   retryJob: (args: { jobId: string }) => Promise<void>
   cancelJob: (args: { jobId: string }) => Promise<void>
-  getSettings: () => Promise<Settings>
-  saveSettings: (args: SaveSettingsArgs) => Promise<Settings>
+  getSettings: () => Promise<RedactedSettings>
+  saveSettings: (args: SaveSettingsArgs) => Promise<RedactedSettings>
   listModels: (provider: string) => Promise<string[]>
   listProviders: () => Promise<string[]>
-  testConnection: (settings: Settings) => Promise<{ ok: boolean; text?: string; error?: string }>
+  // The stored key is resolved main-side from the secret store — the request
+  // carries no secret (contract guard).
+  testConnection: (settings: RedactedSettings) => Promise<{ ok: boolean; text?: string; error?: string }>
+  // null = the user backed out of the file dialog — a cancel is not a refusal.
+  attachmentsAddFromDialog: (args: AttachmentAddArgs) => Promise<Attachment | null>
+  attachmentsRemove: (args: AttachmentRemoveArgs) => Promise<void>
+  attachmentsOpen: (args: AttachmentOpenArgs) => Promise<void>
   sendChat: (args: SendChatArgs) => Promise<void>
   resetChat: (args: ResetChatArgs) => Promise<void>
   dismissSuggestion: (args: { suggestionId: string }) => Promise<Suggestion>
@@ -242,7 +271,7 @@ export interface RendererApi {
   onJobProgress: (cb: (e: JobProgressEvent) => void) => () => void
   onPreprocessUpdated: (cb: (p: TaskPreprocess) => void) => () => void
   onSuggestionsUpdated: (cb: (e: SuggestionsUpdatedEvent) => void) => () => void
-  onSettingsUpdated: (cb: (s: Settings) => void) => () => void
+  onSettingsUpdated: (cb: (s: RedactedSettings) => void) => () => void
   onTypesUpdated: (cb: (types: TaskTypeDef[]) => void) => () => void
   onToast: (cb: (t: ToastPayload) => void) => () => void
   onIngestUpdated: (cb: (rec: import('./types').IngestRecord) => void) => () => void
@@ -266,7 +295,7 @@ export interface AppEvents {
   [IPC.evPreprocessUpdated]: TaskPreprocess
   [IPC.evSuggestionsUpdated]: SuggestionsUpdatedEvent
   [IPC.evToast]: ToastPayload
-  [IPC.evSettingsUpdated]: Settings
+  [IPC.evSettingsUpdated]: RedactedSettings
   [IPC.evTypesUpdated]: TaskTypeDef[]
   [IPC.evIngestUpdated]: import('./types').IngestRecord
   [IPC.evIngestProgress]: IngestProgressEvent
@@ -302,11 +331,14 @@ export interface AppCommands {
   [IPC.deleteType]: { args: { key: string }; result: void }
   [IPC.retryJob]: { args: { jobId: string }; result: void }
   [IPC.cancelJob]: { args: { jobId: string }; result: void }
-  [IPC.getSettings]: { args: void; result: Settings }
-  [IPC.saveSettings]: { args: SaveSettingsArgs; result: Settings }
+  [IPC.getSettings]: { args: void; result: RedactedSettings }
+  [IPC.saveSettings]: { args: SaveSettingsArgs; result: RedactedSettings }
   [IPC.listModels]: { args: string; result: string[] }
   [IPC.listProviders]: { args: void; result: string[] }
-  [IPC.testConnection]: { args: Settings; result: { ok: boolean; text?: string; error?: string } }
+  [IPC.testConnection]: { args: RedactedSettings; result: { ok: boolean; text?: string; error?: string } }
+  [IPC.attachmentsAddFromDialog]: { args: AttachmentAddArgs; result: Attachment | null }
+  [IPC.attachmentsRemove]: { args: AttachmentRemoveArgs; result: void }
+  [IPC.attachmentsOpen]: { args: AttachmentOpenArgs; result: void }
   [IPC.sendChat]: { args: SendChatArgs; result: void }
   [IPC.resetChat]: { args: ResetChatArgs; result: void }
   [IPC.dismissSuggestion]: { args: { suggestionId: string }; result: Suggestion }

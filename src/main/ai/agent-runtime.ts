@@ -2,7 +2,7 @@ import { ModelRuntime, type CreateModelRuntimeOptions } from '@earendil-works/pi
 import type { Model } from '@earendil-works/pi-ai/compat'
 import { getModel, getModels, getProviders } from '@earendil-works/pi-ai/compat'
 import type { ThinkingLevel } from '@earendil-works/pi-ai'
-import type { ChatMessage, Settings } from '../../shared/types'
+import type { ChatMessage, SettingsInput } from '../../shared/types'
 import { piAgentDir, piAuthPath, piModelsPath } from '../paths'
 import * as fs from 'node:fs'
 import { isConfigured } from './ai-config'
@@ -85,7 +85,7 @@ export function listProviders(): string[] {
 
 export { isConfigured } from './ai-config'
 
-export async function configureRuntimeFromSettings(settings: Settings): Promise<{ ok: boolean; error?: string }> {
+export async function configureRuntimeFromSettings(settings: SettingsInput): Promise<{ ok: boolean; error?: string }> {
   try {
     const r = await getRuntime()
     if (!settings.apiKey) return { ok: true }
@@ -96,7 +96,7 @@ export async function configureRuntimeFromSettings(settings: Settings): Promise<
   }
 }
 
-export async function testPrompt(settings: Settings, prompt: string): Promise<{ ok: boolean; text?: string; error?: string }> {
+export async function testPrompt(settings: SettingsInput, prompt: string): Promise<{ ok: boolean; text?: string; error?: string }> {
   try {
     const r = await getRuntime()
     const model = resolveModel(settings.provider, settings.model)
@@ -147,7 +147,7 @@ function noReplyReason(message: { stopReason?: string; errorMessage?: string }):
 }
 
 export async function runSimplePrompt(
-  settings: Settings,
+  settings: SettingsInput,
   prompt: string,
   opts: { reasoning?: ThinkingLevel } = {}
 ): Promise<string> {
@@ -165,7 +165,7 @@ export async function runSimplePrompt(
 // the configured model. History is supplied by the caller (ChatSession in
 // chat.ts); deltas are pushed to onDelta as tokens arrive.
 export async function streamChat(
-  settings: Settings,
+  settings: SettingsInput,
   history: ChatMessage[],
   onDelta: (delta: string) => void
 ): Promise<string> {

@@ -47,6 +47,13 @@ export const en = {
   // product's own terms, and the Chinese README uses them as they are.
   'nav.myDay': 'My Day',
   'nav.todo': 'To Do',
+  'nav.all.empty': 'Nothing here yet. Add a task to get started.',
+  'list.create': 'New list',
+  'nav.lists.header': 'Lists ({count})',
+  'list.rename': 'Rename list',
+  'list.delete': 'Delete list',
+  'list.delete.confirm': 'Delete “{name}”? Its {count} task(s) become unassigned; the tasks are kept.',
+  'list.unassigned': 'Unassigned',
 
   // ---- the agent's presence and the queue ----
   'agent.working': 'working…',
@@ -54,6 +61,7 @@ export const en = {
   'agent.ready': 'AI ready — agent idle',
   'agent.statusHint': 'Agent status — open Activity',
   'agent.notConfigured': 'AI not configured',
+  'agent.lastCheckFailed': 'AI configured — last check failed',
   'queue.queued.one': '{count} job queued',
   'queue.queued.other': '{count} jobs queued',
 
@@ -130,6 +138,10 @@ export const en = {
   'task.field.title': 'Title',
   'task.field.titleRequired': 'Title is required.',
   'task.field.notes': 'Notes',
+  'task.field.background': 'Background',
+  'task.field.backgroundPlaceholder': 'Why this task exists, what led to it',
+  'task.field.target': 'Target',
+  'task.field.targetPlaceholder': 'What “done” should look like',
   'task.field.notesPlaceholder': 'Optional details',
   'task.field.type': 'Type',
   'task.modal.new': 'New',
@@ -455,6 +467,7 @@ export const en = {
   'settings.types.empty.title': 'No custom types yet',
   'settings.types.empty.body':
     'Click “＋ New type” to wrap a built-in behavior kind with your own label, emoji, and input fields.',
+  'settings.ai.checkFailed': '{provider} {model} — configured, but the last check failed ({reason})',
   'settings.plugins.inert':
     "Skills are imported into the app's skill folder but not yet loaded by the agent. MCP servers you add here are connected to interactive sessions of types that grant them, and written to the app's mcp.json.",
   'settings.plugins.saveFailed': 'Could not save: {error}',
@@ -548,7 +561,27 @@ export const en = {
     '{count} task(s) use this type. They will fall back to plain; their titles, notes, lists, and completion state are kept.',
   'typeEditor.deleteUnused': 'No tasks currently use this type.',
   'typeEditor.deleteHint': 'The type itself is removed from pickers and this Settings list.',
-  'typeEditor.deleteConfirm': 'Delete type'
+  'typeEditor.deleteConfirm': 'Delete type',
+
+  // ---- assistant runtime switch (feature 001, research D1) ----
+  'assistant.disabled': 'AI assistance is switched off — turn on the assistant runtime in Settings to use it',
+
+  // ---- attachments (feature 001, FR-002/FR-003) ----
+  'attachment.title': 'Files',
+  'attachment.add': 'Attach a file',
+  'attachment.added': 'File attached',
+  'attachment.addFailed': 'Could not attach the file',
+  'attachment.remove': 'Remove',
+  'attachment.open': 'Open',
+  'attachment.none': 'No files attached yet.',
+  'attachment.tooLarge': 'This file is too large to attach (the limit is {limit})',
+  'attachment.unreadable': 'This file could not be read',
+  'attachment.missing': 'The stored copy of this attachment is missing from the data folder',
+
+  // ---- secrets: write-only fields and the moved-folder state (FR-020/FR-021) ----
+  'settings.secret.set': 'Stored — the value is never shown back',
+  'settings.secret.stored': 'stored — leave empty to keep it',
+  'settings.secret.reenterRequired': 'The service was configured on a different machine; enter its key again to use it here'
 } satisfies Record<string, string>
 
 export type MessageKey = keyof typeof en

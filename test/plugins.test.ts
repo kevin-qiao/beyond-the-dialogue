@@ -18,7 +18,10 @@ test('7.1 skills/MCP persist with settings and reload intact (AppSnapshot source
   saveSettings(db.db, s)
   const back = loadSettings(db.db)
   assert.deepEqual(back.skills, s.skills)
-  assert.deepEqual(back.mcpServers, s.mcpServers)
+  // Feature 001 (v10, D4): the ROW round-trips without `env` — the values
+  // belong to the machine-bound secret store, which the Settings table can
+  // no longer hold even by accident. Presence is what survives here.
+  assert.deepEqual(back.mcpServers, [{ name: 'jira', config: { command: 'npx', args: ['-y', 'atlassian-mcp'] } }])
   // Corrupt JSON degrades to empty lists, never a crash.
   db.db.prepare("INSERT INTO settings (key,value) VALUES ('mcpServers','{not json') ON CONFLICT(key) DO UPDATE SET value=excluded.value").run()
   assert.deepEqual(loadSettings(db.db).mcpServers, [])
@@ -29,7 +32,7 @@ function settings(partial: Partial<Settings>): Settings {
   return {
     provider: 'openai',
     model: '',
-    apiKey: null,
+    hasApiKey: false,
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,
@@ -187,6 +190,7 @@ test('7.3 (add-mcp-support) grants are read at exactly one seam, never on a conf
   const sanctioned = new Set([
     ...seam,
     'src/core/domain/mcpConfig.ts', // the rules over the entries
+    'src/core/services/settingsService.ts', // feature 001: the redaction/split rules — they read the collection to STRIP env values and flag presence, never to run an agent
     'src/core/domain/plugins.ts', // validation
     'src/core/i18n/en.ts',
     'src/core/i18n/zhCn.ts', // key names and message text

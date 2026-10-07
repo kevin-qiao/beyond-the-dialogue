@@ -1,4 +1,4 @@
-import type { Settings } from '../../../shared/types'
+import type { SettingsInput } from '../../../shared/types'
 import type { AgentRunRequest, AgentSessionPort } from '../../../core/ports/agent'
 import { resolveGrant } from '../../../core/ports/agent'
 import { createJobSession } from '../../ai/session-factory'
@@ -23,11 +23,11 @@ export function extractAssistantText(msg: any): string {
   return typeof content === 'string' ? content : ''
 }
 
-export function createAgentSessionAdapter(getSettings: () => Settings): AgentSessionPort {
+export function createAgentSessionAdapter(getSettings: () => SettingsInput): AgentSessionPort {
   return {
     isAvailable(): boolean {
       const s = getSettings()
-      return !!(s.apiKey && s.model && s.provider)
+      return !!(s.hasApiKey && s.model && s.provider)
     },
 
     async run(req: AgentRunRequest): Promise<string> {

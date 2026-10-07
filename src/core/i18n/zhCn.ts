@@ -42,6 +42,14 @@ export const zhCN: Catalog = {
   // ---- navigation ----
   'nav.myDay': 'My Day',
   'nav.todo': 'To Do',
+  'nav.all.empty': '这里还空着。添加一个任务开始吧。',
+  'list.create': '新建清单',
+  'nav.lists.header': '清单（{count}）',
+  'list.rename': '重命名清单',
+  'list.delete': '删除清单',
+  'list.delete.confirm': '删除「{name}」？其中的 {count} 个任务会变为未分配；任务本身会保留。',
+  'list.unassigned': '未分配',
+
 
   // ---- the agent's presence and the queue ----
   'agent.working': '处理中…',
@@ -49,6 +57,7 @@ export const zhCN: Catalog = {
   'agent.ready': 'AI 就绪 — Agent 空闲',
   'agent.statusHint': 'Agent 状态 — 打开活动记录',
   'agent.notConfigured': 'AI 未配置',
+  'agent.lastCheckFailed': 'AI 已配置——上次检测失败',
   'queue.queued.one': '{count} 个任务排队中',
   'queue.queued.other': '{count} 个任务排队中',
 
@@ -123,6 +132,10 @@ export const zhCN: Catalog = {
   'task.field.title': '标题',
   'task.field.titleRequired': '标题不能为空。',
   'task.field.notes': '笔记',
+  'task.field.background': '背景',
+  'task.field.backgroundPlaceholder': '这项任务为何存在、由来是什么',
+  'task.field.target': '目标',
+  'task.field.targetPlaceholder': '「完成」应该是什么样子',
   'task.field.notesPlaceholder': '补充说明（可选）',
   'task.field.type': '类型',
   'task.modal.new': '新建',
@@ -430,6 +443,7 @@ export const zhCN: Catalog = {
   'settings.types.empty.body': '点击「＋ 新建类型」，用一个内置行为类型包上你自己的名称、表情和输入字段。',
   'settings.plugins.inert': '技能会被导入应用的技能目录，但 Agent 尚未加载它们。你添加的 MCP 服务器会接入已授权类型的交互会话，并写入应用自己的 mcp.json。',
   'settings.plugins.saveFailed': '保存失败：{error}',
+  'settings.ai.checkFailed': '{provider} {model} — 已配置，但上次检测失败（{reason}）',
   'settings.plugins.removeSkill.title': '移除技能',
   'settings.plugins.removeSkill.message': '移除技能「{name}」？',
   'settings.plugins.removeServer.title': '移除 MCP 服务器',
@@ -517,5 +531,25 @@ export const zhCN: Catalog = {
   'typeEditor.deleteInUse': '有 {count} 个任务正在使用该类型。它们会回退为 plain；标题、笔记、清单与完成状态都会保留。',
   'typeEditor.deleteUnused': '目前没有任务使用该类型。',
   'typeEditor.deleteHint': '该类型会从选择器与这里的设置列表中移除。',
-  'typeEditor.deleteConfirm': '删除类型'
+  'typeEditor.deleteConfirm': '删除类型',
+
+  // ---- assistant runtime switch (feature 001, research D1) ----
+  'assistant.disabled': 'AI 辅助已关闭——请在设置中开启助手运行时后才能使用',
+
+  // ---- attachments (feature 001, FR-002/FR-003) ----
+  'attachment.title': '文件',
+  'attachment.add': '添加文件',
+  'attachment.added': '文件已添加',
+  'attachment.addFailed': '无法添加该文件',
+  'attachment.remove': '移除',
+  'attachment.open': '打开',
+  'attachment.none': '尚未添加任何文件。',
+  'attachment.tooLarge': '该文件太大，无法添加（上限为 {limit}）',
+  'attachment.unreadable': '无法读取该文件',
+  'attachment.missing': '此附件的应用内副本在数据目录中缺失',
+
+  // ---- secrets: write-only fields and the moved-folder state (FR-020/FR-021) ----
+  'settings.secret.set': '已保存——密钥值不会再显示出来',
+  'settings.secret.stored': '已保存——留空即保持不变',
+  'settings.secret.reenterRequired': '该服务是在另一台机器上配置的；请重新输入密钥才能在本机使用'
 }

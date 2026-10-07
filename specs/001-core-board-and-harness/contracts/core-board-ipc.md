@@ -13,7 +13,7 @@ localized code, not a crash (Principle II: deterministic guard at the handler).
 | Channel | Args → Result | Semantics |
 |---|---|---|
 | `lists:create` / `lists:rename` / `lists:delete` | unchanged | New: renderer call sites (ListsRail); **delete unassigns member tasks** (`list_id = NULL`), never deletes tasks (FR-006, D3) |
-| `tasks:create` / `tasks:update` | + `listId?: null` | Title non-empty refusal is a code (`task.title_required`), phrased at the edge |
+| `tasks:create` / `tasks:update` | + `listId?: null` | Title non-empty refusal is a code (`task.field.titleRequired` — the existing catalog wording, so the core refuses in a code the form already speaks), phrased at the edge |
 | `tasks:set-alarm` | unchanged | Past time refused with a code (FR-007) |
 | `tasks:delete` | unchanged | Confirmation is UI-guaranteed (FR-004); main stays unguarded by design — the confirm is in front of every call site, and deletion cascades attachment purge server-side |
 | **`attachments:add-from-dialog`** (new) | `taskId` → `Attachment` | Copies the chosen file into `attachments/<id>/…`; size cap and unreadable-file refusals are codes; the task survives intact on refusal (edge case) |

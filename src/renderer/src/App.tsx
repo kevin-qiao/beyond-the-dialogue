@@ -107,7 +107,7 @@ export function App() {
     return <div className="app-loading" data-theme={snapshot?.settings.theme ?? 'light'}>{t('app.loading')}</div>
   }
 
-  const showWelcome = snapshot.settings.showWelcome && !snapshot.aiConfigured
+  const showWelcome = snapshot.settings.showWelcome && snapshot.aiReadiness === 'not-configured'
 
   return (
     <div className="app" data-theme={snapshot.settings.theme}>

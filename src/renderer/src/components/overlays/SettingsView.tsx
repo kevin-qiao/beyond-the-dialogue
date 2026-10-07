@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../../store'
-import type { Destination, DestinationStore, FinishBehaviour, McpServerEntry, Settings, SkillEntry, TaskKind, TaskTypeDef } from '../../../../shared/types'
+import type { Destination, DestinationStore, FinishBehaviour, McpServerEntry, RedactedSettings, Settings, SettingsInput, SkillEntry, TaskKind, TaskTypeDef } from '../../../../shared/types'
 import { SETTINGS_KEYS } from '../../../../shared/types'
 import { FINISH_BEHAVIOURS } from '../../../../core/domain/categories'
 import { describeDestination } from '../../../../core/domain/destination'
@@ -41,7 +41,10 @@ export function SettingsView() {
   const language = useLanguage()
   const [tab, setTab] = useState<Tab>('general')
 
-  const [draft, setDraft] = useState<Settings | null>(snapshot?.settings ?? null)
+  const [draft, setDraft] = useState<RedactedSettings | null>(snapshot?.settings ?? null)
+  // Write-only key (FR-020/T017): what the user types is stored on save and
+  // never read back — the MCP section's existing behavior is the pattern.
+  const [newKey, setNewKey] = useState('')
   const [saved, setSaved] = useState(false)
   const [models, setModels] = useState<string[]>([])
   const [testing, setTesting] = useState(false)
@@ -80,7 +83,8 @@ export function SettingsView() {
   const save = async () => {
     if (!draft) return
     try {
-      await saveSettings(draft)
+      await saveSettings({ ...draft, ...(newKey ? { apiKey: newKey } : {}) } as SettingsInput)
+      setNewKey('')
       setSaved(true)
       setSaveError(null)
       setTimeout(() => setSaved(false), 2000)
@@ -93,7 +97,15 @@ export function SettingsView() {
     if (!draft) return
     setTesting(true)
     setTestResult(null)
-    const res = await window.api.testConnection(draft)
+    // The check verifies what the app can actually use: a typed-but-unsaved
+    // key is saved first (a failed check retains the config — US3-AC3), and
+    // the stored secret is resolved main-side from the machine-bound store.
+    let current = draft
+    if (newKey || dirty) {
+      current = await saveSettings({ ...draft, ...(newKey ? { apiKey: newKey } : {}) } as SettingsInput)
+      setNewKey('')
+    }
+    const res = await window.api.testConnection(current)
     setTestResult(res)
     setTesting(false)
   }
@@ -107,7 +119,8 @@ export function SettingsView() {
   // fails silently — the field edits fine and Save simply never enables — so
   // the list is read from the one declaration of the field set instead.
   const dirty = useMemo(() => {
-    if (!draft || !snapshot?.settings) return false
+    if (!draft || !snapshot?.settings) return newKey !== ''
+    if (newKey !== '') return true
     const saved = snapshot.settings
     return SETTINGS_KEYS.some((key) => {
       const a = draft[key]
@@ -213,9 +226,17 @@ export function SettingsView() {
           </section>
 
           <div className="ai-status-card">
-            {snapshot?.aiConfigured ? (
+            {snapshot?.aiReadiness === 'configured-verified' ? (
               <span className="ai-on">
                 {t('settings.ai.configured', { provider: draft.provider, model: draft.model || t('settings.ai.noModel') })}
+              </span>
+            ) : snapshot?.aiReadiness === 'configured-last-check-failed' ? (
+              <span className="ai-off">
+                {t('settings.ai.checkFailed', {
+                  provider: draft.provider,
+                  model: draft.model || t('settings.ai.noModel'),
+                  reason: snapshot.settings.lastCheck?.reason ?? t('task.preprocess.unknownError')
+                })}
               </span>
             ) : (
               <span className="ai-off">{t('settings.ai.notConfigured')}</span>
@@ -360,10 +381,12 @@ export function SettingsView() {
               {t('settings.ai.apiKey')} <span className="muted">{t('settings.ai.apiKey.hint')}</span>
               <input
                 type="password"
-                value={draft.apiKey ?? ''}
-                onChange={(e) => update({ apiKey: e.target.value || null })}
-                placeholder="sk-…"
+                value={newKey}
+                onChange={(e) => setNewKey(e.target.value)}
+                placeholder={draft.hasApiKey ? t('settings.secret.stored') : 'sk-…'}
+                autoComplete="off"
               />
+              {draft.hasApiKey && <span className="muted">{t('settings.secret.set')}</span>}
             </label>
             <div className="row">
               <button className="mini-btn" disabled={testing} onClick={() => void runTest()}>

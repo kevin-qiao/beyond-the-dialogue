@@ -32,6 +32,14 @@ import { isLocalizedError, LocalizedError, type IssueList } from '../i18n/issues
 export interface FinishDeps {
   /** The language the step labels and toasts are produced in. */
   language: Language
+  /**
+   * The assistant-runtime switch (feature 001, research D1). While it is off,
+   * only `complete-only` remains reachable: a type declaring any other
+   * behaviour refuses with `assistant.disabled` BEFORE anything is marked
+   * complete, so Finish never half-writes an artifact the harness is not
+   * allowed to produce.
+   */
+  assistantEnabled: boolean
   paths: PathPort
   storage: StoragePort
   /** The artifact store for a destination's `store` value. */
@@ -81,7 +89,7 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
   const def = effectiveType(types, task)
   if (!def) throw new FinishRefused([{ key: 'finish.noTypeDefinition', params: { title: task.title } }])
 
-  const behaviour = resolveBehaviour(def)
+  const behaviour = resolveBehaviour(def, deps.assistantEnabled)
 
   // 1. Declared inputs gate Finish (spec task-types).
   const missing = hasUnfilledRequiredInputs(def, task.inputs)
@@ -231,11 +239,19 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
  * The behaviour a type declares. A type that declares none falls back to what
  * its category did historically (so no existing task changes behaviour), and a
  * `meeting` type — which has no history — is refused rather than guessed at.
+ *
+ * The switch gates the RESULT, not the reading: the declaration is still
+ * dispatched exactly once (Principle I); with the assistant off, anything
+ * beyond `complete-only` is unreachable and refuses with a code (FR-014, D1:
+ * "only `complete-only` remains reachable while off").
  */
-export function resolveBehaviour(def: TaskTypeDef): FinishBehaviour {
+export function resolveBehaviour(def: TaskTypeDef, assistantEnabled = true): FinishBehaviour {
   const declared = declaredWorkflow(def)
   if (!declared.finishBehaviour) {
     throw new FinishRefused([{ key: 'finish.noBehaviour', params: { type: def.label } }])
+  }
+  if (!assistantEnabled && declared.finishBehaviour !== 'complete-only') {
+    throw new FinishRefused([{ key: 'assistant.disabled' }])
   }
   return declared.finishBehaviour
 }

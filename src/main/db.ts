@@ -3,6 +3,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
+  Attachment,
   Destination,
   FinishBehaviour,
   IngestRecord,
@@ -22,7 +23,8 @@ import type {
 import { NO_GRANT } from '../shared/types'
 import { DEFAULT_LANGUAGE, isLanguage } from '../core/i18n/language'
 import { en } from '../core/i18n/en'
-import { dbPathIn, defaultMeetingMinutesPath, userDataDir } from './paths'
+import { dbPathIn, defaultMeetingMinutesPath, piAuthPath, userDataDir } from './paths'
+import { stripStaleAuthKey, storeMcpEnv, storeProviderKey } from './secrets'
 
 export interface DB {
   db: DatabaseSync
@@ -48,8 +50,10 @@ CREATE TABLE IF NOT EXISTS lists (
 
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
-  list_id TEXT NOT NULL REFERENCES lists(id),
+  list_id TEXT REFERENCES lists(id),
   title TEXT NOT NULL,
+  background TEXT NOT NULL DEFAULT '',
+  target TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
   type TEXT NOT NULL DEFAULT 'plain' CHECK (type IN ('plain','learning','jira','meeting')),
   custom_type_key TEXT,
@@ -139,6 +143,17 @@ CREATE TABLE IF NOT EXISTS ingest_ledger (
   started_at TEXT,
   finished_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS task_attachments (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  name TEXT NOT NULL,
+  mime TEXT,
+  path TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_task ON task_attachments(task_id);
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
@@ -334,8 +349,10 @@ function parseInputs(value: unknown): Record<string, unknown> {
 export function mapTask(r: any): Task {
   return {
     id: r.id,
-    listId: r.list_id,
+    listId: r.list_id ?? null,
     title: r.title,
+    background: r.background ?? '',
+    target: r.target ?? '',
     notes: r.notes,
     type: r.type,
     customTypeKey: r.custom_type_key ?? null,
@@ -987,6 +1004,169 @@ export function migrate(db: DatabaseSync): void {
     mark(9)
   }
 
+  // v9 → v10: secrets out of the settings table (research D4, FR-020/FR-021).
+  //
+  // The POC kept the provider key and every MCP server's env values in
+  // plaintext rows — and shipped the whole settings blob across IPC on every
+  // snapshot. v10 lifts the VALUES into the machine-bound secret store and
+  // replaces them with PRESENCE: `hasApiKey` records that the user has stored
+  // a key; MCP rows keep their shape with `env` removed. Idempotent — after
+  // the first pass there is no plaintext to find, and a re-run changes
+  // nothing.
+  if (!ran(10)) {
+    const getRow = (key: string) =>
+      (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value
+    const provider = ((getRow('provider') ?? '').trim() || 'openai')
+    const plaintextKey = (getRow('apiKey') ?? '').trim()
+    if (plaintextKey) storeProviderKey(provider, plaintextKey)
+    // Presence is recorded, never invented: a key that was never set does not
+    // become "configured" because a migration ran.
+    const present = plaintextKey !== '' || (getRow('hasApiKey') ?? '') === '1'
+    db.prepare("INSERT INTO settings (key, value) VALUES ('hasApiKey', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
+      present ? '1' : '0'
+    )
+    db.prepare("DELETE FROM settings WHERE key = 'apiKey'").run()
+
+    // MCP env values, entry by entry. Anything else in the config passes
+    // through uninterpreted — the app's structural-validation rule survives
+    // the move unchanged.
+    const mcpRow = getRow('mcpServers')
+    if (mcpRow) {
+      try {
+        const arr = JSON.parse(mcpRow)
+        if (Array.isArray(arr)) {
+          let changed = false
+          const next = arr.map((e: any) => {
+            if (!e || typeof e !== 'object' || !e.config || typeof e.config !== 'object') return e
+            if (!('env' in e.config)) return e
+            const env = e.config.env
+            const isPlainObj = env && typeof env === 'object' && !Array.isArray(env)
+            const stringEntries = isPlainObj
+              ? Object.entries(env as Record<string, unknown>).filter(([, v]) => typeof v === 'string')
+              : []
+            if (stringEntries.length > 0) {
+              storeMcpEnv(
+                String(e.name),
+                Object.fromEntries(stringEntries.map(([k, v]) => [k, String(v)]))
+              )
+            }
+            const { env: _env, ...rest } = e.config as Record<string, unknown>
+            changed = true
+            return { ...e, config: rest }
+          })
+          if (changed) db.prepare("UPDATE settings SET value = ? WHERE key = 'mcpServers'").run(JSON.stringify(next))
+        }
+      } catch {
+        // A corrupt row is emptied by parseMcpServers on read; not this
+        // step's business to rewrite what it cannot parse.
+      }
+    }
+
+    // The POC also mirrored the key into the Pi runtime's `auth.json`
+    // (research Grounding). v10 must leave no plaintext copy OUTSIDE
+    // secrets.json, so the api_key entries are stripped here; T041a repeats
+    // the guard at every startup, because the SDK keeps writing that file.
+    try {
+      const authFile = piAuthPath()
+      if (fs.existsSync(authFile)) {
+        const parsed = JSON.parse(fs.readFileSync(authFile, 'utf8'))
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const stripped = stripStaleAuthKey(parsed as Record<string, unknown>)
+          if (stripped) fs.writeFileSync(authFile, JSON.stringify(stripped, null, 2) + '\n', { mode: 0o600 })
+        }
+      }
+    } catch {
+      // auth.json is the SDK's own file; an unreadable or unrecognisable one
+      // is left for the startup guard (T041a) rather than destroyed here.
+    }
+    mark(10)
+  }
+
+  // v10 → v11: `list_id` nullable (FR-006, research D3) and the two free-text
+  // fields (FR-002: background, target), folded into the same rebuild since
+  // the table has to be rebuilt anyway.
+  //
+  // SQLite cannot ALTER a CHECK or a NOT NULL, and the stored DDL is the only
+  // readable signal, so the gate is the string `list_id TEXT NOT NULL` — the
+  // exact constraint D3 retires. The rebuild follows the v5 precedent to the
+  // letter (DROP with live child rows needs foreign_keys OFF, finally ON).
+  // The category CHECK restated below mirrors src/core/domain/categories.ts —
+  // change one, change both.
+  if (!ran(11)) {
+    const tasksDdl =
+      (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as { sql: string } | undefined)?.sql ?? ''
+    const cols = db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]
+    const narrowList = tasksDdl.includes('list_id TEXT NOT NULL')
+    const hasBackground = cols.some((c) => c.name === 'background')
+    const hasTarget = cols.some((c) => c.name === 'target')
+    if (narrowList || !hasBackground || !hasTarget) {
+      db.exec('DROP TABLE IF EXISTS tasks_new')
+      db.exec('PRAGMA foreign_keys = OFF;')
+      try {
+        db.exec(`
+          CREATE TABLE tasks_new (
+            id TEXT PRIMARY KEY,
+            list_id TEXT REFERENCES lists(id),
+            title TEXT NOT NULL,
+            background TEXT NOT NULL DEFAULT '',
+            target TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            type TEXT NOT NULL DEFAULT 'plain' CHECK (type IN ('plain','learning','jira','meeting')),
+            custom_type_key TEXT,
+            inputs TEXT NOT NULL DEFAULT '{}',
+            completed INTEGER NOT NULL DEFAULT 0,
+            completed_at TEXT,
+            in_my_day INTEGER NOT NULL DEFAULT 0,
+            my_day_added_at TEXT,
+            preprocess_status TEXT NOT NULL DEFAULT 'none' CHECK (preprocess_status IN ('none','queued','running','ready','failed')),
+            preprocess_error TEXT,
+            alarm_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+          )`)
+        const bgSel = hasBackground ? "COALESCE(background, '')" : "''"
+        const tgSel = hasTarget ? "COALESCE(target, '')" : "''"
+        db.exec(
+          `INSERT INTO tasks_new (id, list_id, title, background, target, notes, type, custom_type_key, inputs,
+             completed, completed_at, in_my_day, my_day_added_at, preprocess_status, preprocess_error, alarm_at,
+             created_at, updated_at, deleted_at)
+           SELECT id, list_id, title, ${bgSel}, ${tgSel}, notes, type, custom_type_key, inputs,
+             completed, completed_at, in_my_day, my_day_added_at, preprocess_status, preprocess_error, alarm_at,
+             created_at, updated_at, deleted_at
+           FROM tasks`
+        )
+        db.exec('DROP TABLE tasks')
+        db.exec('ALTER TABLE tasks_new RENAME TO tasks')
+        db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_list ON tasks(list_id) WHERE deleted_at IS NULL')
+        db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_mine ON tasks(in_my_day) WHERE deleted_at IS NULL AND in_my_day = 1')
+      } finally {
+        db.exec('PRAGMA foreign_keys = ON;')
+      }
+    }
+    mark(11)
+  }
+
+  // v11 → v12: the attachment table (research D2, FR-002/FR-003/FR-021).
+  // Rows only — the stored FILES live under `attachmentsDir()` and the port's
+  // implementation owns them; the row's `path` is data-root-relative. CREATE
+  // IF NOT EXISTS lets a fresh database (whose SCHEMA already carries this)
+  // and a migrated one arrive at the same shape.
+  if (!ran(12)) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS task_attachments (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id),
+        name TEXT NOT NULL,
+        mime TEXT,
+        path TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      )`)
+    db.exec('CREATE INDEX IF NOT EXISTS idx_attachments_task ON task_attachments(task_id)')
+    mark(12)
+  }
+
   // Seed a default list on first open.
   const row = db.prepare('SELECT COUNT(*) AS n FROM lists').get() as { n: number }
   if (row.n === 0) {
@@ -1026,12 +1206,16 @@ export function migrate(db: DatabaseSync): void {
 const DEFAULT_SETTINGS: Settings = {
   provider: 'openai',
   model: '',
-  apiKey: null,
+  hasApiKey: false,
   defaultListId: null,
   maxConcurrentJobs: 2,
   showWelcome: true,
   theme: 'light',
   uiLanguage: DEFAULT_LANGUAGE,
+  // Feature 001's honest default (research D1): the harness is configured and
+  // INERT until the user says otherwise.
+  assistantRuntime: 'off',
+  lastCheck: null,
   skills: [],
   mcpServers: []
 }
@@ -1071,7 +1255,11 @@ export function loadSettings(db: DatabaseSync): Settings {
   for (const r of rows) {
     if (r.key === 'provider') out.provider = r.value
     else if (r.key === 'model') out.model = r.value
-    else if (r.key === 'apiKey') out.apiKey = r.value || null
+    // v10 retired the plaintext `apiKey` row: what persists is PRESENCE, and
+    // the value lives in the machine-bound store (src/main/secrets.ts). A
+    // legacy row that somehow survived is treated as presence, never as a key.
+    else if (r.key === 'hasApiKey') out.hasApiKey = r.value === '1'
+    else if (r.key === 'apiKey') out.hasApiKey = (r.value || '').trim() !== '' || out.hasApiKey
     else if (r.key === 'defaultListId') out.defaultListId = r.value || null
     else if (r.key === 'maxConcurrentJobs') out.maxConcurrentJobs = parseInt(r.value, 10) || 2
     else if (r.key === 'showWelcome') out.showWelcome = r.value !== '0'
@@ -1079,6 +1267,10 @@ export function loadSettings(db: DatabaseSync): Settings {
     // Clamped rather than trusted: a value written by a newer version, or
     // hand-edited, must leave the app in a language it can actually render.
     else if (r.key === 'uiLanguage') out.uiLanguage = isLanguage(r.value) ? r.value : DEFAULT_LANGUAGE
+    // The assistant switch is clamped the same way: an unrecognised value
+    // means off, so a corrupt row cannot unlock the harness by accident.
+    else if (r.key === 'assistantRuntime') out.assistantRuntime = r.value === 'on' ? 'on' : 'off'
+    else if (r.key === 'lastCheck') out.lastCheck = parseLastCheck(r.value)
     else if (r.key === 'skills') out.skills = parseSkills(r.value)
     else if (r.key === 'mcpServers') out.mcpServers = parseMcpServers(r.value)
   }
@@ -1087,16 +1279,59 @@ export function loadSettings(db: DatabaseSync): Settings {
 
 export function saveSettings(db: DatabaseSync, s: Settings): void {
   const upsert = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+  const del = db.prepare('DELETE FROM settings WHERE key = ?')
   upsert.run('provider', s.provider)
   upsert.run('model', s.model)
-  upsert.run('apiKey', s.apiKey ?? '')
+  // Presence only — this function has no way to write a key even if a caller
+  // wanted to, which is what makes the redaction structural rather than a
+  // convention. The legacy plaintext row is deleted on every save, so a
+  // database that predates v10 cannot keep leaking it.
+  upsert.run('hasApiKey', s.hasApiKey ? '1' : '0')
+  del.run('apiKey')
   upsert.run('defaultListId', s.defaultListId ?? '')
   upsert.run('maxConcurrentJobs', String(s.maxConcurrentJobs))
   upsert.run('showWelcome', s.showWelcome ? '1' : '0')
   upsert.run('theme', s.theme === 'dark' ? 'dark' : 'light')
   upsert.run('uiLanguage', isLanguage(s.uiLanguage) ? s.uiLanguage : DEFAULT_LANGUAGE)
+  upsert.run('assistantRuntime', s.assistantRuntime === 'on' ? 'on' : 'off')
+  upsert.run('lastCheck', s.lastCheck ? JSON.stringify(s.lastCheck) : '')
   upsert.run('skills', JSON.stringify(s.skills ?? []))
-  upsert.run('mcpServers', JSON.stringify(s.mcpServers ?? []))
+  // MCP rows are stored with their `env` values removed (they belong to the
+  // secret store). Stripping happens here, at the one write path, so no
+  // caller can persist env by accident.
+  upsert.run('mcpServers', JSON.stringify((s.mcpServers ?? []).map(stripMcpEnv)))
+}
+
+/**
+ * MCP rows persist without `env`: the values go to the secret store and the
+ * row keeps the shape. A server with no env is unchanged; a stored row that
+ * somehow carries env is cleaned on the next save rather than trusted.
+ */
+function stripMcpEnv(entry: McpServerEntry): McpServerEntry {
+  const config = entry.config ?? {}
+  if (!('env' in config)) return entry
+  const { env: _env, ...rest } = config as Record<string, unknown>
+  return { ...entry, config: rest }
+}
+
+function parseLastCheck(value: unknown): Settings['lastCheck'] {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    const state = (parsed as { state?: string }).state
+    if (state !== 'ok' && state !== 'failed' && state !== 'never-checked') return null
+    const reason = (parsed as { reason?: unknown }).reason
+    const checkedAt = (parsed as { checkedAt?: unknown }).checkedAt
+    return {
+      state,
+      ...(typeof reason === 'string' ? { reason } : {}),
+      ...(typeof checkedAt === 'string' ? { checkedAt } : {})
+    }
+  } catch {
+    return null
+  }
 }
 
 // ---- Lists ----
@@ -1113,10 +1348,17 @@ export function renameList(db: DatabaseSync, id: string, name: string): List {
   return mapList(db.prepare('SELECT * FROM lists WHERE id = ?').get(id))
 }
 
+/**
+ * Deleting a List UNASSIGNS its tasks — it never deletes them (FR-006,
+ * research D3). The v0.8 cascade soft-deleted every task in the List: a
+ * mis-click on a grouping destroyed the work inside it, which is worse than
+ * the bug class the redesign started from. Tasks survive with `list_id =
+ * NULL` and stay visible in the all-tasks view.
+ */
 export function deleteList(db: DatabaseSync, id: string): void {
   const now = new Date().toISOString()
+  db.prepare('UPDATE tasks SET list_id = NULL, updated_at = ? WHERE list_id = ?').run(now, id)
   db.prepare('UPDATE lists SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id)
-  db.prepare('UPDATE tasks SET deleted_at = ?, updated_at = ? WHERE list_id = ?').run(now, now, id)
 }
 
 export function listLists(db: DatabaseSync): List[] {
@@ -1129,8 +1371,11 @@ export function listLists(db: DatabaseSync): List[] {
 export function createTask(
   db: DatabaseSync,
   data: {
-    listId: string
+    /** null = unassigned (FR-006): visible in the all-tasks view only. */
+    listId: string | null
     title: string
+    background?: string
+    target?: string
     notes?: string
     type?: Task['type']
     customTypeKey?: string | null
@@ -1143,9 +1388,9 @@ export function createTask(
   const customTypeKey = data.customTypeKey ?? null
   const inputs = JSON.stringify(data.inputs ?? {})
   db.prepare(
-    `INSERT INTO tasks (id, list_id, title, notes, type, custom_type_key, inputs, in_my_day, preprocess_status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'none', ?, ?)`
-  ).run(id, data.listId, data.title, data.notes ?? '', type, customTypeKey, inputs, now, now)
+    `INSERT INTO tasks (id, list_id, title, background, target, notes, type, custom_type_key, inputs, in_my_day, preprocess_status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'none', ?, ?)`
+  ).run(id, data.listId, data.title, data.background ?? '', data.target ?? '', data.notes ?? '', type, customTypeKey, inputs, now, now)
   return getTask(db, id)!
 }
 
@@ -1167,6 +1412,9 @@ export function updateTask(db: DatabaseSync, id: string, patch: Partial<Task>): 
   const now = new Date().toISOString()
   const fieldMap: Record<string, string> = {
     title: 'title',
+    background: 'background',
+    target: 'target',
+    listId: 'list_id',
     notes: 'notes',
     type: 'type',
     customTypeKey: 'custom_type_key',
@@ -1199,6 +1447,63 @@ export function updateTask(db: DatabaseSync, id: string, patch: Partial<Task>): 
 export function deleteTask(db: DatabaseSync, id: string): void {
   const now = new Date().toISOString()
   db.prepare('UPDATE tasks SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id)
+}
+
+// ---- Attachments (feature 001, research D2) ----
+//
+// Rows here, files on disk under `attachmentsDir()`. The row's `path` is the
+// stored value RELATIVE to the data-folder root only — never an absolute path
+// (FR-021: an absolute value would survive the table and die on the folder
+// copy, silently breaking the portability promise).
+
+function mapAttachment(r: any): Attachment {
+  return {
+    id: r.id,
+    taskId: r.task_id,
+    name: r.name,
+    mime: r.mime ?? null,
+    path: r.path,
+    size: Number(r.size),
+    createdAt: r.created_at
+  }
+}
+
+export function createAttachment(
+  db: DatabaseSync,
+  data: { taskId: string; name: string; mime: string | null; path: string; size: number }
+): Attachment {
+  const now = new Date().toISOString()
+  const id = randomUUID()
+  db.prepare(
+    'INSERT INTO task_attachments (id, task_id, name, mime, path, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, data.taskId, data.name, data.mime, data.path, data.size, now)
+  return getAttachment(db, id)!
+}
+
+export function getAttachment(db: DatabaseSync, id: string): Attachment | null {
+  const r = db.prepare('SELECT * FROM task_attachments WHERE id = ?').get(id)
+  return r ? mapAttachment(r) : null
+}
+
+export function listAttachments(db: DatabaseSync, taskId?: string): Attachment[] {
+  const rows = taskId
+    ? db.prepare('SELECT * FROM task_attachments WHERE task_id = ? ORDER BY created_at ASC').all(taskId)
+    : db.prepare('SELECT * FROM task_attachments ORDER BY created_at ASC').all()
+  return rows.map(mapAttachment)
+}
+
+export function deleteAttachmentRow(db: DatabaseSync, id: string): Attachment | null {
+  const existing = getAttachment(db, id)
+  db.prepare('DELETE FROM task_attachments WHERE id = ?').run(id)
+  return existing
+}
+
+/** All attachment rows for tasks that are already tombstoned — the purge sweep's input. */
+export function listOrphanAttachments(db: DatabaseSync): Attachment[] {
+  const rows = db
+    .prepare('SELECT a.* FROM task_attachments a JOIN tasks t ON t.id = a.task_id WHERE t.deleted_at IS NOT NULL')
+    .all()
+  return rows.map(mapAttachment)
 }
 
 // ---- Task types (registry) ----

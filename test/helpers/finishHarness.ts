@@ -33,11 +33,14 @@ export function harness(): { conn: DB; dir: string; task: ReturnType<typeof crea
   saveSettings(conn.db, {
     provider: 'openai',
     model: 'gpt-4o',
-    apiKey: 'sk-scripted',
+    hasApiKey: true,
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,
     theme: 'light',
+    uiLanguage: 'en',
+    assistantRuntime: 'on',
+    lastCheck: null,
     skills: [],
     mcpServers: []
   })

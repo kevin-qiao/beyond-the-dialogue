@@ -24,7 +24,7 @@ interface Scope {
 // and the inline quick-capture; both target the scope's list (default list in
 // My Day mode) and are hidden while a search is active.
 export function TaskColumn() {
-  const { snapshot, activeView, selectedTaskId, selectTask, jobSteps, query, searchTasks, myDayTasks, deleteTask } = useApp()
+  const { snapshot, activeView, selectedTaskId, selectTask, jobSteps, query, searchTasks, myDayTasks, deleteTask, selectedListId, tasksForList } = useApp()
   const t = useT()
   const language = useLanguage()
   const locale = useLocale()
@@ -63,15 +63,24 @@ export function TaskColumn() {
       tasks,
       captureListId: defaultListId
     }
+  } else if (selectedListId) {
+    // A List being browsed: exactly its tasks, nothing else (US1-AC4). The
+    // list's own id is the capture target.
+    const list = lists.find((l) => l.id === selectedListId)
+    const tasks = searchTasks(tasksForList(selectedListId))
+    scope = { header: list?.name ?? t('nav.todo'), tasks, captureListId: selectedListId }
   } else {
-    // To Do: the backlog — all tasks across lists (open grouped above done).
+    // To Do: the all-tasks view — the backlog across lists; unassigned tasks
+    // (list_id null, FR-006) are reachable HERE, nowhere else.
     const tasks = searchTasks(snapshot?.tasks ?? [])
     scope = { header: t('nav.todo'), tasks, captureListId: defaultListId }
   }
 
   const open = scope.tasks.filter((t) => !t.completed)
   const done = scope.tasks.filter((t) => t.completed)
-  const showCapture = !!scope.captureListId && !q
+  // Capture works with no list at all — the task is simply unassigned
+  // (FR-006). The blank scope invites capture (spec edge case).
+  const showCapture = !q
 
   // Type filter — derive available types from current scope so chips never show empty.
   // Group key = customTypeKey if set, else the built-in type.
@@ -121,7 +130,7 @@ export function TaskColumn() {
         </div>
         <div className="col-header-actions">
           {scope.tasks.length > 0 && !q && <span className="count">{open.length}</span>}
-          {scope.captureListId && (
+          {!q && (
             <button
               className="new-task-btn-col"
               onClick={() => setShowNewTask(true)}
@@ -133,7 +142,7 @@ export function TaskColumn() {
         </div>
       </div>
 
-      {showCapture && <QuickAdd listId={scope.captureListId!} onCreated={() => setShowNewTask(false)} />}
+      {showCapture && <QuickAdd listId={scope.captureListId} onCreated={() => setShowNewTask(false)} />}
 
       {typeStats.length > 1 && !q && (
         <div className="type-chips">
@@ -198,7 +207,7 @@ export function TaskColumn() {
         ))}
       </div>
 
-      {showNewTask && scope.captureListId && <TaskForm listId={scope.captureListId} onClose={() => setShowNewTask(false)} />}
+      {showNewTask && <TaskForm listId={scope.captureListId} onClose={() => setShowNewTask(false)} />}
       {editingTask && <TaskForm listId={editingTask.listId} task={editingTask} onClose={() => setEditingTask(null)} />}
       {ctxMenu && (
         <TaskContextMenu

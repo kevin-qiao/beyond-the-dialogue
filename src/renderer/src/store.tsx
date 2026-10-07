@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { CreateTaskArgs, JobProgressEvent, RemoteOutcomeView, RemoteProposalView, ToastPayload, UpdateTaskArgs } from '../../shared/ipc'
-import type { AppSnapshot, ChatMessage, IngestRecord, List, Settings, Suggestion, Task, TaskTypeDef } from '../../shared/types'
+import type { AppSnapshot, ChatMessage, IngestRecord, List, RedactedSettings, Settings, SettingsInput, Suggestion, Task, TaskTypeDef } from '../../shared/types'
 import { DEFAULT_LANGUAGE, localeOf, translator, type Language, type Translate } from '../../core/i18n'
 
 interface AppState {
@@ -59,7 +59,7 @@ interface AppContextValue extends AppState {
   deleteType: (key: string) => Promise<void>
   retryJob: (jobId: string) => Promise<void>
   cancelJob: (jobId: string) => Promise<void>
-  saveSettings: (s: Settings) => Promise<Settings>
+  saveSettings: (s: SettingsInput) => Promise<RedactedSettings>
   dismissSuggestion: (suggestionId: string) => Promise<Suggestion>
   retryIngest: (ingestId: string) => Promise<void>
   proposals: RemoteProposalView[]

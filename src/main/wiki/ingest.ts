@@ -1,6 +1,7 @@
 import type { JobContext } from '../job-queue'
 import type { IngestRecord, TaskPreprocess } from '../../shared/types'
-import { getTask, listTypes, loadSettings, updateIngest } from '../db'
+import { getTask, listTypes, updateIngest } from '../db'
+import { loadRuntimeSettings } from '../runtimeSettings'
 import { message } from '../../core/i18n'
 import { LocalizedError } from '../../core/i18n/issues'
 import { effectiveType } from '../../core/domain/taskType'
@@ -27,7 +28,7 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   const task = getTask(db, taskId)
   if (!task) throw new Error('task not found')
 
-  const settings = loadSettings(db)
+  const settings = loadRuntimeSettings(db)
   const def = effectiveType(listTypes(db), task)
   if (!def) throw new Error('no type definition resolves for this task')
 
@@ -46,7 +47,7 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
 
   const storage = createSqliteStorage(db)
   const target = resolveArtifact(nodePathPort, dest, task.title, task.id)
-  const session = createAgentSessionAdapter(() => loadSettings(db))
+  const session = createAgentSessionAdapter(() => loadRuntimeSettings(db))
   const preprocess = storage.getPreprocess(taskId)
 
   const record = (patch: Parameters<typeof updateIngest>[2]): void => updateIngest(db, job.id, patch)

@@ -1,5 +1,5 @@
 import * as path from 'node:path'
-import type { PluginGrant, Settings, TaskTypeDef } from '../../shared/types'
+import type { PluginGrant, SettingsInput, TaskTypeDef } from '../../shared/types'
 import { resolveGrant } from '../../core/domain/grant'
 import type { SessionPurpose } from '../../core/ports/agent'
 import { buildMcpExtension } from '../adapters/agent/mcpAdapter'
@@ -33,7 +33,14 @@ export interface JobSessionLike {
 }
 
 export interface CreateJobSessionOptions {
-  settings: Settings
+  /**
+   * The HYDRATED settings: feature 001 made `Settings` secret-free, so a
+   * session that really talks to a provider receives the key resolved from the
+   * machine-bound store by main (`settingsWithSecret` in index.ts). A caller
+   * that passes the redacted shape arrives with `apiKey` absent, which is
+   * exactly when this check must fail.
+   */
+  settings: SettingsInput
   cwd: string
   systemPrompt: string
   thinkingLevel: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'

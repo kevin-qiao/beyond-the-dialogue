@@ -26,11 +26,14 @@ function harness(configured = true): { conn: DB; storage: StoragePort; settings:
   const settings: Settings = {
     provider: 'openai',
     model: configured ? 'gpt-4o' : '',
-    apiKey: configured ? 'sk-scripted' : null,
+    hasApiKey: configured,
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,
     theme: 'light',
+    uiLanguage: 'en',
+    assistantRuntime: 'on',
+    lastCheck: null,
     skills: [],
     mcpServers: []
   }

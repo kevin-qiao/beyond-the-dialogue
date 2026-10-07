@@ -22,6 +22,17 @@ export interface ValidationResult {
 const ok = (errors: MessageIssue[]): ValidationResult => ({ ok: errors.length === 0, errors })
 
 /**
+ * FR-001 — the title is the one thing a task cannot be without, and the
+ * refusal is a code at the CORE edge, not just the renderer's form check:
+ * a non-renderer write (a future host, a scripted test, a second window)
+ * must meet the same rule. The refusal reuses the existing catalog key, so
+ * the wording keeps one home.
+ */
+export function validateTaskWrite(task: { title: string | undefined }): ValidationResult {
+  return task.title !== undefined && task.title.trim() !== '' ? ok([]) : ok([{ key: 'task.field.titleRequired' }])
+}
+
+/**
  * Shape validation for a task's inputs against a type's declared fields: every
  * value must be a string (or absent), unknown keys are rejected, and select
  * fields must carry one of their declared option values. `required` presence
