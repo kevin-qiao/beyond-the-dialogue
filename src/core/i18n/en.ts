@@ -471,6 +471,10 @@ export const en = {
   'settings.types.empty.body':
     'Click “＋ New type” to wrap a built-in behavior kind with your own label, emoji, and input fields.',
   'settings.ai.checkFailed': '{provider} {model} — configured, but the last check failed ({reason})',
+  'settings.plugins.disable': 'Disable this entry — nothing may reach through it while disabled',
+  'settings.plugins.enable': 'Enable this entry again',
+  'settings.plugins.disabled': 'disabled',
+  'settings.plugins.enabled': 'enabled',
   'settings.plugins.inert':
     "Skills are imported into the app's skill folder but not yet loaded by the agent. MCP servers you add here are connected to interactive sessions of types that grant them, and written to the app's mcp.json.",
   'settings.plugins.saveFailed': 'Could not save: {error}',

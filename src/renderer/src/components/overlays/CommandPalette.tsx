@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useApp } from '../../store'
+import { isAssistantEnabled } from '../../../../core/domain/assistant'
 import { useT } from '../../lib/useT'
 import type { Task, TaskTypeDef } from '../../../../shared/types'
 import type { Language, Translate } from '../../../../core/i18n'
@@ -97,14 +98,16 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       ico: '▤',
       run: () => openDrawer('activity')
     })
-    out.push({
-      kind: 'action',
-      id: 'open-chat',
-      title: t('palette.action.chat'),
-      sub: t('palette.action.chat.sub'),
-      ico: '💬',
-      run: () => openDrawer('chat')
-    })
+    if (snapshot && isAssistantEnabled(snapshot.settings)) {
+      out.push({
+        kind: 'action',
+        id: 'open-chat',
+        title: t('palette.action.chat'),
+        sub: t('palette.action.chat.sub'),
+        ico: '💬',
+        run: () => openDrawer('chat')
+      })
+    }
     out.push({
       kind: 'action',
       id: 'go-today',

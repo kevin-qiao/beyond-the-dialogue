@@ -466,8 +466,8 @@ function registerIpc(): void {
     return agg
   })
   handleCommand(IPC.runPreprocess, (args) => {
-    requireAssistant(d())
-    // The guards live in the service; this handler only acts on its decision.
+    // The guards live in the service (including the switch refusal —
+    // `assistant.disabled` is raised at the core edge, not here).
     const outcome = runPreprocessService(createSqliteStorage(d()), args.id, loadSettings(d()))
     for (const work of outcome.enqueue) queue!.enqueue(work, outcome.task.id)
     const agg = withAttachments(d(), outcome.task)

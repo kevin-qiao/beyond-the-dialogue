@@ -1,5 +1,6 @@
 import type { McpServerEntry, PluginGrant } from '../../../shared/types'
 import { snapshotFromGrant } from '../../../core/domain/mcpConfig'
+import { enabledServers } from '../../../core/domain/plugins'
 
 // The one place the app reaches the outside world through MCP.
 //
@@ -48,7 +49,9 @@ export async function buildMcpExtension(
 ): Promise<McpExtensionResult> {
   if (grant.toolServers.length === 0) return NO_MCP
 
-  const snapshot = snapshotFromGrant(entries as McpServerEntry[], grant.toolServers)
+  // A disabled server is INERT even when a type grants it by name (FR-013):
+  // the enabled-set filter happens here, at the construction seam.
+  const snapshot = snapshotFromGrant(enabledServers(entries as McpServerEntry[]), grant.toolServers)
   const missingGranted = grant.toolServers.filter((name) => !(name in snapshot))
   if (Object.keys(snapshot).length === 0)
     return { extension: null, toolNames: [], missingGranted }

@@ -1,4 +1,4 @@
-import type { Settings } from '../../shared/types'
+import type { McpServerEntry, Settings, SkillEntry } from '../../shared/types'
 import type { IssueList } from '../i18n/issues'
 import { validateMcpServerConfig } from './mcpConfig'
 
@@ -26,4 +26,19 @@ export function validatePluginEntries(s: Settings): IssueList {
     errors.push(...validateMcpServerConfig(sv.name ?? String(i + 1), sv.config))
   }
   return errors
+}
+
+/**
+ * The entries a session may reach through (FR-013): registration is not
+ * capability, and a DISABLED entry is retained configuration that nothing may
+ * reach — even when a type grants it by name. Absence of `disabled` means
+ * enabled; the rule is one line so both seams (skill paths, tool servers)
+ * share it and a headless test can pin it.
+ */
+export function enabledSkillNames(skills: readonly SkillEntry[]): Set<string> {
+  return new Set(skills.filter((sk) => !sk.disabled).map((sk) => sk.name))
+}
+
+export function enabledServers(servers: readonly McpServerEntry[]): McpServerEntry[] {
+  return servers.filter((sv) => !sv.disabled)
 }

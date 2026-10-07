@@ -9,6 +9,7 @@ import { ChatPanel } from './ChatPanel'
 import { IconChevronDown, IconChevronLeft, IconChevronRight, IconChevronUp, IconTarget } from '../ui/icons'
 import { effectiveType } from '../../lib/typeCatalog'
 import { workingAreaFor, type WorkingArea } from '../../../../core/domain/workingArea'
+import { isAssistantEnabled } from '../../../../core/domain/assistant'
 
 // The category selects the working surface (spec scope boundary: per-type
 // working-area declaration is out of scope). The mapping is an explicit table
@@ -70,7 +71,9 @@ export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
   // chat in the task before it moved here (markdown + source-panel); the plain
   // notes surface never had one and still doesn't.
   const area = workingAreaFor(meta.kind)
-  const hasChat = area !== 'notes'
+  // Chat is an assistant surface: the tab does not exist while the harness
+  // is declared off (D1) — no refusal notice, nothing.
+  const hasChat = area !== 'notes' && isAssistantEnabled(snapshot!.settings)
 
   return (
     <aside className="focus-col">

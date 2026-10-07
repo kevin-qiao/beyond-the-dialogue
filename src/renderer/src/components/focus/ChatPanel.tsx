@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../../store'
 import { useT } from '../../lib/useT'
+import { isAssistantEnabled } from '../../../../core/domain/assistant'
 
 // Reusable chat loop (design D4): the streaming conversation surface shared
 // by the debug ChatView drawer and the learning/jira working areas. When
@@ -12,7 +13,7 @@ import { useT } from '../../lib/useT'
 // conversation, so switching tasks keeps each conversation intact and a reply
 // still streaming for one task never appears in another's.
 export function ChatPanel({ taskId, label }: { taskId?: string; label?: string }) {
-  const { chatFor, sendChat } = useApp()
+  const { chatFor, sendChat, snapshot } = useApp()
   const t = useT()
   const { messages, streaming: chatStreaming, running: chatRunning, error: chatError } = chatFor(taskId)
   const [draft, setDraft] = useState('')
@@ -22,6 +23,11 @@ export function ChatPanel({ taskId, label }: { taskId?: string; label?: string }
   // nothing gets the default, translated. A default parameter could not do
   // that — it cannot call a hook.
   const hint = label === undefined ? t('chat.emptyHint') : label
+
+  // While the harness is declared off, the conversation surface does not
+  // exist at all — not a refusal notice, nothing (D1). Every hook above has
+  // already run, so this early return keeps hook order stable.
+  if (!snapshot || !isAssistantEnabled(snapshot.settings)) return null
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })

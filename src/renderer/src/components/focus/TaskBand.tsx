@@ -44,7 +44,10 @@ export function TaskBand({ task }: { task: Task }) {
   // Whether this kind pre-processes is the registry's answer, not a comparison
   // against `plain` — the same declaration decides which kinds get a
   // suggestion job instead (taskService.setMyDay).
-  const hasPre = hasPreprocess(def.kind)
+  // D1: the analysis surfaces hide themselves while the harness is declared
+  // off; the band's board half (title, alarm, complete, finish) is untouched.
+  const assistantOn = !!snapshot && isAssistantEnabled(snapshot.settings)
+  const hasPre = hasPreprocess(def.kind) && assistantOn
   const running = task.preprocessStatus === 'queued' || task.preprocessStatus === 'running'
   // A kind that does not pre-process gets its chips from the suggestion job and
   // has no card to carry them, so they need a section of their own. Whether it
@@ -196,7 +199,7 @@ export function TaskBand({ task }: { task: Task }) {
         </div>
       )}
 
-      {hasPre && (
+      {hasPre && assistantOn && (
         <section className="analysis-section">
           <div className="section-head">
             <h4>{t('task.preprocess.title')}</h4>
@@ -266,7 +269,7 @@ export function TaskBand({ task }: { task: Task }) {
       {/* A kind without a pre-process has no card to carry the suggestion job's
           chips, and the board row no longer repeats them — without this they
           would have no surface at all. */}
-      {!hasPre && ownSuggestions.length > 0 && (
+      {assistantOn && !hasPre && ownSuggestions.length > 0 && (
         <section className="analysis-section">
           <div className="section-head">
             <h4>{t('task.preprocess.suggestions')}</h4>

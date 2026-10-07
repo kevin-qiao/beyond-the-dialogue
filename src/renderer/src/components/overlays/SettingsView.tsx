@@ -7,6 +7,7 @@ import { describeDestination } from '../../../../core/domain/destination'
 import { describeMcpServer, parseMcpJsonPaste } from '../../../../core/domain/mcpConfig'
 import { LANGUAGES, LANGUAGE_NAMES, isLanguage, type MessageKey } from '../../../../core/i18n'
 import { useLanguage, useT } from '../../lib/useT'
+import { isAssistantEnabled } from '../../../../core/domain/assistant'
 import { allTypeConfigs, displayTypeDescription, displayTypeLabel, localizeTypeDef } from '../../lib/typeCatalog'
 import { useDialog } from '../ui/Dialog'
 
@@ -40,6 +41,11 @@ export function SettingsView() {
   const t = useT()
   const language = useLanguage()
   const [tab, setTab] = useState<Tab>('general')
+  // D1: the Types tab configures the assistant's type engine — an assistant
+  // surface, hidden while the switch is off. The model-service tab stays:
+  // FR-013 makes provider/skill/tool-server configuration the app's own,
+  // configurable and honestly inert.
+  const assistantOn = !!snapshot && isAssistantEnabled(snapshot.settings)
 
   const [draft, setDraft] = useState<RedactedSettings | null>(snapshot?.settings ?? null)
   // Write-only key (FR-020/T017): what the user types is stored on save and
@@ -162,16 +168,18 @@ export function SettingsView() {
           <span className="tab-ico">⚙</span>
           {t('settings.tab.general')}
         </button>
-        <button
-          role="tab"
-          aria-selected={tab === 'types'}
-          className={`settings-tab ${tab === 'types' ? 'on' : ''}`}
-          onClick={() => setTab('types')}
-        >
-          <span className="tab-ico">▤</span>
-          {t('settings.tab.types')}
-          {customTypes.length > 0 && <span className="tab-count">{customTypes.length}</span>}
-        </button>
+        {assistantOn && (
+          <button
+            role="tab"
+            aria-selected={tab === 'types'}
+            className={`settings-tab ${tab === 'types' ? 'on' : ''}`}
+            onClick={() => setTab('types')}
+          >
+            <span className="tab-ico">▤</span>
+            {t('settings.tab.types')}
+            {customTypes.length > 0 && <span className="tab-count">{customTypes.length}</span>}
+          </button>
+        )}
         <button
           role="tab"
           aria-selected={tab === 'plugins'}
@@ -245,7 +253,7 @@ export function SettingsView() {
         </>
       )}
 
-      {tab === 'types' && (
+      {tab === 'types' && assistantOn && (
         <>
           {typeError && <div className="warning-box"><p>{typeError}</p><button className="mini-btn" onClick={() => setTypeError(null)}>×</button></div>}
           <section className="settings-section">
@@ -514,6 +522,13 @@ function SkillsSection({
           <input value={s.name} disabled title={t('settings.skills.nameKey')} className="plugin-name" />
           <input value={s.description} disabled placeholder={t('settings.skills.noDescription')} />
           <button
+            className={`mini-btn ${s.disabled ? '' : 'on'}`}
+            title={s.disabled ? t('settings.plugins.enable') : t('settings.plugins.disable')}
+            onClick={() => onChange(skills.map((x) => (x.name === s.name ? { ...x, disabled: !x.disabled } : x)))}
+          >
+            {s.disabled ? `⏸ ${t('settings.plugins.disabled')}` : `▶ ${t('settings.plugins.enabled')}`}
+          </button>
+          <button
             className="icon-btn tiny danger"
             title={t('common.remove')}
             onClick={() =>
@@ -607,6 +622,13 @@ function McpSection({
         <div key={s.name} className="plugin-row">
           <input value={s.name} disabled title={t('settings.skills.nameKey')} className="plugin-name" />
           <input value={describeMcpServer(s)} disabled />
+          <button
+            className={`mini-btn ${s.disabled ? '' : 'on'}`}
+            title={s.disabled ? t('settings.plugins.enable') : t('settings.plugins.disable')}
+            onClick={() => onChange(servers.map((x) => (x.name === s.name ? { ...x, disabled: !x.disabled } : x)))}
+          >
+            {s.disabled ? `⏸ ${t('settings.plugins.disabled')}` : `▶ ${t('settings.plugins.enabled')}`}
+          </button>
           <button
             className="icon-btn tiny danger"
             title={t('common.remove')}

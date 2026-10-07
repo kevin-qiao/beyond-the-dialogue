@@ -222,3 +222,43 @@ test('7.3 (add-mcp-support) grants are read at exactly one seam, never on a conf
   walk(path.join(process.cwd(), 'src'))
   assert.deepEqual(offenders, [], `settings.mcpServers may only be wired by the seam and the sanctioned files, found: ${offenders.join(', ')}`)
 })
+
+// ---- FR-013 in feature 001: disabled entries are inert configuration ----
+
+test('the enabled-sets rule: disabled entries drop out of both seams', async () => {
+  const { enabledServers, enabledSkillNames } = await import('../src/core/domain/plugins')
+  assert.deepEqual(
+    enabledServers([
+      { name: 'on', config: { command: 'a' } },
+      { name: 'off', config: { command: 'b' }, disabled: true }
+    ]).map((s) => s.name),
+    ['on'],
+    'a granted-but-disabled tool server is not reachable'
+  )
+  assert.deepEqual(
+    [...enabledSkillNames([
+      { name: 'live', description: '', path: '/s/live' },
+      { name: 'dead', description: '', path: '/s/dead', disabled: true }
+    ])].sort(),
+    ['live'],
+    'a granted-but-disabled skill is not loadable'
+  )
+  // Absence of the flag means enabled — existing rows keep working unchanged.
+  assert.equal(enabledSkillNames([{ name: 'x', description: '', path: '/x' }]).has('x'), true)
+})
+
+test('after a skill or server is removed, no redaction or enabled-set reads it', async () => {
+  const { enabledServers } = await import('../src/core/domain/plugins')
+  const { toRedacted } = await import('../src/core/services/settingsService')
+  const s: Settings = {
+    provider: 'openai', model: 'gpt-4o', hasApiKey: false, defaultListId: null,
+    maxConcurrentJobs: 2, showWelcome: false, theme: 'light', uiLanguage: 'en',
+    assistantRuntime: 'off', lastCheck: null,
+    skills: [{ name: 'kept', description: '', path: '/s/kept' }],
+    mcpServers: [{ name: 'kept', config: { command: 'npx' } }]
+  }
+  const gone = { ...s, skills: [], mcpServers: [] }
+  assert.deepEqual(enabledServers(gone.mcpServers), [], 'a removed server is not in any enabled set')
+  const redacted = toRedacted(gone, { machineFingerprint: 'm', providerKeys: {}, mcpEnv: { removed: { TOKEN: 't' } } })
+  assert.deepEqual(redacted.mcpServers, [], 'the redaction reports rows, never store residue')
+})

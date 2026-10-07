@@ -1,5 +1,6 @@
 import { useApp } from '../../store'
 import { useT } from '../../lib/useT'
+import { isAssistantEnabled } from '../../../../core/domain/assistant'
 import type { MessageKey } from '../../../../core/i18n'
 import { ActivityView } from './ActivityView'
 import { SettingsView } from './SettingsView'
@@ -16,7 +17,7 @@ const TITLES: Record<'activity' | 'settings' | 'chat', { title: MessageKey; sub:
 // Drawer host (spec app-layout): Activity, Settings, and the debug chat open
 // as right-side drawers overlaying the board, which stays mounted behind them.
 export function DrawerHost() {
-  const { drawer, closeDrawer } = useApp()
+  const { drawer, closeDrawer, snapshot } = useApp()
   const t = useT()
   if (!drawer) return null
 
@@ -38,7 +39,10 @@ export function DrawerHost() {
         <div className="drawer-body">
           {drawer === 'activity' && <ActivityView />}
           {drawer === 'settings' && <SettingsView />}
-          {drawer === 'chat' && <ChatView />}
+          {/* Chat is assistant working; while the harness is declared off the
+              drawer does not open at all (D1) — the palette and topbar hide
+              their entries too, this is the belt to their braces. */}
+          {drawer === 'chat' && snapshot && isAssistantEnabled(snapshot.settings) && <ChatView />}
         </div>
       </aside>
     </div>

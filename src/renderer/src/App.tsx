@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useApp } from './store'
+import { isAssistantEnabled } from '../../core/domain/assistant'
 import { useT } from './lib/useT'
 import { ListsRail } from './components/board/ListsRail'
 import { TaskColumn } from './components/board/TaskColumn'
@@ -178,9 +179,13 @@ export function App() {
           >
             <IconActivity />
           </button>
-          <button className="icon-btn top-action" title={t('drawer.chat.title')} onClick={() => openDrawer('chat')}>
-            <IconChat />
-          </button>
+          {/* Debug chat is an assistant surface — it does not exist while
+              the harness is declared off (D1). */}
+          {isAssistantEnabled(snapshot.settings) && (
+            <button className="icon-btn top-action" title={t('drawer.chat.title')} onClick={() => openDrawer('chat')}>
+              <IconChat />
+            </button>
+          )}
           <button
             className="icon-btn top-action"
             title={snapshot?.settings.theme === 'light' ? t('nav.theme.toDark') : t('nav.theme.toLight')}

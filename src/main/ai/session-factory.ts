@@ -1,6 +1,7 @@
 import * as path from 'node:path'
 import type { PluginGrant, SettingsInput, TaskTypeDef } from '../../shared/types'
 import { resolveGrant } from '../../core/domain/grant'
+import { enabledSkillNames } from '../../core/domain/plugins'
 import type { SessionPurpose } from '../../core/ports/agent'
 import { buildMcpExtension } from '../adapters/agent/mcpAdapter'
 
@@ -89,7 +90,9 @@ export async function createJobSession(opts: CreateJobSessionOptions): Promise<J
   // Grant resolution, at the seam. `purpose` defaults to 'confined' so a caller
   // that says nothing gets the safe answer: no external reach.
   const grant = resolveGrant({ purpose: opts.purpose ?? 'confined', typeDef: opts.typeDef ?? null })
-  const grantedSkillPaths = grantedSkillDirs(grant, skillsDir())
+  // FR-013: a disabled skill is inert even when a type grants it — the
+  // enabled-names filter reads the user's configuration at this seam.
+  const grantedSkillPaths = grantedSkillDirs(grant, skillsDir(), enabledSkillNames(settings.skills ?? []))
 
   // MCP tool servers, from the SAME resolved grant: a session reaches the
   // outside network only through servers its type declared. This is the one
@@ -204,6 +207,7 @@ export async function createJobSession(opts: CreateJobSessionOptions): Promise<J
  * so granting a skill widens what a session knows how to do, not what it may
  * do. Authority comes from grants alone.
  */
-function grantedSkillDirs(grant: PluginGrant, root: string): string[] {
-  return grant.skills.filter((name) => !!name).map((name) => path.join(root, name))
+function grantedSkillDirs(grant: PluginGrant, root: string, enabled: Set<string>): string[] {
+  // A granted name that is disabled (or never registered) loads nothing.
+  return grant.skills.filter((name) => !!name && enabled.has(name)).map((name) => path.join(root, name))
 }

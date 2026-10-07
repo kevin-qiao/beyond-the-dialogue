@@ -100,3 +100,27 @@ test('describeMcpServer summarizes the transport without leaking secrets', () =>
   assert.equal(describeMcpServer({ name: 'b', config: { url: 'https://mcp.example.com/mcp' } }), 'https://mcp.example.com/mcp')
   assert.equal(describeMcpServer({ name: 'c', config: { socket: '/tmp/x.sock' } }), '/tmp/x.sock')
 })
+
+// ---- feature 001: a disabled server never reaches the adapter, even when
+// a type grants it (FR-013; the filter is applied in buildMcpExtension) ----
+
+test('buildMcpExtension hands the adapter only ENABLED servers, and reports the disabled grant', async () => {
+  const { buildMcpExtension, setMcpAdapterFactory } = await import('../src/main/adapters/agent/mcpAdapter')
+  const entries = [
+    { name: 'live', config: { command: 'npx', args: ['-y', 'live'] } },
+    { name: 'off', config: { command: 'npx', args: ['-y', 'off'] }, disabled: true }
+  ]
+  let seen: Record<string, unknown> | null = null
+  setMcpAdapterFactory(((snapshot: Record<string, unknown>) => {
+    seen = snapshot
+    return { snapshot } as never
+  }) as never)
+  try {
+    const res = await buildMcpExtension(entries, { skills: [], toolServers: ['live', 'off'] })
+    assert.notEqual(res.extension, null)
+    assert.deepEqual(Object.keys(seen!), ['live'], 'the disabled server was not handed to the adapter, even though the type granted it')
+    assert.deepEqual(res.missingGranted, ['off'], 'and the grant that could not be honored is REPORTED, not swallowed')
+  } finally {
+    setMcpAdapterFactory(null)
+  }
+})
