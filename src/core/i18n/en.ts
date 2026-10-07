@@ -102,6 +102,9 @@ export const en = {
   'task.alarm.setFor': 'Alarm set for {when}',
   'task.alarm.title': 'Alarm {when}',
   'task.alarm.time': 'Alarm time',
+  'task.alarm.pastTime': 'The alarm time must be in the future',
+  'alarm.overdue.title': 'Overdue reminder',
+  'alarm.overdue.body': '{title} — was due {when}',
 
   // ---- the pre-process section of the band ----
   'task.preprocess.title': 'Pre-process',

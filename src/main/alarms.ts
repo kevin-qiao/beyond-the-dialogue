@@ -12,6 +12,11 @@ import { getTask, updateTask } from './db'
 export interface AlarmFire {
   taskId: string
   title: string
+  /** The alarm's ORIGINAL date-time (ISO), so an overdue raise can name it. */
+  dueAt: string
+  /** True only for the missed-at-start re-raise (FR-010): the notification
+   *  says "overdue" instead of pretending the time has just arrived. */
+  overdue: boolean
 }
 
 export type Notifier = (fire: AlarmFire) => void
@@ -33,7 +38,10 @@ export class AlarmScheduler {
     let raised = 0
     for (const row of this.pending()) {
       if (new Date(row.alarm_at).getTime() <= this.now()) {
-        this.fire(row.id)
+        // Missed while closed: presented once, labeled overdue, with the
+        // original due time (FR-010). The task row is not modified beyond the
+        // consume-on-fire that already happens.
+        this.fire(row.id, { overdue: true, dueAt: row.alarm_at })
         raised++
       }
     }
@@ -76,7 +84,7 @@ export class AlarmScheduler {
       this.timer = null
       // Re-check due-ness against the clock (timers can drift/coalesce).
       for (const row of this.pending()) {
-        if (new Date(row.alarm_at).getTime() <= this.now()) this.fire(row.id)
+        if (new Date(row.alarm_at).getTime() <= this.now()) this.fire(row.id, { overdue: false, dueAt: row.alarm_at })
       }
       this.armNext()
     }, delay)
@@ -84,11 +92,11 @@ export class AlarmScheduler {
     this.timer.unref?.()
   }
 
-  private fire(taskId: string): void {
+  private fire(taskId: string, meta: { overdue: boolean; dueAt: string }): void {
     const task = getTask(this.db, taskId)
     if (!task || !task.alarmAt || task.completed) return
     // Consume the alarm: it never fires again unless the user re-arms (spec).
     updateTask(this.db, taskId, { alarmAt: null })
-    this.notify({ taskId, title: task.title })
+    this.notify({ taskId, title: task.title, dueAt: meta.dueAt, overdue: meta.overdue })
   }
 }

@@ -12,6 +12,7 @@ import {
   createTask as dbCreateTask
 } from './db'
 import type { List, Task } from '../shared/types'
+import { LocalizedError } from '../core/i18n/issues'
 
 // Day rollover bookkeeping. The app tracks the last date it performed a
 // rollover for; on first open after a date change, completed My Day tasks are
@@ -52,6 +53,19 @@ export function rolloverMyDay(db: DatabaseSync, now = new Date()): { cleared: nu
 }
 
 // ---- Service functions used by IPC ----
+
+/**
+ * Set, change, or cancel a one-time alarm (FR-007). A time at or before the
+ * moment of writing is REFUSED with a code, at the edge — not with a sentence,
+ * because the domain has no language and the transport phrases it (the
+ * `handleCommand` wrapper). Cancelling (null) is always allowed.
+ */
+export function serviceSetAlarm(db: DatabaseSync, id: string, alarmAt: string | null, now = new Date()): Task {
+  if (alarmAt !== null && new Date(alarmAt).getTime() <= now.getTime()) {
+    throw new LocalizedError([{ key: 'task.alarm.pastTime' }])
+  }
+  return dbUpdateTask(db, id, { alarmAt })
+}
 
 export function serviceCreateList(db: DatabaseSync, name: string): List {
   return dbCreateList(db, name)

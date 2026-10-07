@@ -97,6 +97,9 @@ export const zhCN: Catalog = {
   'task.alarm.setFor': '闹钟设定于 {when}',
   'task.alarm.title': '闹钟 {when}',
   'task.alarm.time': '闹钟时间',
+  'task.alarm.pastTime': '提醒时间必须设在将来',
+  'alarm.overdue.title': '过期提醒',
+  'alarm.overdue.body': '{title} —— 原定时间为 {when}',
 
   // ---- the pre-process section of the band ----
   'task.preprocess.title': '预处理',

@@ -17,6 +17,7 @@ import {
   serviceListForList,
   serviceLists,
   serviceRenameList,
+  serviceSetAlarm,
   serviceToggleTask,
   serviceUpdateTask,
   rolloverMyDay
@@ -47,7 +48,7 @@ import { LocalizedError } from '../core/i18n/issues'
 import { runPreprocess as runPreprocessService } from '../core/services/preprocessService'
 import { buildSessionContext, createProposalQueue } from '../core/domain/grant'
 import { buildChatContext } from '../core/domain/chatContext'
-import { message } from '../core/i18n'
+import { localeOf, message } from '../core/i18n'
 import { localizeThrown } from './errors'
 import {
   createTask as createTaskService,
@@ -102,9 +103,24 @@ function rescheduleAlarms(): void {
 // OS notification for a fired alarm (spec task-notifications): firing works
 // whether the app is focused or not; clicking focuses the window and opens
 // the task in the renderer.
-function raiseAlarmNotification(fire: { taskId: string; title: string }): void {
+function raiseAlarmNotification(fire: { taskId: string; title: string; dueAt: string; overdue: boolean }): void {
   if (!Notification.isSupported()) return
-  const n = new Notification({ title: 'Beyond the Dialogue', body: fire.title })
+  // FR-008/FR-010: the notification names the task either way; a missed-while-
+  // closed re-raise says OVERDUE and names the original date-time — in the
+  // language the app is set to. These are the app's own words, so they come
+  // from the catalog, not from a literal (the literal census cannot see a
+  // `new Notification({…})` argument — this line is written from keys on
+  // purpose; see CLAUDE.md's language section).
+  const d = db!.db
+  const language = loadSettings(d).uiLanguage
+  let title = 'Beyond the Dialogue'
+  let body = fire.title
+  if (fire.overdue) {
+    title = message(language, 'alarm.overdue.title')
+    const when = new Date(fire.dueAt).toLocaleString(localeOf(language))
+    body = message(language, 'alarm.overdue.body', { title: fire.title, when })
+  }
+  const n = new Notification({ title, body })
   n.on('click', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore()
@@ -529,8 +545,10 @@ function registerIpc(): void {
     broadcast(IPC.evTaskUpdated, task)
     return task
   })
-  ipcMain.handle(IPC.setAlarm, (_e, args) => {
-    const task = updateTask(d(), args.id, { alarmAt: args.alarmAt ?? null })
+  handleCommand(IPC.setAlarm, (args) => {
+    // FR-007: a past time is refused with a code at the service edge — the
+    // task and its existing alarm stay exactly as they were.
+    const task = serviceSetAlarm(d(), args.id, args.alarmAt ?? null)
     rescheduleAlarms()
     const agg = withAttachments(d(), task)
     broadcast(IPC.evTaskUpdated, agg)

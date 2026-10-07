@@ -161,8 +161,15 @@ export function TaskBand({ task }: { task: Task }) {
                 className="mini-btn"
                 disabled={!alarmDraft}
                 onClick={() => {
-                  void setAlarm(task.id, new Date(alarmDraft).toISOString()).then(() => notify(t('task.alarm.isSet')))
-                  setEditingAlarm(false)
+                  // FR-007: a past time comes back as the localized refusal
+                  // the core raised — show it, keep the draft open, and leave
+                  // any existing alarm exactly as it was.
+                  void setAlarm(task.id, new Date(alarmDraft).toISOString())
+                    .then(() => {
+                      notify(t('task.alarm.isSet'))
+                      setEditingAlarm(false)
+                    })
+                    .catch((e: any) => notify(e?.message ?? t('task.alarm.pastTime')))
                 }}
               >
                 {t('common.set')}
