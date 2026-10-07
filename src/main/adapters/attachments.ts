@@ -7,7 +7,7 @@ import type { AttachmentStorePort } from '../../core/ports/attachments'
 import { MAX_ATTACHMENT_BYTES, checkAttachment, storedRelativePath } from '../../core/domain/attachment'
 import { LocalizedError } from '../../core/i18n/issues'
 import { createAttachment, deleteAttachmentRow, getAttachment, listAttachments } from '../db'
-import { attachmentsDir, userDataDir } from '../paths'
+import { userDataDir } from '../paths'
 
 // The AttachmentStorePort implementation (feature 001, research D2).
 //
@@ -80,6 +80,7 @@ export function createAttachmentStore(db: DatabaseSync): AttachmentStorePort {
 
       const name = path.basename(sourcePath)
       return createAttachment(db, {
+        id,
         taskId,
         name,
         mime: guessMime(name),
@@ -120,6 +121,3 @@ function purgeFile(a: Attachment): void {
     // gone and the bytes are unreachable garbage on disk (deletion is final).
   }
 }
-
-/** The data-folder-relative prefix, exported for the portability test. */
-export const ATTACHMENTS_PREFIX = `${path.basename(attachmentsDir())}/`

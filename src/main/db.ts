@@ -1470,14 +1470,16 @@ function mapAttachment(r: any): Attachment {
 
 export function createAttachment(
   db: DatabaseSync,
-  data: { taskId: string; name: string; mime: string | null; path: string; size: number }
+  data: { id: string; taskId: string; name: string; mime: string | null; path: string; size: number }
 ): Attachment {
   const now = new Date().toISOString()
-  const id = randomUUID()
+  // The caller generates the id: the SAME value names the stored directory
+  // (`attachments/<id>/<name>`) and keys the row — the port's rule that the
+  // id owns the file, enforced by construction rather than by agreement.
   db.prepare(
     'INSERT INTO task_attachments (id, task_id, name, mime, path, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, data.taskId, data.name, data.mime, data.path, data.size, now)
-  return getAttachment(db, id)!
+  ).run(data.id, data.taskId, data.name, data.mime, data.path, data.size, now)
+  return getAttachment(db, data.id)!
 }
 
 export function getAttachment(db: DatabaseSync, id: string): Attachment | null {

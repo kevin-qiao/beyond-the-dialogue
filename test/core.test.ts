@@ -690,7 +690,8 @@ test('v12 creates the attachment table; rows round-trip and survive an idempoten
   const { db } = freshDB()
   const l = listLists(db.db)[0]!
   const t = createTask(db.db, { listId: l.id, title: 'with file' })
-  const a = createAttachment(db.db, { taskId: t.id, name: 'paper.pdf', mime: 'application/pdf', path: 'attachments/xyz/paper.pdf', size: 1234 })
+  const a = createAttachment(db.db, { id: 'xyz', taskId: t.id, name: 'paper.pdf', mime: 'application/pdf', path: 'attachments/xyz/paper.pdf', size: 1234 })
+  assert.equal(a.id, 'xyz', 'the id the caller used owns the row and the directory')
   assert.ok(a.id)
   assert.equal(a.taskId, t.id)
   assert.equal(a.size, 1234)
