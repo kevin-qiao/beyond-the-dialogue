@@ -30,6 +30,7 @@ setUserDataRoot(dataRoot)
 const { createJobSession, setSessionFactory } = await import('../../src/main/ai/session-factory')
 const { extractAssistantText } = await import('../../src/main/adapters/agent/sessionAdapter')
 const { loadSettings } = await import('../../src/main/db')
+const { getProviderKey } = await import('../../src/main/secrets')
 const toy = path.join(import.meta.dirname, 'mcpToyServer.mjs')
 const marker = `harness-ping-${Date.now()}`
 
@@ -39,8 +40,8 @@ const marker = `harness-ping-${Date.now()}`
 const db = new DatabaseSync(path.join(dataRoot, 'app.db'), { readOnly: true })
 const real = loadSettings(db)
 db.close()
-if (!real.apiKey) {
-  console.error(`no API key in ${dataRoot}/app.db — configure the app first, or set WB_DATA_ROOT`)
+if (!getProviderKey(real.provider)) {
+  console.error(`no API key in the secret store for ${real.provider} (data root ${dataRoot}) — configure the app first, or set WB_DATA_ROOT`)
   process.exit(2)
 }
 

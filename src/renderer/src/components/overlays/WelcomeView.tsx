@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '../../store'
 import { useT } from '../../lib/useT'
-import type { Settings } from '../../../../shared/types'
+import type { RedactedSettings, Settings, SettingsInput } from '../../../../shared/types'
 
 const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
 
@@ -12,7 +12,10 @@ const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
 export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const { snapshot, saveSettings, createTask } = useApp()
   const t = useT()
-  const [draft, setDraft] = useState<Settings | null>(snapshot?.settings ?? null)
+  const [draft, setDraft] = useState<RedactedSettings | null>(snapshot?.settings ?? null)
+  // Write-only key (FR-020): what the user types goes to the secret store on
+  // save; nothing here ever reads a stored value back.
+  const [newKey, setNewKey] = useState('')
   const [models, setModels] = useState<string[]>([])
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; text?: string; error?: string } | null>(null)
@@ -33,11 +36,12 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
   const update = (patch: Partial<Settings>) => setDraft((d) => (d ? { ...d, ...patch } : d))
 
   const save = async () => {
-    await saveSettings(draft)
+    await saveSettings({ ...draft, ...(newKey ? { apiKey: newKey } : {}) } as SettingsInput)
+    setNewKey('')
   }
 
   const skip = async () => {
-    await saveSettings({ ...draft, showWelcome: false })
+    await saveSettings({ ...draft, showWelcome: false } as SettingsInput)
   }
 
   const runTest = async () => {
@@ -61,7 +65,7 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
     })
     // Adding the sample to My Day runs the learning pre-process once AI is
     // configured (spec task-types: per-type AI pre-processing).
-    if (snapshot?.aiConfigured) await skip()
+    if (snapshot?.aiReadiness === 'configured-verified') await skip()
   }
 
   return (
@@ -114,7 +118,13 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
         </label>
         <label>
           {t('settings.ai.apiKey')}
-          <input type="password" value={draft.apiKey ?? ''} onChange={(e) => update({ apiKey: e.target.value || null })} placeholder="sk-…" />
+          <input
+            type="password"
+            value={newKey}
+            onChange={(e) => setNewKey(e.target.value)}
+            placeholder={draft.hasApiKey ? t('settings.secret.stored') : 'sk-…'}
+            autoComplete="off"
+          />
         </label>
         <div className="row">
           <button className="primary-btn" onClick={() => void save()}>

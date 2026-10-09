@@ -9,6 +9,7 @@ import { runPreprocessJob } from '../src/main/preprocess'
 import { runIngestJob } from '../src/main/wiki/ingest'
 import { setSessionFactory, setSimplePromptOverride, type CreateJobSessionOptions } from '../src/main/ai/session-factory'
 import { setUserDataRoot } from '../src/main/paths'
+import { storeProviderKey } from '../src/main/secrets'
 import { ensureVault } from '../src/main/wiki/vault'
 import { serviceCreateList, serviceCreateTask } from '../src/main/tasks'
 import { getTypeDef, updateTypeDef } from '../src/main/types'
@@ -24,7 +25,8 @@ function fresh() {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 function configured(dir: string, conn: ReturnType<typeof openDB>) {
-  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x', defaultListId: null, maxConcurrentJobs: 2, showWelcome: false, theme: 'light', skills: [], mcpServers: [] })
+  saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', hasApiKey: true, defaultListId: null, maxConcurrentJobs: 2, showWelcome: false, theme: 'light', uiLanguage: 'en', assistantRuntime: 'on', lastCheck: null, skills: [], mcpServers: [] })
+  storeProviderKey('openai', 'sk-x')
   // The wiki location belongs to the learning TYPE now, not to settings.
   updateTypeDef(conn.db, {
     ...getTypeDef(conn.db, 'learning')!,

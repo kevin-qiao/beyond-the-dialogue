@@ -117,6 +117,9 @@ export interface SkillEntry {
   description: string
   // Location of the imported skill folder under the app's skills dir.
   path: string
+  // FR-013: a disabled skill is retained configuration that nothing may
+  // reach through; absence means enabled.
+  disabled?: boolean
 }
 
 /**
@@ -130,6 +133,9 @@ export interface SkillEntry {
 export interface McpServerEntry {
   name: string
   config: Record<string, unknown>
+  // FR-013: a disabled tool server is retained configuration that nothing may
+  // reach through; absence means enabled.
+  disabled?: boolean
 }
 
 // ---- Task management ----
@@ -144,10 +150,30 @@ export interface List {
   deletedAt: string | null
 }
 
+/**
+ * A file the user added to a task, held as the application's OWN copy
+ * (FR-002/FR-003). `path` is relative to the data-folder root only (FR-021) —
+ * an absolute path would die on the folder-copy move the board promises.
+ */
+export interface Attachment {
+  id: string
+  taskId: string
+  name: string
+  mime: string | null
+  /** Relative to the data-folder root; owned by the attachment id. */
+  path: string
+  size: number
+  createdAt: string
+}
+
 export interface Task {
   id: string
-  listId: string
+  /** At most one List (FR-006); null = unassigned, visible in all-tasks. */
+  listId: string | null
   title: string
+  /** Free text (FR-002): the task's background and its target. */
+  background: string
+  target: string
   notes: string
   type: TaskType
   // Optional pointer to a user-defined type in the task_types registry. Takes
@@ -168,6 +194,13 @@ export interface Task {
   createdAt: string
   updatedAt: string
   deletedAt: string | null
+  /**
+   * The task's attachment list, hydrated by the snapshot builder and carried
+   * on `ev:task-updated` (contract: "new attachments ride ev:task-updated").
+   * Row mappers do not set it; the aggregate read does. Optional so the
+   * db-bound Task construction sites stay where they are.
+   */
+  attachments?: Attachment[]
 }
 
 export interface Suggestion {
@@ -180,10 +213,36 @@ export interface Suggestion {
 
 // ---- Settings ----
 
+// The declared assistant-runtime switch (research D1). `off` is the default
+// for feature 001: the harness is configured, verified, and INERT. Dispatch
+// happens through `isAssistantEnabled` (src/core/domain/assistant.ts) — never
+// by comparing this string at call sites.
+export type AssistantRuntime = 'off' | 'on'
+
+// The outcome of the user's last "check connection" (FR-012), retained so the
+// board can show readiness without digging (FR-016). `reason` follows the
+// precedent of `tasks.preprocess_error`: a record of what happened, kept in
+// the language and text it was produced in.
+export interface ModelServiceCheck {
+  state: 'never-checked' | 'ok' | 'failed'
+  reason?: string
+  checkedAt?: string
+}
+
+/**
+ * The persisted settings shape — and deliberately NOT a secret-bearing one.
+ *
+ * From migration v10 on, the provider key and every MCP `env` value live only
+ * in the machine-bound secret store (`src/main/secrets.ts`). What this shape
+ * carries is the PRESENCE (`hasApiKey`; env presence derives from the store on
+ * redaction), so no Settings value can ever be mistaken for a secret and this
+ * type needs no scrubbing on its way across IPC.
+ */
 export interface Settings {
   provider: string
   model: string
-  apiKey: string | null
+  /** Presence of a stored provider key (FR-016/FR-020). Never "cleared by re-save". */
+  hasApiKey: boolean
   defaultListId: string | null
   maxConcurrentJobs: number
   showWelcome: boolean
@@ -192,12 +251,47 @@ export interface Settings {
   // messages) — named `uiLanguage` rather than `language` to say so: it is a
   // presentation choice and must never reach a prompt or shape model output.
   uiLanguage: Language
+  // ---- the assistant switch and the verification state (feature 001) ----
+  assistantRuntime: AssistantRuntime
+  lastCheck: ModelServiceCheck | null
   // Managed plugin entries. MCP servers here are the source of truth for the
   // pi-mcp-adapter grant-gated sessions and are auto-materialized to the
   // app-owned mcp.json (output only). Custom task types live in the task_types
-  // table.
+  // table. `disabled` entries (FR-013) are inert configuration the user keeps;
+  // the user can re-enable or remove them.
   skills: SkillEntry[]
   mcpServers: McpServerEntry[]
+}
+
+/**
+ * The ONLY shape that may carry a secret, and only inbound (contract:
+ * `settings:save`'s write-only request). `apiKey` present and non-empty ⇒
+ * store it; absent or empty ⇒ keep the existing one — never "clear by
+ * re-save". MCP env values arrive the same way: inside a pasted server's
+ * `config.env`, split out by `splitInput` before anything is persisted.
+ */
+export interface SettingsInput extends Settings {
+  apiKey?: string | null
+}
+
+/** One MCP entry as every response sees it: no env values, a presence flag instead. */
+export type RedactedMcpEntry = McpServerEntry & { hasEnv?: boolean }
+
+/** What the snapshot, `settings:get`, and `ev:settings-updated` carry (FR-020). */
+export type RedactedSettings = Omit<Settings, 'mcpServers'> & { mcpServers: RedactedMcpEntry[] }
+
+/**
+ * The shape of the machine-bound secret store (`src/main/secrets.ts`). The
+ * file itself is main-process I/O; this shape is shared so the pure split/
+ * redaction rules in core can reason about secrets WITHOUT their values —
+ * which is exactly the point of the redaction.
+ */
+export interface StoredSecrets {
+  machineFingerprint: string
+  /** Provider id → API key. */
+  providerKeys: Record<string, string>
+  /** MCP server name → env object. */
+  mcpEnv: Record<string, Record<string, string>>
 }
 
 /**
@@ -213,12 +307,14 @@ export interface Settings {
 export const SETTINGS_KEYS = [
   'provider',
   'model',
-  'apiKey',
+  'hasApiKey',
   'defaultListId',
   'maxConcurrentJobs',
   'showWelcome',
   'theme',
   'uiLanguage',
+  'assistantRuntime',
+  'lastCheck',
   'skills',
   'mcpServers'
 ] as const satisfies readonly (keyof Settings)[]
@@ -308,8 +404,11 @@ export interface AppSnapshot {
   suggestions: Suggestion[]
   preprocess: Record<string, TaskPreprocess>
   notes: Record<string, TaskNote>
-  settings: Settings
+  // Redacted by construction (FR-020): the snapshot has no field a secret
+  // could be put into. `aiReadiness` replaces the old `aiConfigured` boolean
+  // (FR-016, feature 001) with the three declared states.
+  settings: RedactedSettings
   taskTypes: TaskTypeDef[]
-  aiConfigured: boolean
+  aiReadiness: 'not-configured' | 'configured-verified' | 'configured-last-check-failed'
   ingestHistory: IngestRecord[]
 }

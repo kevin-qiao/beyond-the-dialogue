@@ -13,7 +13,7 @@ localized code, not a crash (Principle II: deterministic guard at the handler).
 | Channel | Args → Result | Semantics |
 |---|---|---|
 | `lists:create` / `lists:rename` / `lists:delete` | unchanged | New: renderer call sites (ListsRail); **delete unassigns member tasks** (`list_id = NULL`), never deletes tasks (FR-006, D3) |
-| `tasks:create` / `tasks:update` | + `listId?: null` | Title non-empty refusal is a code (`task.title_required`), phrased at the edge |
+| `tasks:create` / `tasks:update` | + `listId?: null` | Title non-empty refusal is a code (`task.field.titleRequired` — the existing catalog wording, so the core refuses in a code the form already speaks), phrased at the edge |
 | `tasks:set-alarm` | unchanged | Past time refused with a code (FR-007) |
 | `tasks:delete` | unchanged | Confirmation is UI-guaranteed (FR-004); main stays unguarded by design — the confirm is in front of every call site, and deletion cascades attachment purge server-side |
 | **`attachments:add-from-dialog`** (new) | `taskId` → `Attachment` | Copies the chosen file into `attachments/<id>/…`; size cap and unreadable-file refusals are codes; the task survives intact on refusal (edge case) |
@@ -21,7 +21,7 @@ localized code, not a crash (Principle II: deterministic guard at the handler).
 | **`attachments:open`** (new) | `attachmentId` → void | Opens via OS default handler; missing-file refusal is a code |
 | `settings:save` | write-only secrets | Secret fields present in payload ⇒ store them; **absent/empty ⇒ keep existing** (never "clear by re-save"); snapshot never echoes values back (FR-020) |
 | `settings:get` / `app:get-snapshot` | result **redacted** | `hasApiKey`, MCP entries without env values; no full secret on any path (FR-020, D4) |
-| `ai:test-connection` | unchanged + state persisted | Result written into model-service `lastCheck {ok | failed(reason)}` for FR-016; failure never blocks saving (US3-AC3) |
+| `ai:test-connection` | `RedactedSettings` arg + state persisted | Result written into model-service `lastCheck {ok | failed(reason)}` for FR-016; the stored key is resolved main-side via `secrets.ts` (T042), so no request but `settings:save`'s carries a secret; failure never blocks saving (US3-AC3) |
 
 ## Events
 
@@ -36,8 +36,12 @@ localized code, not a crash (Principle II: deterministic guard at the handler).
 
 ## Guard expectations (testable, Principle IV)
 
-- No command's request or response type contains a secret string field (type-level
-  redaction: `RedactedSettings` in `shared/types.ts`, not a runtime scrub).
+- No **response, event, or snapshot** type contains a secret string field (type-level
+  redaction: `RedactedSettings` in `shared/types.ts`, not a runtime scrub). The single
+  sanctioned exception is `settings:save`'s **request** `SettingsInput` (T015): it may carry
+  `apiKey`/MCP env values, is write-only, is merged by `splitInput` (T016 — absent/empty ⇒
+  keep existing), and is never echoed back on any path. `ai:test-connection`'s request is
+  `RedactedSettings` (T042) — the stored key is resolved main-side.
 - Layering test still forbids `src/core` I/O; attachment copy logic lives behind the
   port implemented in `src/main/adapters/`; rules in `core/domain/attachment.ts`.
 - i18n literal ratchet stays empty with the new UI strings (keys in both catalogs).

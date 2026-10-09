@@ -1,5 +1,6 @@
 import { useApp } from '../../store'
 import { useT } from '../../lib/useT'
+import { isAssistantEnabled } from '../../../../core/domain/assistant'
 
 // The confirmation affordance for a proposed remote change (FR-023, SC-005).
 //
@@ -10,8 +11,11 @@ import { useT } from '../../lib/useT'
 // can meaningfully agree to.
 
 export function RemoteProposalBar() {
-  const { proposals, confirmRemoteChange, dismissProposal } = useApp()
+  const { proposals, confirmRemoteChange, dismissProposal, snapshot } = useApp()
   const t = useT()
+  // Proposals are assistant working state; while the harness is off none can
+  // exist, and the bar shows nothing (D1).
+  if (!snapshot || !isAssistantEnabled(snapshot.settings)) return null
   if (proposals.length === 0) return null
 
   return (

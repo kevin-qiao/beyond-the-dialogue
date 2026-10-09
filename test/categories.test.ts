@@ -63,12 +63,12 @@ test('writesArtifact is complete-only being special and nothing else', () => {
 })
 
 test('isConfigured requires all three of provider, model and key', () => {
-  const full = { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-x' }
+  const full = { provider: 'openai', model: 'gpt-4o', hasApiKey: true }
   assert.equal(isConfigured(full), true)
   // Each field alone is insufficient — a missing model or key must not read as
   // configured, or a job would be enqueued that cannot run.
   assert.equal(isConfigured({ ...full, provider: '' }), false)
   assert.equal(isConfigured({ ...full, model: '' }), false)
-  assert.equal(isConfigured({ ...full, apiKey: null }), false)
-  assert.equal(isConfigured({ provider: '', model: '', apiKey: null }), false)
+  assert.equal(isConfigured({ ...full, hasApiKey: false }), false)
+  assert.equal(isConfigured({ provider: '', model: '', hasApiKey: false }), false)
 })

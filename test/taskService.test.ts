@@ -26,11 +26,16 @@ function harness(configured = true): { conn: DB; storage: StoragePort; settings:
   const settings: Settings = {
     provider: 'openai',
     model: configured ? 'gpt-4o' : '',
-    apiKey: configured ? 'sk-scripted' : null,
+    hasApiKey: configured,
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,
     theme: 'light',
+    uiLanguage: 'en',
+    // These pins exercise the ASSISTANT paths (the hash-gate, the My Day
+    // first-add rules), so the switch is on. The off-gate pins below flip it.
+    assistantRuntime: 'on',
+    lastCheck: null,
     skills: [],
     mcpServers: []
   }
@@ -181,8 +186,115 @@ test('saveSettings applies the plugin rules and the first-run rule, then persist
   assert.deepEqual(storage.loadSettings().skills, [])
 
   // Configuring a key completes first-run setup.
-  const saved = save(storage, { ...base, apiKey: 'sk-x', showWelcome: true })
+  const saved = save(storage, { ...base, hasApiKey: true, showWelcome: true })
   assert.equal(saved.showWelcome, false)
-  assert.equal(storage.loadSettings().apiKey, 'sk-x')
+  assert.equal(storage.loadSettings().hasApiKey, true)
+  conn.close()
+})
+
+// ---- the assistant switch gates the enqueues (feature 001, T004, FR-015,
+// research D7) ----
+
+test('with the switch off, no My Day add enqueues anything and nothing is queued', () => {
+  const { conn, storage, settings, listId } = harness()
+  const off: Settings = { ...settings, assistantRuntime: 'off' }
+
+  // The plain-task suggestion — the one place a BOARD interaction used to
+  // reach the network (D7) — never fires.
+  const plain = createTask(storage, { listId, title: 'plain', type: 'plain' })
+  const plainAdd = setMyDay(storage, plain.id, true, off)
+  assert.deepEqual(plainAdd.enqueue, [])
+
+  // A pre-processable category neither enqueues nor flips preprocess_status.
+  const learning = createTask(storage, { listId, title: 'learn', type: 'learning', inputs: { target: 'x' } })
+  const learnAdd = setMyDay(storage, learning.id, true, off)
+  assert.deepEqual(learnAdd.enqueue, [])
+  assert.equal(learnAdd.task.preprocessStatus, 'none', 'no queued status while off')
+
+  // Meeting likewise.
+  const meeting = createTask(storage, { listId, title: 'standup', type: 'meeting' })
+  assert.deepEqual(setMyDay(storage, meeting.id, true, off).enqueue, [])
+  conn.close()
+})
+
+test('with the switch off, an edit never re-runs pre-processing — even a relevant input change', () => {
+  const { conn, storage, settings, listId } = harness()
+  const off: Settings = { ...settings, assistantRuntime: 'off' }
+  const task = createTask(storage, { listId, title: 'learn', type: 'learning', inputs: { target: 'A' } })
+  setMyDay(storage, task.id, true, off) // no-op
+  storage.updateTask(task.id, { preprocessStatus: 'ready' })
+
+  const outcome = updateTask(storage, { id: task.id, inputs: { target: 'CHANGED' } }, off)
+  assert.deepEqual(outcome.enqueue, [])
+  assert.equal(outcome.task.preprocessStatus, 'ready', 'the status never moves to queued')
+  conn.close()
+})
+
+test('the switch is read from settings at the service edge, not from a kind comparison', () => {
+  // The gate covers EVERY category identically: plain, learning, meeting all
+  // get zero enqueue while off — there is no branch that could forget one
+  // (Principle I). The three assertions above are the census; this one names
+  // the mechanism.
+  const { conn, storage, settings, listId } = harness()
+  const off: Settings = { ...settings, assistantRuntime: 'off' }
+  for (const type of ['plain', 'learning', 'meeting'] as const) {
+    const t = createTask(storage, { listId, title: `t-${type}`, type, inputs: type === 'learning' ? { target: 'x' } : {} })
+    assert.deepEqual(setMyDay(storage, t.id, true, off).enqueue, [], type)
+  }
+  conn.close()
+})
+
+// ---- the redaction / split rules (feature 001, T016, FR-020) ----
+
+test('toRedacted keeps Settings secret-free and flags MCP env presence', async () => {
+  const { conn, storage } = harness()
+  const { toRedacted, saveSettings } = await import('../src/core/services/settingsService')
+  // A server row as it persists post-v10: shape without env.
+  saveSettings(storage, { ...storage.loadSettings(), mcpServers: [{ name: 'jira', config: { command: 'npx' } }] })
+  const stored = { machineFingerprint: 'm', providerKeys: { openai: 'sk-x' }, mcpEnv: { jira: { TOKEN: 't' } } }
+  const redacted = toRedacted(storage.loadSettings(), stored)
+  assert.equal('apiKey' in redacted, false)
+  const servers = redacted.mcpServers as { name: string; hasEnv?: boolean }[]
+  assert.equal(servers.find((s) => s.name === 'jira')?.hasEnv, true)
+  assert.equal(servers.length, 1, 'rows only — the env from the store never becomes a server')
+  conn.close()
+})
+
+test('splitInput merges by the write-only rule: present stores, absent keeps, never clears', async () => {
+  const { conn, storage } = harness()
+  const { splitInput } = await import('../src/core/services/settingsService')
+  const base = storage.loadSettings()
+  const existing = { machineFingerprint: 'm', providerKeys: { openai: 'sk-old' }, mcpEnv: {} }
+
+  // No key in the payload ⇒ no instruction, presence stands from the row.
+  const keep = splitInput({ ...base, hasApiKey: true }, existing)
+  assert.equal(keep.secrets.providerKey, undefined)
+  assert.equal(keep.settings.hasApiKey, true)
+
+  // A typed key ⇒ it is the instruction; the persisted shape never carries it.
+  const store = splitInput({ ...base, apiKey: 'sk-new' }, existing)
+  assert.deepEqual(store.secrets.providerKey, { provider: 'openai', value: 'sk-new' })
+  assert.equal('apiKey' in store.settings, false)
+
+  // An empty string is absent, not a clear.
+  assert.equal(splitInput({ ...base, apiKey: '' }, existing).secrets.providerKey, undefined)
+
+  // A pasted server's env is split out of the config into the instruction.
+  const envSplit = splitInput(
+    { ...base, mcpServers: [{ name: 'gh', config: { command: 'x', env: { TOKEN: 'g' } } }] },
+    existing
+  )
+  assert.deepEqual(envSplit.secrets.mcpEnv.gh, { TOKEN: 'g' })
+  assert.deepEqual(envSplit.settings.mcpServers[0]!.config, { command: 'x' })
+  conn.close()
+})
+
+// ---- FR-001 at the core edge (T021) ----
+
+test('a title-less create and a blanking edit are refused as codes in the core', async () => {
+  const { conn, storage, settings, listId } = harness()
+  assertRefusedWith(() => createTask(storage, { listId, title: '  ', type: 'plain' }), 'task.field.titleRequired')
+  const t = createTask(storage, { listId, title: 'ok', type: 'plain' })
+  assertRefusedWith(() => updateTask(storage, { id: t.id, title: '' }, settings), 'task.field.titleRequired')
   conn.close()
 })

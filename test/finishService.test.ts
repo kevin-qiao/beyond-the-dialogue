@@ -10,7 +10,7 @@ import { createSqliteStorage } from '../src/main/adapters/sqlite/storageAdapter'
 import { folderArtifactStore, ensureDestination } from '../src/main/adapters/artifacts/folderStore'
 import { nodePathPort } from '../src/main/adapters/paths'
 import { systemClock } from '../src/core/ports/clock'
-import { finishTask, FinishRefused, type FinishDeps } from '../src/core/services/finishService'
+import { finishTask, resolveBehaviour, FinishRefused, type FinishDeps } from '../src/core/services/finishService'
 import { setUserDataRoot } from '../src/main/paths'
 import type { AgentSessionPort } from '../src/core/ports/agent'
 import type { DB } from '../src/main/db'
@@ -31,11 +31,14 @@ function harness() {
   saveSettings(conn.db, {
     provider: 'openai',
     model: 'gpt-4o',
-    apiKey: 'sk-scripted',
+    hasApiKey: true,
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,
     theme: 'light',
+    uiLanguage: 'en',
+    assistantRuntime: 'on',
+    lastCheck: null,
     skills: [],
     mcpServers: []
   })
@@ -66,6 +69,9 @@ function depsFor(conn: DB, session: AgentSessionPort): FinishDeps {
     // Tests render English; the language is explicit rather than absent so a
     // missing one cannot hide as a silent fallback.
     language: 'en',
+    // These pins drive the assistant behaviours, so the switch is on. The
+    // gated-dispatch pins below flip it.
+    assistantEnabled: true,
     paths: nodePathPort,
     storage: createSqliteStorage(conn.db),
     storeFor: () => folderArtifactStore,
@@ -258,4 +264,41 @@ test('a wiki-destined type with no directory is refused, not defaulted', async (
     return true
   })
   assert.equal(getTask(conn.db, task.id)!.completed, false, 'refused while still actionable, never half-completed')
+})
+
+// ---- the switch gates the behaviour dispatch (feature 001, T005, D1) ----
+
+test('resolveBehaviour: while off, only complete-only is reachable', () => {
+  const mk = (finishBehaviour: TaskTypeDef['finishBehaviour']) =>
+    ({ key: 'k', kind: 'plain', label: 'K', emoji: '·', inputSchema: [], isBuiltin: false, finishBehaviour, grants: { skills: [], toolServers: [] } }) as TaskTypeDef
+  assert.equal(resolveBehaviour(mk('complete-only'), false), 'complete-only')
+  for (const behaviour of ['file-as-is', 'polish-then-file', 'deposit-then-curate'] as const) {
+    assert.throws(
+      () => resolveBehaviour(mk(behaviour), false),
+      (e: any) => e.name === 'FinishRefused' && e.issues[0]?.key === 'assistant.disabled',
+      behaviour + ' must refuse while the switch is off'
+    )
+  }
+  // On, everything declared is reachable (the historical behavior).
+  assert.equal(resolveBehaviour(mk('file-as-is'), true), 'file-as-is')
+})
+
+test('a finish with the switch off refuses a writing type BEFORE completing, and completes a plain one', async () => {
+  const { conn, destDir, task } = harness()
+  const off = { ...depsFor(conn, polishedSession()), assistantEnabled: false }
+  // The meeting type declares polish-then-file: refused, and the task is NOT
+  // completed — nothing half-happens (the ordering rule).
+  await assert.rejects(
+    () => finishTask(off, task.id),
+    (e: any) => e.name === 'FinishRefused' && e.issues[0]?.key === 'assistant.disabled'
+  )
+  assert.equal(getTask(conn.db, task.id)!.completed, false)
+  assert.deepEqual(fs.readdirSync(destDir), [], 'no artifact was written')
+
+  // A complete-only type finishes normally while off: completing is board work.
+  const plainList = createList(conn.db, 'P')
+  const plain = createTask(conn.db, { listId: plainList.id, title: 'plain', type: 'plain' })
+  const outcome = await finishTask(off, plain.id)
+  assert.equal(outcome.task.completed, true)
+  conn.close()
 })

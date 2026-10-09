@@ -41,6 +41,14 @@ export function vaultDir(): string {
   return path.join(userDataDir(), 'vault')
 }
 
+// Application-owned copies of user attachments (feature 001, FR-003/FR-021).
+// The directory lives under the data root so the folder-copy portability
+// story carries them; rows reference them by a path RELATIVE to this root,
+// never absolutely — an absolute path would survive the copy as a dead link.
+export function attachmentsDir(): string {
+  return path.join(userDataDir(), 'attachments')
+}
+
 export function notesDir(): string {
   return path.join(vaultDir(), 'notes')
 }
@@ -51,6 +59,16 @@ export function piAgentDir(): string {
 
 export function piAuthPath(): string {
   return path.join(piAgentDir(), 'auth.json')
+}
+
+// The machine-bound secret store (feature 001, research D4, FR-020): the
+// provider keys and MCP env values that migration v10 moved OUT of the
+// settings table. Written mode 0600, read by main only, never logged, and
+// gated by a machine fingerprint so a copied data folder treats them as
+// absent and asks again (FR-021/SC-008). Derived here, beside auth.json,
+// because every app-private file under userData is named in this module.
+export function piSecretsPath(): string {
+  return path.join(piAgentDir(), 'secrets.json')
 }
 
 export function piModelsPath(): string {

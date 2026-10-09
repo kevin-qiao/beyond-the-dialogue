@@ -11,7 +11,7 @@ import { IconPlus } from '../ui/icons'
 // task is plain, and its type is set where the type's own inputs are — the ✎
 // Edit modal (TaskForm) or the focus band's type dropdown. Keeping the type
 // out of the capture box keeps it a one-line, always-ready input.
-export function QuickAdd({ listId, onCreated }: { listId: string; onCreated?: () => void }) {
+export function QuickAdd({ listId, onCreated }: { listId: string | null; onCreated?: () => void }) {
   const { createTask } = useApp()
   const t = useT()
   const [value, setValue] = useState('')

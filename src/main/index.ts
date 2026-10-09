@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, Notification } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, shell } from 'electron'
 import { AlarmScheduler } from './alarms'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-import { openDB, migrate, loadSettings, saveSettings, type DB } from './db'
+import { openDB, migrate, loadSettings, saveSettings, listAttachments, type DB } from './db'
 import { materializeMcpConfig } from './mcpConfigFile'
 import { ensureVault, writeNote } from './wiki/vault'
 import {
@@ -17,6 +17,7 @@ import {
   serviceListForList,
   serviceLists,
   serviceRenameList,
+  serviceSetAlarm,
   serviceToggleTask,
   serviceUpdateTask,
   rolloverMyDay
@@ -27,21 +28,27 @@ import { runPreprocessJob } from './preprocess'
 import { runIngestJob } from './wiki/ingest'
 import { configureRuntimeFromSettings, isConfigured, listModelsForProvider, listProviders, testPrompt } from './ai/agent-runtime'
 import { ChatSession } from './ai/chat'
-import { getPreprocess, getNotes, listIngest, listSuggestions, listAllSuggestions, getTask, saveNotes, dismissSuggestion, getJob, updateTask } from './db'
+import { getPreprocess, getNotes, listIngest, listSuggestions, listAllSuggestions, getTask, saveNotes, dismissSuggestion, getJob, updateTask, getAttachment } from './db'
 import { notePathFor } from './wiki/vault'
 import { createTypeDef, deleteTypeDef, effectiveKind, effectiveTypeDef, getTypeDef, listTypeDefs, updateTypeDef } from './types'
 import { importSkillFolder } from './skills'
 import { importSkillFromGitHub } from './skills-github'
 import { IPC, type AppCommands, type AppEvents } from '../shared/ipc'
-import type { AppSnapshot, Settings, Task, TaskTypeDef } from '../shared/types'
+import type { AppSnapshot, Attachment, RedactedSettings, Settings, Task, TaskTypeDef } from '../shared/types'
 import type { RemoteProposalView } from '../shared/ipc'
 import { finishTask as runFinishTask, type FinishDeps } from '../core/services/finishService'
 import { declaredWorkflow } from '../core/domain/taskType'
-import { saveSettings as saveSettingsService } from '../core/services/settingsService'
+import { saveSettings as saveSettingsService, splitInput, toRedacted } from '../core/services/settingsService'
+import { isAssistantEnabled } from '../core/domain/assistant'
+import { aiReadiness } from '../core/domain/config'
+import { getProviderKey, readSecrets, stripStaleAuthFile, getMcpEnv, storeMcpEnv, storeProviderKey } from './secrets'
+import { loadRuntimeSettings } from './runtimeSettings'
+import { createAttachmentStore } from './adapters/attachments'
+import { LocalizedError } from '../core/i18n/issues'
 import { runPreprocess as runPreprocessService } from '../core/services/preprocessService'
 import { buildSessionContext, createProposalQueue } from '../core/domain/grant'
 import { buildChatContext } from '../core/domain/chatContext'
-import { message } from '../core/i18n'
+import { localeOf, message } from '../core/i18n'
 import { localizeThrown } from './errors'
 import {
   createTask as createTaskService,
@@ -96,9 +103,24 @@ function rescheduleAlarms(): void {
 // OS notification for a fired alarm (spec task-notifications): firing works
 // whether the app is focused or not; clicking focuses the window and opens
 // the task in the renderer.
-function raiseAlarmNotification(fire: { taskId: string; title: string }): void {
+function raiseAlarmNotification(fire: { taskId: string; title: string; dueAt: string; overdue: boolean }): void {
   if (!Notification.isSupported()) return
-  const n = new Notification({ title: 'Beyond the Dialogue', body: fire.title })
+  // FR-008/FR-010: the notification names the task either way; a missed-while-
+  // closed re-raise says OVERDUE and names the original date-time — in the
+  // language the app is set to. These are the app's own words, so they come
+  // from the catalog, not from a literal (the literal census cannot see a
+  // `new Notification({…})` argument — this line is written from keys on
+  // purpose; see CLAUDE.md's language section).
+  const d = db!.db
+  const language = loadSettings(d).uiLanguage
+  let title = 'Beyond the Dialogue'
+  let body = fire.title
+  if (fire.overdue) {
+    title = message(language, 'alarm.overdue.title')
+    const when = new Date(fire.dueAt).toLocaleString(localeOf(language))
+    body = message(language, 'alarm.overdue.body', { title: fire.title, when })
+  }
+  const n = new Notification({ title, body })
   n.on('click', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore()
@@ -149,10 +171,22 @@ function chatGroundingVersion(d: DatabaseSync, taskId: string | null): string {
   return p ? `${p.status}|${p.updatedAt}|${p.inputsHash}` : 'none'
 }
 
+/** Attachments ride the task aggregate (contract: "new attachments ride
+ *  `ev:task-updated` … no separate channel until needed"). */
+function withAttachments(d: DatabaseSync, task: Task): Task {
+  return { ...task, attachments: listAttachments(d, task.id) }
+}
+
+function snapshotSettings(d: DatabaseSync): RedactedSettings {
+  // The secret store is consulted for PRESENCE only (hasEnv); the values
+  // themselves never enter the returned object (FR-020).
+  return toRedacted(loadSettings(d), readSecrets().secrets)
+}
+
 function buildSnapshot(): AppSnapshot {
   const d = db!.db
   const lists = serviceLists(d)
-  const tasks = serviceListForList(d)
+  const tasks = serviceListForList(d).map((t) => withAttachments(d, t))
   const suggestions = listAllSuggestions(d)
   const preprocess: AppSnapshot['preprocess'] = {}
   const notes: AppSnapshot['notes'] = {}
@@ -169,9 +203,10 @@ function buildSnapshot(): AppSnapshot {
     suggestions,
     preprocess,
     notes,
-    settings,
+    settings: toRedacted(settings, readSecrets().secrets),
     taskTypes: listTypeDefs(d),
-    aiConfigured: isConfigured(settings),
+    // FR-016: three declared states, not a boolean (feature 001).
+    aiReadiness: aiReadiness(settings),
     ingestHistory: listIngest(d)
   }
 }
@@ -198,7 +233,7 @@ function wireJobEvents(q: JobQueue): void {
     })
     if (job.taskId) {
       const t = getTask(d(), job.taskId)
-      if (t) broadcast(IPC.evTaskUpdated, t)
+      if (t) broadcast(IPC.evTaskUpdated, withAttachments(d(), t))
     }
   })
   q.on('done', (job) => {
@@ -222,7 +257,7 @@ function wireJobEvents(q: JobQueue): void {
     }
     if (job.taskId) {
       const t = getTask(d(), job.taskId)
-      if (t) broadcast(IPC.evTaskUpdated, t)
+      if (t) broadcast(IPC.evTaskUpdated, withAttachments(d(), t))
     }
   })
   q.on('ingest-done', (rec) => {
@@ -242,7 +277,7 @@ function wireJobEvents(q: JobQueue): void {
 // than here.
 function broadcastTask(taskId: string): void {
   const t = getTask(db!.db, taskId)
-  if (t) broadcast(IPC.evTaskUpdated, t)
+  if (t) broadcast(IPC.evTaskUpdated, withAttachments(db!.db, t))
 }
 
 // The behaviour a task's type declares, or null when it declares none.
@@ -298,13 +333,17 @@ function defFor(db: DatabaseSync, type: Task['type'] | undefined, customTypeKey:
 // the type-declared destinations always reflect the current state of the DB.
 function finishDeps(): FinishDeps {
   const d = db!.db
-  const language = loadSettings(d).uiLanguage
+  const settings = loadSettings(d)
+  const language = settings.uiLanguage
   return {
     language,
+    // D1: while the switch is off only `complete-only` is reachable; the
+    // refusal happens inside the service, before anything is marked complete.
+    assistantEnabled: isAssistantEnabled(settings),
     paths: nodePathPort,
     storage: createSqliteStorage(d),
     storeFor: artifactStoreFor(),
-    session: createAgentSessionAdapter(() => loadSettings(d)),
+    session: createAgentSessionAdapter(() => loadRuntimeSettings(d)),
     clock: systemClock,
     notifier: createNotifier({
       toast: (text, opts) => broadcast(IPC.evToast, { message: text, view: opts?.view }),
@@ -354,6 +393,35 @@ function handleCommand<C extends keyof AppCommands>(
   })
 }
 
+// The assistant switch's boundary guard (feature 001, T044): the assistant
+// channels stay REGISTERED — a renderer built against the typed map must not
+// fail on a missing channel — but refuse, with a localized code rather than a
+// crash, while the declared switch says off. `tasks:finish` is deliberately
+// NOT here: completing a task is board work, and only the behaviours beyond
+// `complete-only` are gated (inside finishService, on the declaration).
+function requireAssistant(d: DatabaseSync): void {
+  if (!isAssistantEnabled(loadSettings(d))) throw new LocalizedError([{ key: 'assistant.disabled' }])
+}
+
+/**
+ * The specific failure the check reported (FR-012: "success, authentication
+ * failure, unreachable, bad response"). The provider's own text is kept as
+ * the record's `reason` — the precedent of `tasks.preprocess_error`: what
+ * happened, in the words it happened in — but the three-way distinction is
+ * decided HERE, from the text, so the state survives the language it was
+ * written in.
+ */
+function classifyCheckFailure(errorText: string | undefined): string {
+  const t = (errorText ?? '').toLowerCase()
+  if (/401|403|unauthorized|invalid api key|authentication|credential|no api key|no model available/.test(t)) {
+    return 'authentication failed'
+  }
+  if (/429|50[0-9]|timeout|timed out|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|network|fetch failed|connection/.test(t)) {
+    return 'the service could not be reached'
+  }
+  return 'the service returned a bad response'
+}
+
 function registerIpc(): void {
   const d = () => db!.db
   ipcMain.handle(IPC.getSnapshot, () => buildSnapshot())
@@ -377,36 +445,80 @@ function registerIpc(): void {
     const task = createTaskService(createSqliteStorage(d()), {
       listId: args.listId,
       title: args.title,
+      background: args.background,
+      target: args.target,
       notes: args.notes,
       type: args.type,
       customTypeKey: args.customTypeKey ?? null,
       inputs: args.inputs ?? {}
     })
-    broadcast(IPC.evTaskUpdated, task)
-    return task
+    const agg = withAttachments(d(), task)
+    broadcast(IPC.evTaskUpdated, agg)
+    return agg
   })
   handleCommand(IPC.updateTask, (args) => {
     // The routing rules live in the service; this handler only reports the
     // result and performs the background work the service asked for.
     const outcome = updateTaskService(createSqliteStorage(d()), args, loadSettings(d()))
     for (const work of outcome.enqueue) queue!.enqueue(work, outcome.task.id)
-    broadcast(IPC.evTaskUpdated, outcome.task)
-    return outcome.task
+    const agg = withAttachments(d(), outcome.task)
+    broadcast(IPC.evTaskUpdated, agg)
+    return agg
   })
   handleCommand(IPC.runPreprocess, (args) => {
-    // The guards live in the service; this handler only acts on its decision.
+    // The guards live in the service (including the switch refusal —
+    // `assistant.disabled` is raised at the core edge, not here).
     const outcome = runPreprocessService(createSqliteStorage(d()), args.id, loadSettings(d()))
     for (const work of outcome.enqueue) queue!.enqueue(work, outcome.task.id)
-    broadcast(IPC.evTaskUpdated, outcome.task)
-    return outcome.task
+    const agg = withAttachments(d(), outcome.task)
+    broadcast(IPC.evTaskUpdated, agg)
+    return agg
   })
   ipcMain.handle(IPC.deleteTask, (_e, args) => {
     serviceDeleteTask(d(), args.id)
+    // A deletion is final: the task, its alarm, and its attachments are gone
+    // (FR-004 as clarified). The alarm consumption works through the
+    // `deleted_at` filter in AlarmScheduler.pending() — nothing to do here.
+    createAttachmentStore(d()).purgeForTask(args.id)
     // A deleted task's conversation can never be reopened, so it is dropped
     // rather than kept for the life of the process.
     chatSessions.delete(chatKeyOf(args.id))
     rescheduleAlarms()
     broadcast(IPC.evTaskUpdated, { id: args.id, deleted: true })
+    return undefined
+  })
+
+  // ---- attachments (feature 001, T024) ----
+  //
+  // The dialog opens here, in main, reusing the `dialog:choose-file` pattern
+  // but with NO markdown filter — an attachment is any file (research D2).
+  // The handlers are wrapped with handleCommand so the refusals arrive as
+  // localized codes and "the task survives intact on refusal" (contract).
+
+  handleCommand(IPC.attachmentsAddFromDialog, async (args) => {
+    const task = getTask(d(), args.taskId)
+    if (!task) throw new Error('task not found')
+    const res = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile'] })
+    if (res.canceled || res.filePaths.length === 0) return null
+    const stored = createAttachmentStore(d()).copyIn(args.taskId, res.filePaths[0]!)
+    broadcastTask(args.taskId)
+    return stored
+  })
+  handleCommand(IPC.attachmentsRemove, (args) => {
+    // The task is re-broadcast so its attachment aggregate refreshes in the
+    // renderer; the row lookup happens before the delete.
+    const row = getAttachment(d(), args.attachmentId)
+    createAttachmentStore(d()).remove(args.attachmentId)
+    if (row) broadcastTask(row.taskId)
+    return undefined
+  })
+  handleCommand(IPC.attachmentsOpen, async (args) => {
+    const resolved = createAttachmentStore(d()).resolveStored(args.attachmentId)
+    if (!resolved) throw new LocalizedError([{ key: 'attachment.missing' }])
+    // shell.openPath answers '' on success and an error string otherwise —
+    // surfacing it is better than a click that silently does nothing.
+    const err = await shell.openPath(resolved.absPath)
+    if (err) throw new Error(err)
     return undefined
   })
   ipcMain.handle(IPC.toggleTask, (_e, args) => {
@@ -418,8 +530,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC.setMyDay, (_e, args) => {
     const outcome = setMyDayService(createSqliteStorage(d()), args.id, args.inMyDay, loadSettings(d()))
     for (const work of outcome.enqueue) queue!.enqueue(work, outcome.task.id)
-    broadcast(IPC.evTaskUpdated, outcome.task)
-    return outcome.task
+    const agg = withAttachments(d(), outcome.task)
+    broadcast(IPC.evTaskUpdated, agg)
+    return agg
   })
   ipcMain.handle(IPC.setTaskDone, (_e, args) => {
     const task = serviceUpdateTask(d(), args.id, {
@@ -432,11 +545,14 @@ function registerIpc(): void {
     broadcast(IPC.evTaskUpdated, task)
     return task
   })
-  ipcMain.handle(IPC.setAlarm, (_e, args) => {
-    const task = updateTask(d(), args.id, { alarmAt: args.alarmAt ?? null })
+  handleCommand(IPC.setAlarm, (args) => {
+    // FR-007: a past time is refused with a code at the service edge — the
+    // task and its existing alarm stay exactly as they were.
+    const task = serviceSetAlarm(d(), args.id, args.alarmAt ?? null)
     rescheduleAlarms()
-    broadcast(IPC.evTaskUpdated, task)
-    return task
+    const agg = withAttachments(d(), task)
+    broadcast(IPC.evTaskUpdated, agg)
+    return agg
   })
   ipcMain.handle(IPC.saveNote, (_e, args) => {
     ensureVault()
@@ -463,9 +579,10 @@ function registerIpc(): void {
         error: null
       })
       rescheduleAlarms()
-      broadcast(IPC.evTaskUpdated, outcome.task)
+      const agg = withAttachments(d(), outcome.task)
+      broadcast(IPC.evTaskUpdated, agg)
       broadcastActivityFor(args.id)
-      return outcome.task
+      return agg
     } catch (e: any) {
       broadcast(IPC.evJobProgress, {
         jobId: stepKey,
@@ -513,11 +630,13 @@ function registerIpc(): void {
     broadcast(IPC.evTypesUpdated, listTypeDefs(d()))
     return undefined
   })
-  ipcMain.handle(IPC.cancelJob, (_e, args) => {
+  handleCommand(IPC.cancelJob, (args) => {
+    requireAssistant(d())
     queue!.cancel(args.jobId)
     return undefined
   })
-  ipcMain.handle(IPC.retryJob, (_e, args) => {
+  handleCommand(IPC.retryJob, (args) => {
+    requireAssistant(d())
     const job = getJob(d(), args.jobId)
     if (!job) throw new Error('job not found')
     if (job.kind === 'preprocess' && job.taskId) {
@@ -528,15 +647,23 @@ function registerIpc(): void {
     }
     return undefined
   })
-  ipcMain.handle(IPC.getSettings, () => loadSettings(d()))
+  ipcMain.handle(IPC.getSettings, () => snapshotSettings(d()))
   handleCommand(IPC.saveSettings, async (args) => {
+    // The write-only secret merge (contract): the payload MAY carry a key and
+    // env values; present ⇒ store them in the secret store, absent/empty ⇒
+    // keep the existing ones (never "clear by re-save"). What reaches the
+    // settings table is presence only.
+    const { settings: nonSecret, secrets } = splitInput(args.settings, readSecrets().secrets)
+    if (secrets.providerKey) storeProviderKey(secrets.providerKey.provider, secrets.providerKey.value)
+    for (const [server, env] of Object.entries(secrets.mcpEnv)) storeMcpEnv(server, env)
+
     // The validation and the first-run rule live in the service.
-    const saved = saveSettingsService(createSqliteStorage(d()), args.settings)
-    // The user asked the app to keep mcp.json current. The save already
-    // committed — a failed file write must not pretend the settings were lost,
-    // but it must be reported (FR-024: a failure never presents as success).
+    const saved = saveSettingsService(createSqliteStorage(d()), nonSecret)
+    // mcp.json is re-merged with env from the secret store: the rows carry
+    // shape, the store carries values, the file is the standard shape again
+    // (T047) for 002's adapter and for the user's inspection.
     try {
-      materializeMcpConfig(saved.mcpServers ?? [])
+      materializeMcpConfig(saved.mcpServers ?? [], (name) => getMcpEnv(name))
     } catch (e: any) {
       broadcast(IPC.evToast, {
         message: message(saved.uiLanguage, 'settings.mcp.materializeFailed', {
@@ -544,15 +671,43 @@ function registerIpc(): void {
         })
       })
     }
-    await configureRuntimeFromSettings(saved)
-    broadcast(IPC.evSettingsUpdated, saved)
-    return saved
+    await configureRuntimeFromSettings(loadRuntimeSettings(d()))
+    const redacted = toRedacted(saved, readSecrets().secrets)
+    broadcast(IPC.evSettingsUpdated, redacted)
+    return redacted
   })
   ipcMain.handle(IPC.listModels, (_e, provider: string) => listModelsForProvider(provider))
   ipcMain.handle(IPC.listProviders, () => listProviders())
-  ipcMain.handle(IPC.testConnection, async (_e, settings: Settings) => testPrompt(settings, 'Reply with exactly: OK'))
-  ipcMain.handle(IPC.sendChat, async (_e, args: { text: string; taskId?: string }) => {
-    const settings = loadSettings(d())
+  handleCommand(IPC.testConnection, async (args) => {
+    // The request is RedactedSettings (guard: no request carries a secret);
+    // the key is resolved main-side from the machine-bound store.
+    void args
+    const stored0 = loadSettings(d())
+    let result: { ok: boolean; text?: string; error?: string }
+    if (stored0.hasApiKey && !getProviderKey(stored0.provider)) {
+      // The folder moved: the value died with the old machine (D4). The
+      // re-enter state is the failure, named — first use asks, exactly once
+      // (FR-021/SC-008).
+      result = { ok: false, error: message(stored0.uiLanguage, 'settings.secret.reenterRequired') }
+    } else {
+      result = await testPrompt(loadRuntimeSettings(d()), 'Reply with exactly: OK')
+    }
+    // FR-012: report the outcome SPECIFICALLY, and remember it — the board's
+    // readiness state is the stored verdict (FR-016), so a failed check
+    // survives the save exactly as today, and changes nothing else (US3-AC3).
+    const stored = loadSettings(d())
+    stored.lastCheck = {
+      state: result.ok ? 'ok' : 'failed',
+      ...(result.ok ? {} : { reason: classifyCheckFailure(result.error) }),
+      checkedAt: new Date().toISOString()
+    }
+    saveSettings(d(), stored)
+    broadcast(IPC.evSettingsUpdated, toRedacted(stored, readSecrets().secrets))
+    return result
+  })
+  handleCommand(IPC.sendChat, async (args) => {
+    requireAssistant(d())
+    const settings = loadRuntimeSettings(d())
     const taskId = args.taskId ?? null
     // Conversations are per-surface: the entry is created on the surface's
     // first message and kept for as long as the app runs, so a task's chat is
@@ -577,17 +732,24 @@ function registerIpc(): void {
       broadcast(IPC.evChatError, { owner: taskId, error: e?.message ?? String(e) })
     }
   })
-  ipcMain.handle(IPC.resetChat, (_e, args: { taskId?: string }) => {
+  handleCommand(IPC.resetChat, (args) => {
+    requireAssistant(d())
     const taskId = args?.taskId ?? null
     chatEntryFor(taskId).session.reset()
+    return undefined
   })
-  ipcMain.handle(IPC.dismissSuggestion, (_e, args) => {
+  handleCommand(IPC.dismissSuggestion, (args) => {
+    requireAssistant(d())
     const s = dismissSuggestion(d(), args.suggestionId)
     broadcast(IPC.evSuggestionsUpdated, { taskId: s.taskId, suggestions: listSuggestions(d(), s.taskId) })
     return s
   })
-  ipcMain.handle(IPC.getProposals, () => proposalViews())
-  ipcMain.handle(IPC.confirmRemoteChange, async (_e, args: { proposalId: string }) => {
+  handleCommand(IPC.getProposals, () => {
+    requireAssistant(d())
+    return proposalViews()
+  })
+  handleCommand(IPC.confirmRemoteChange, async (args: { proposalId: string }) => {
+    requireAssistant(d())
     // The per-change confirmation EXECUTION (mutating an external system from
     // this bar) is still deferred (research R7a): the MCP transport is now
     // live at the session seam for granted types, but this flow needs
@@ -604,13 +766,18 @@ function registerIpc(): void {
     if (!outcome.ok) broadcast(IPC.evToast, { message: outcome.error, view: 'activity' })
     return outcome
   })
-  ipcMain.handle(IPC.dismissProposal, (_e, args: { proposalId: string }) => {
+  handleCommand(IPC.dismissProposal, (args: { proposalId: string }) => {
+    requireAssistant(d())
     proposals.dismiss(args.proposalId)
     broadcastProposals()
     return undefined
   })
-  ipcMain.handle(IPC.getActivity, () => listIngest(d()))
-  ipcMain.handle(IPC.retryIngest, async (_e, args) => {
+  handleCommand(IPC.getActivity, () => {
+    requireAssistant(d())
+    return listIngest(d())
+  })
+  handleCommand(IPC.retryIngest, async (args) => {
+    requireAssistant(d())
     // Retry means "try that finish again", and what that takes depends on the
     // type's declared behaviour: a deposit-then-curate finish has a background
     // curating job to re-queue, while an inline behaviour just runs again. The
@@ -681,7 +848,7 @@ app.whenReady().then(async () => {
   // stale, and here it is rewritten from the source of truth. A failure must
   // not block boot; the file is an inspection copy.
   try {
-    materializeMcpConfig(loadSettings(d.db).mcpServers ?? [])
+    materializeMcpConfig(loadSettings(d.db).mcpServers ?? [], (name) => getMcpEnv(name))
   } catch (e) {
     console.warn('[mcp] could not write the app mcp.json:', e)
   }
@@ -690,9 +857,16 @@ app.whenReady().then(async () => {
   rolloverMyDay(d.db)
 
   queue = new JobQueue(d.db, loadSettings(d.db).maxConcurrentJobs)
-  queue.register('preprocess', runPreprocessJob)
-  queue.register('suggestion', runSuggestionJob)
-  queue.register('ingest', runIngestJob)
+  // T006 (FR-015): the assistant job kinds are REGISTERED ONLY while the
+  // declared switch says on — registration itself is the reachability, so a
+  // mis-typed enqueue could not even be picked up. wireJobEvents and
+  // requeueInterrupted stay wired regardless: the machinery is board-safe,
+  // and T004 is what prevents unregistered kinds from ever being enqueued.
+  if (isAssistantEnabled(loadSettings(d.db))) {
+    queue.register('preprocess', runPreprocessJob)
+    queue.register('suggestion', runSuggestionJob)
+    queue.register('ingest', runIngestJob)
+  }
   wireJobEvents(queue)
   queue.requeueInterrupted()
 
@@ -700,9 +874,17 @@ app.whenReady().then(async () => {
   alarms = new AlarmScheduler(d.db, raiseAlarmNotification)
   alarms.start()
 
-  // Ensure configured key is applied to runtime at startup.
-  const settings = loadSettings(d.db)
-  await configureRuntimeFromSettings(settings)
+  // T041a: the SDK reads its own `auth.json` at its initiative; when the
+  // gated store yields no key, any plaintext mirror left in that file is
+  // removed BEFORE any runtime use — otherwise a copied folder authenticates
+  // silently and SC-008's re-enter promise is void.
+  const startup = loadSettings(d.db)
+  if (startup.hasApiKey && !getProviderKey(startup.provider)) {
+    stripStaleAuthFile()
+  }
+  // Ensure the configured key is applied to the runtime at startup — from
+  // the gated store, not the settings table.
+  await configureRuntimeFromSettings(loadRuntimeSettings(d.db))
 
   registerIpc()
   createWindow()

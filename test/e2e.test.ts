@@ -11,6 +11,7 @@ import { runSuggestionJob } from '../src/main/suggestions'
 import { runIngestJob } from '../src/main/wiki/ingest'
 import { setSessionFactory, setSimplePromptOverride, type CreateJobSessionOptions } from '../src/main/ai/session-factory'
 import { setUserDataRoot } from '../src/main/paths'
+import { storeProviderKey } from '../src/main/secrets'
 import { ensureVault, writeNote, notePathFor } from '../src/main/wiki/vault'
 import { serviceCreateList, serviceCreateTask, serviceSetMyDay } from '../src/main/tasks'
 import { effectiveKind, effectiveTypeDef, getTypeDef, updateTypeDef } from '../src/main/types'
@@ -129,10 +130,13 @@ test('8.1 flagship scenario: learning task -> My Day -> preprocess -> note -> Fi
   saveSettings(conn.db, {
     provider: 'openai',
     model: 'gpt-4o',
-    apiKey: 'sk-scripted',
+    hasApiKey: true,
     defaultListId: null,
-    maxConcurrentJobs: 2, showWelcome: false, theme: 'light', skills: [], mcpServers: []
+    maxConcurrentJobs: 2, showWelcome: false, theme: 'light', assistantRuntime: 'on', lastCheck: null, skills: [], mcpServers: []
   })
+  // v10 moved secret values out of the table; the job path resolves the key
+  // from the machine-bound store, so the scripted key lives there now.
+  storeProviderKey('openai', 'sk-scripted')
   ensureVault()
 
   // The learning type declares where its wiki lives — there is no global
@@ -227,10 +231,13 @@ test('8.1b re-running after input change refreshes outputs (hash gate)', { timeo
   saveSettings(conn.db, {
     provider: 'openai',
     model: 'gpt-4o',
-    apiKey: 'sk-scripted',
+    hasApiKey: true,
     defaultListId: null,
-    maxConcurrentJobs: 2, showWelcome: false, theme: 'light', skills: [], mcpServers: []
+    maxConcurrentJobs: 2, showWelcome: false, theme: 'light', assistantRuntime: 'on', lastCheck: null, skills: [], mcpServers: []
   })
+  // v10 moved secret values out of the table; the job path resolves the key
+  // from the machine-bound store, so the scripted key lives there now.
+  storeProviderKey('openai', 'sk-scripted')
   ensureVault()
 
   const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
@@ -283,14 +290,17 @@ test('8.1c meeting journey: agenda -> minutes -> polished file in a configured f
   saveSettings(conn.db, {
     provider: 'openai',
     model: 'gpt-4o',
-    apiKey: 'sk-scripted',
+    hasApiKey: true,
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,
     theme: 'light',
+    assistantRuntime: 'on',
+    lastCheck: null,
     skills: [],
     mcpServers: []
   })
+  storeProviderKey('openai', 'sk-scripted')
   ensureVault()
 
   // The pre-process call returns an agenda; the finish call returns polished
@@ -378,14 +388,17 @@ test('8.1d a polished finish never files a fact the user did not record (FR-009,
   saveSettings(conn.db, {
     provider: 'openai',
     model: 'gpt-4o',
-    apiKey: 'sk-scripted',
+    hasApiKey: true,
     defaultListId: null,
     maxConcurrentJobs: 2,
     showWelcome: false,
     theme: 'light',
+    assistantRuntime: 'on',
+    lastCheck: null,
     skills: [],
     mcpServers: []
   })
+  storeProviderKey('openai', 'sk-scripted')
   ensureVault()
 
   // The assistant tries to slip in a decision the user never recorded.

@@ -6,6 +6,8 @@ import { displayTypeLabel, effectiveType } from '../../lib/typeCatalog'
 import { useLanguage, useLocale, useT } from '../../lib/useT'
 import { statusChip } from '../board/status'
 import { hasPreprocess } from '../../../../core/domain/preprocess'
+import { isConfigured } from '../../../../core/domain/config'
+import { isAssistantEnabled } from '../../../../core/domain/assistant'
 
 // AI band of the focus column (spec app-layout, design D4): everything about
 // the selected task except its working note — the header (title editing),
@@ -42,7 +44,10 @@ export function TaskBand({ task }: { task: Task }) {
   // Whether this kind pre-processes is the registry's answer, not a comparison
   // against `plain` — the same declaration decides which kinds get a
   // suggestion job instead (taskService.setMyDay).
-  const hasPre = hasPreprocess(def.kind)
+  // D1: the analysis surfaces hide themselves while the harness is declared
+  // off; the band's board half (title, alarm, complete, finish) is untouched.
+  const assistantOn = !!snapshot && isAssistantEnabled(snapshot.settings)
+  const hasPre = hasPreprocess(def.kind) && assistantOn
   const running = task.preprocessStatus === 'queued' || task.preprocessStatus === 'running'
   // A kind that does not pre-process gets its chips from the suggestion job and
   // has no card to carry them, so they need a section of their own. Whether it
@@ -86,7 +91,7 @@ export function TaskBand({ task }: { task: Task }) {
   }
 
   const runPre = () => {
-    if (!snapshot?.aiConfigured) {
+    if (!snapshot || !isAssistantEnabled(snapshot.settings) || !isConfigured(snapshot.settings)) {
       notify(t('task.preprocess.aiNotConfigured'))
       return
     }
@@ -159,8 +164,15 @@ export function TaskBand({ task }: { task: Task }) {
                 className="mini-btn"
                 disabled={!alarmDraft}
                 onClick={() => {
-                  void setAlarm(task.id, new Date(alarmDraft).toISOString()).then(() => notify(t('task.alarm.isSet')))
-                  setEditingAlarm(false)
+                  // FR-007: a past time comes back as the localized refusal
+                  // the core raised — show it, keep the draft open, and leave
+                  // any existing alarm exactly as it was.
+                  void setAlarm(task.id, new Date(alarmDraft).toISOString())
+                    .then(() => {
+                      notify(t('task.alarm.isSet'))
+                      setEditingAlarm(false)
+                    })
+                    .catch((e: any) => notify(e?.message ?? t('task.alarm.pastTime')))
                 }}
               >
                 {t('common.set')}
@@ -187,7 +199,7 @@ export function TaskBand({ task }: { task: Task }) {
         </div>
       )}
 
-      {hasPre && (
+      {hasPre && assistantOn && (
         <section className="analysis-section">
           <div className="section-head">
             <h4>{t('task.preprocess.title')}</h4>
@@ -226,7 +238,7 @@ export function TaskBand({ task }: { task: Task }) {
 
           {!preprocess && !running && task.preprocessStatus !== 'failed' && (
             <div className="empty-hint">
-              {snapshot?.aiConfigured
+              {snapshot && isAssistantEnabled(snapshot.settings) && isConfigured(snapshot.settings)
                 ? t('task.preprocess.emptyHint', { kind: def.kind })
                 : t('task.preprocess.emptyHintNoAi')}
             </div>
@@ -257,7 +269,7 @@ export function TaskBand({ task }: { task: Task }) {
       {/* A kind without a pre-process has no card to carry the suggestion job's
           chips, and the board row no longer repeats them — without this they
           would have no surface at all. */}
-      {!hasPre && ownSuggestions.length > 0 && (
+      {assistantOn && !hasPre && ownSuggestions.length > 0 && (
         <section className="analysis-section">
           <div className="section-head">
             <h4>{t('task.preprocess.suggestions')}</h4>

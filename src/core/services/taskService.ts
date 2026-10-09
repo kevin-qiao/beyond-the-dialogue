@@ -1,11 +1,12 @@
 import type { Settings, Task } from '../../shared/types'
 import type { StoragePort, CreateTaskInput } from '../ports/storage'
 import { effectiveCategory, effectiveType } from '../domain/taskType'
-import { validateInputsForWrite } from '../domain/validation'
+import { validateInputsForWrite, validateTaskWrite } from '../domain/validation'
 import { preprocessInputHash } from '../domain/hashing'
 import { LocalizedError } from '../i18n/issues'
 import { hasPreprocess } from '../domain/preprocess'
 import { isConfigured } from '../domain/config'
+import { isAssistantEnabled } from '../domain/assistant'
 
 // Task use cases: create, edit, and My Day membership.
 //
@@ -24,6 +25,10 @@ export interface TaskMutationOutcome {
 }
 
 export function createTask(storage: StoragePort, args: CreateTaskInput): Task {
+  // FR-001 at the core edge: a task without a title is refused in every
+  // host, not just hidden by the renderer's form check.
+  const titleV = validateTaskWrite({ title: args.title })
+  if (!titleV.ok) throw new LocalizedError(titleV.errors)
   const types = storage.listTypes()
   const def = effectiveType(types, { type: args.type ?? 'plain', customTypeKey: args.customTypeKey ?? null })
   const inputs = args.inputs ?? {}
@@ -39,7 +44,11 @@ export function createTask(storage: StoragePort, args: CreateTaskInput): Task {
 export interface UpdateTaskInput {
   id: string
   title?: string
+  background?: string
+  target?: string
   notes?: string
+  /** null unassigns the task (FR-006); undefined leaves membership alone. */
+  listId?: string | null
   type?: Task['type']
   customTypeKey?: string | null
   inputs?: Record<string, unknown>
@@ -58,8 +67,22 @@ export interface UpdateTaskInput {
 export function updateTask(storage: StoragePort, args: UpdateTaskInput, settings: Settings): TaskMutationOutcome {
   const before = storage.getTask(args.id)
   if (!before) throw new Error('task not found')
+  // FR-001 applies to every write that names the title (FR-004: edit must
+  // not be able to strip the one field a task cannot lose).
+  if (args.title !== undefined) {
+    const titleV = validateTaskWrite({ title: args.title })
+    if (!titleV.ok) throw new LocalizedError(titleV.errors)
+  }
 
-  const patch: Partial<Task> = { title: args.title, notes: args.notes }
+  const patch: Partial<Task> = {
+    title: args.title,
+    background: args.background,
+    target: args.target,
+    notes: args.notes
+  }
+  // Only touch membership when the caller named it: `undefined` means "leave
+  // it alone", `null` means "unassign" (FR-006).
+  if (args.listId !== undefined) patch.listId = args.listId
   const typeChanged =
     (args.type !== undefined && args.type !== before.type) ||
     (args.customTypeKey !== undefined && (args.customTypeKey ?? null) !== before.customTypeKey)
@@ -95,6 +118,10 @@ export function updateTask(storage: StoragePort, args: UpdateTaskInput, settings
  * the AI is configured.
  */
 function shouldRerunPreprocess(storage: StoragePort, task: Task, settings: Settings): boolean {
+  // Feature 001's switch (FR-015, research D1/D7): with the assistant off the
+  // board never enqueues AI work — the returned enqueue is empty and no
+  // preprocess_status is set, exactly as if the category had no pre-process.
+  if (!isAssistantEnabled(settings)) return false
   const category = effectiveCategory(storage.listTypes(), task)
   if (!hasPreprocess(category) || !isConfigured(settings)) return false
   if (!task.inMyDay || task.completed) return false
@@ -123,7 +150,11 @@ export function setMyDay(
 
   const enqueue: BackgroundWork[] = []
   const firstAdd = inMyDay && !before.inMyDay
-  if (firstAdd) {
+  // The switch decides whether a My Day add may reach the network at all
+  // (FR-015): with it off, neither the plain-task suggestion (research D7 —
+  // the one place a *board* interaction used to call a provider) nor any
+  // pre-process is enqueued, and `preprocess_status` never flips to queued.
+  if (firstAdd && isAssistantEnabled(settings)) {
     const category = effectiveCategory(storage.listTypes(), task)
     if (!hasPreprocess(category)) {
       enqueue.push('suggestion')

@@ -5,6 +5,7 @@ import { effectiveCategory } from '../domain/taskType'
 import { hasPreprocess } from '../domain/preprocess'
 import { LocalizedError, type IssueList } from '../i18n/issues'
 import { isConfigured } from '../domain/config'
+import { isAssistantEnabled } from '../domain/assistant'
 
 // Pre-process use case: decide whether a task can be pre-processed, and say
 // what the caller should do about it.
@@ -43,6 +44,11 @@ export function runPreprocess(storage: StoragePort, id: string, settings: Settin
   const task = storage.getTask(id)
   if (!task) throw new Error('task not found')
 
+  // The switch decides first: asking for a pre-process while the harness is
+  // declared off is a refusal the user reads, not a queued job that dies.
+  if (!isAssistantEnabled(settings)) {
+    throw new PreprocessRefused([{ key: 'assistant.disabled' }])
+  }
   const category = effectiveCategory(storage.listTypes(), task)
   if (!hasPreprocess(category)) {
     throw new PreprocessRefused([{ key: 'preprocess.noPreprocess' }])

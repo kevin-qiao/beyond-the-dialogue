@@ -24,8 +24,12 @@ export interface ActivityPatch {
 }
 
 export interface CreateTaskInput {
-  listId: string
+  /** null = unassigned (FR-006): the all-tasks view is its home. */
+  listId: string | null
   title: string
+  /** Free text per task (FR-002). */
+  background?: string
+  target?: string
   notes?: string
   type?: Task['type']
   customTypeKey?: string | null

@@ -1,5 +1,6 @@
 import type { JobContext } from './job-queue'
-import { getTask, updateTask, savePreprocess, addSuggestion, clearSuggestions, loadSettings } from './db'
+import { getTask, updateTask, savePreprocess, addSuggestion, clearSuggestions } from './db'
+import { loadRuntimeSettings } from './runtimeSettings'
 import { message } from '../core/i18n'
 import { createJobSession } from './ai/session-factory'
 import { effectiveTypeDef, preprocessInputHash } from './types'
@@ -47,7 +48,7 @@ export async function runPreprocessJob(ctx: JobContext): Promise<void> {
   if (!hasPreprocess(kind)) return
   const instruction = preprocessInstruction(kind)!
 
-  const settings = loadSettings(db)
+  const settings = loadRuntimeSettings(db)
   if (!settings.apiKey || !settings.model) {
     // Fail fast when no key is configured (task ops unaffected).
     updateTask(db, taskId, { preprocessStatus: 'failed', preprocessError: 'AI not configured: no API key' })

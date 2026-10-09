@@ -1,13 +1,13 @@
-import type { ChatMessage, Settings } from '../../shared/types'
+import type { ChatMessage, SettingsInput } from '../../shared/types'
 import { isConfigured } from './ai-config'
 import { message } from '../../core/i18n'
 
-export type ChatStreamFn = (settings: Settings, history: ChatMessage[], onDelta: (delta: string) => void) => Promise<string>
+export type ChatStreamFn = (settings: SettingsInput, history: ChatMessage[], onDelta: (delta: string) => void) => Promise<string>
 
 // The default stream fn lazily imports agent-runtime (which statically
 // imports the ESM-only Pi SDK) so this module stays loadable in the CJS
 // test context — same pattern as session-factory.ts.
-async function defaultStream(settings: Settings, history: ChatMessage[], onDelta: (delta: string) => void): Promise<string> {
+async function defaultStream(settings: SettingsInput, history: ChatMessage[], onDelta: (delta: string) => void): Promise<string> {
   const { streamChat } = await import('./agent-runtime')
   return streamChat(settings, history, onDelta)
 }
@@ -31,7 +31,7 @@ export class ChatSession {
     return this.history
   }
 
-  async send(userText: string, settings: Settings, onDelta: (delta: string) => void, context?: string): Promise<string> {
+  async send(userText: string, settings: SettingsInput, onDelta: (delta: string) => void, context?: string): Promise<string> {
     if (this.busy) throw new Error('a reply is already streaming')
     if (!isConfigured(settings)) {
       throw new Error(message(settings.uiLanguage, 'error.aiNotConfigured'))

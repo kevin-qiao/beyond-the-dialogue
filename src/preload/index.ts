@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent, SuggestionsUpdatedEvent, RemoteProposalView } from '../shared/ipc'
-import type { IngestRecord, List, Settings, SkillEntry, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from '../shared/types'
+import type { IngestRecord, List, RedactedSettings, SkillEntry, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from '../shared/types'
 
 const api: RendererApi = {
   getSnapshot: () => ipcRenderer.invoke(IPC.getSnapshot),
@@ -40,6 +40,9 @@ const api: RendererApi = {
   dismissSuggestion: (args) => ipcRenderer.invoke(IPC.dismissSuggestion, args),
   getActivity: () => ipcRenderer.invoke(IPC.getActivity),
   retryIngest: (args) => ipcRenderer.invoke(IPC.retryIngest, args),
+  attachmentsAddFromDialog: (args) => ipcRenderer.invoke(IPC.attachmentsAddFromDialog, args),
+  attachmentsRemove: (args) => ipcRenderer.invoke(IPC.attachmentsRemove, args),
+  attachmentsOpen: (args) => ipcRenderer.invoke(IPC.attachmentsOpen, args),
   onTaskUpdated: (cb) => {
     const h = (_e: unknown, t: Task) => cb(t)
     ipcRenderer.on(IPC.evTaskUpdated, h)
@@ -66,7 +69,7 @@ const api: RendererApi = {
     return () => ipcRenderer.removeListener(IPC.evSuggestionsUpdated, h)
   },
   onSettingsUpdated: (cb) => {
-    const h = (_e: unknown, s: Settings) => cb(s)
+    const h = (_e: unknown, s: RedactedSettings) => cb(s)
     ipcRenderer.on(IPC.evSettingsUpdated, h)
     return () => ipcRenderer.removeListener(IPC.evSettingsUpdated, h)
   },

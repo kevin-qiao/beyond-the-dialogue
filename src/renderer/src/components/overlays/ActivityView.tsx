@@ -1,5 +1,6 @@
 import { useApp } from '../../store'
 import { useLocale, useT } from '../../lib/useT'
+import { isAssistantEnabled } from '../../../../core/domain/assistant'
 import type { JobProgressEvent } from '../../../../shared/ipc'
 import type { IngestRecord } from '../../../../shared/types'
 import type { MessageKey, Translate } from '../../../../core/i18n'
@@ -53,7 +54,7 @@ function JobRow({ job }: { job: JobProgressEvent }) {
 // shape is the same because the question it answers is the same — what did
 // this finish actually write, and did anything go wrong?
 function IngestRow({ rec, step }: { rec: IngestRecord; step: string | null }) {
-  const { retryIngest } = useApp()
+  const { retryIngest, snapshot } = useApp()
   const t = useT()
   const locale = useLocale()
   // A degraded finish (done, but the assistant step failed) is reported as a
@@ -76,7 +77,10 @@ function IngestRow({ rec, step }: { rec: IngestRecord; step: string | null }) {
       {rec.depositFiles.length > 0 && <div className="muted">{t('job.deposited', { files: rec.depositFiles.join(', ') })}</div>}
       {rec.touchedFiles.length > 0 && <div className="muted">{t('job.filesWritten', { files: rec.touchedFiles.join(', ') })}</div>}
       {rec.error && rec.state !== 'queued' && <div className={degraded ? 'muted' : 'error-text'}>{rec.error}</div>}
-      {rec.state === 'failed' && (
+      {/* Retrying a finish is assistant working; while the harness is off
+          the action is hidden, though the history itself remains visible —
+          a record of what happened, not a promise of what works (D1). */}
+      {rec.state === 'failed' && snapshot && isAssistantEnabled(snapshot.settings) && (
         <button className="mini-btn" onClick={() => void retryIngest(rec.id)}>
           {t('common.retry')}
         </button>

@@ -1,5 +1,6 @@
 import type { JobContext } from './job-queue'
-import { getTask, addSuggestion, listSuggestions, loadSettings } from './db'
+import { getTask, addSuggestion, listSuggestions } from './db'
+import { loadRuntimeSettings } from './runtimeSettings'
 import { message, plural } from '../core/i18n'
 import { isConfigured } from './ai/ai-config'
 
@@ -14,7 +15,7 @@ export async function runSuggestionJob(ctx: JobContext): Promise<void> {
   const task = getTask(db, taskId)
   if (!task) throw new Error('task not found')
 
-  const settings = loadSettings(db)
+  const settings = loadRuntimeSettings(db)
   if (!isConfigured(settings)) {
     // No key configured: gracefully no-op. The renderer shows the
     // "AI not configured" indicator instead.

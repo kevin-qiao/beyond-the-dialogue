@@ -6,13 +6,13 @@ import type { ChatMessage, Settings } from '../src/shared/types'
 const SETTINGS_ON: Settings = {
   provider: 'deepseek',
   model: 'deepseek-v4-flash',
-  apiKey: 'sk-test',
+  hasApiKey: true,
   defaultListId: null,
   maxConcurrentJobs: 2,
   showWelcome: false
 }
 
-const SETTINGS_OFF: Settings = { ...SETTINGS_ON, apiKey: null }
+const SETTINGS_OFF: Settings = { ...SETTINGS_ON, hasApiKey: false }
 
 // Scripted stream: emits two deltas then returns the full reply.
 function scriptedStream(reply = 'hello from the model'): { fn: ChatStreamFn; deltas: string[] } {
