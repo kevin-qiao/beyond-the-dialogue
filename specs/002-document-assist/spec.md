@@ -10,11 +10,11 @@
 
 ## Clarifications
 
-### Session 2026-10-09 (pending — see [NEEDS CLARIFICATION] markers)
+### Session 2026-10-10
 
-- Q1: How far does this feature take the master spec's "save into the path with LLM-wiki support" promise, and what happens to the three reference-implementation engines (learning / jira / meeting) it must decide the fate of?
-- Q2: Do per-Type grants become live in this feature, or does every Document assist run without external reach?
-- Q3: Which built-in Document Types ship?
+- Q: How far does this feature take the master specification's "save into the path with LLM-wiki support" promise, and what happens to the three reference-implementation engines? → A: **Faithful** — the knowledge base (LLM-wiki) destination is re-argued in full: deposit-first durability, curation confined to the declared collection, undo against retained history; the learning case is delivered by knowledge-base-destined Document Types; the JIRA/Confluence and meeting-minutes engines are retired from the product with all user data preserved — ADR-0001's review-and-delete mandate discharged here (FR-016–FR-020).
+- Q: Do per-Type grants become live in this feature? → A: **No** — every Document-family assistance (organizing, conversing, curating) runs confined; registered skills and tool servers stay inert for it; per-Type grants arrive with the first family that needs external reach (FR-015).
+- Q: Which built-in Document Types ship? → A: **One** generic write-and-file Document Type; every further Document workflow — the learning-note case included — is realized as a user-declared Type on the same machinery (FR-001, FR-013).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -139,6 +139,47 @@ actionable refusal.
 
 ---
 
+### User Story 4 - Finished work curates my knowledge base (Priority: P4)
+
+The master specification's Document row does not stop at a filed file: when a Document
+Type declares the user's **knowledge base** — a personal collection of documents kept
+following the LLM-wiki pattern — as its destination, finishing a task feeds it in two
+ordered steps. The user's own material is deposited first, durably; nothing that comes
+after can lose it. Then the assistant curates: it integrates the new material into the
+knowledge base as that collection's own established rules describe — its index, its
+pages — writing nowhere else. If the assistant cannot curate, the deposit already
+stands and the finish completes with the curation step plainly reported as failed. If
+the user dislikes a curation that did run, one undo returns the knowledge base to the
+state kept for it. The master spec's learning-note case — original material, raw
+thoughts, well-kept notes, questions answered from that context — is this story working
+under a user-declared Type (the seeded set carries only the generic one, per the Q3
+answer).
+
+**Why this priority**: This is the row's "save into the path with LLM-wiki support"
+promise — kept in full here by Q1's answer — but it extends US1's filing loop with the
+declarations US3's Type machinery already provides, so its value lands after those.
+
+**Independent Test**: Declare a knowledge-base-destined Document Type, finish a drafted
+task into it, and verify: the deposited material exists, the curated changes appear
+only inside the collection, the report says what changed, and undo returns the prior
+state. Then switch the assistant off and finish another task: the deposit alone lands,
+the task completes, and the failed step is stated.
+
+**Acceptance Scenarios**:
+
+1. **Given** a Document Type destined to the knowledge base, **When** a task with
+   written content is finished, **Then** the user's material is deposited in the
+   knowledge base first and durably, before the curation has any say.
+2. **Given** the assistant off, unconfigured, or its curation failing, **When** such a
+   finish runs, **Then** the deposit stands, the task completes, and the app reports
+   that curation did not happen.
+3. **Given** a curation that ran, **When** the user undoes it, **Then** the knowledge
+   base returns to the state kept before that curation.
+4. **Given** any curation, **When** its changes are listed, **Then** every one lies
+   inside the declared knowledge base and nothing outside it changed.
+
+---
+
 ### Edge Cases
 
 - The assistant returns an empty, malformed, or wholly-fabricated document (content the
@@ -161,6 +202,14 @@ actionable refusal.
   side by side, neither overwriting the other.
 - The assistant switch is turned off with in-flight assistance steps → in-flight work is
   honestly reported (completed or failed), and nothing new is started while off.
+- A knowledge-base location is deleted or unmounted before a destined finish → the
+  finish is refused while the task stays actionable (FR-007's rule, unchanged); a
+  location's re-appearance never silently resurrects half-a-finish.
+- Two curations land on the same page → each keeps its own retained prior state;
+  undoing returns the most recent kept state, and the app says which state it restores.
+- The user edits the knowledge base by hand after a curation → the next curation works
+  from the collection as it stands; the application never assumes its last word — the
+  knowledge base belongs to the user.
 
 ## Requirements *(mandatory)*
 
@@ -168,7 +217,9 @@ actionable refusal.
 
 - **FR-001**: The system MUST offer Document-family tasks in which the user writes
   content directly on the task — a working area presented alongside that task's
-  background, target, and attachments.
+  background, target, and attachments — through exactly one built-in generic
+  write-and-file Document Type; every further Document workflow is a user-declared
+  Type (FR-013).
 - **FR-002**: The system MUST persist the user's written content as durable task
   material: it survives editing, task re-opening, and application restarts, and no
   finish step may destroy, replace, or clear it.
@@ -212,26 +263,45 @@ actionable refusal.
   in use without orphaning task content silently.
 - **FR-014**: Editing a Type MUST change assistance from the next action onward and MUST
   never modify artifacts already filed.
-- **FR-015**: [NEEDS CLARIFICATION: does this feature make per-Type grants live —
-  letting a Type's assistance reach registered skills and/or tool servers (connectors) —
-  or does every Document assistance run with no external reach, deferring grants to the
-  first family that needs them?]
-- **FR-016**: [NEEDS CLARIFICATION: this feature must decide the fate of the reference
-  implementation's three assistance engines (the learning/ingest-to-wiki flow, the
-  JIRA/Confluence working area, and meeting minutes) and the four seed Types — delete,
-  re-argue under the new taxonomy, or leave dormant behind the assistant switch — as
-  required by ADR-0001. What is the scope?]
-- **FR-017**: While the assistant switch is off, the system MUST construct no assistant
-  session and make no outbound call; the Document loop MUST still deliver FR-002 and
-  FR-006 (write freely, finish files as written), so the board's promise that no flow
-  requires AI holds for this feature's surfaces too.
-- **FR-018**: The system MUST present every interface text this feature adds in both
+- **FR-015**: The system MUST run every Document-family assistance — organizing,
+  conversing, and curating alike — confined: it MUST NOT load any registered skill and
+  MUST NOT contact any tool server (connector), and no Type declaration may confer such
+  reach. Per-Type grants are out of scope for this feature, arriving with the first
+  family that needs external reach.
+- **FR-016**: The system MUST run assistance only under this specification's taxonomy
+  (Family and declared Type). The reference implementation's assistance engines — the
+  learning intake flow, the JIRA/Confluence working area, and meeting minutes — MUST NOT
+  persist as parallel flows: the learning and knowledge-base case is delivered by
+  Document Types destined to the knowledge base (FR-018–FR-020); the working-system and
+  minutes cases are removed, returning — if at all — with their own future features.
+  ADR-0001's review-and-delete mandate is discharged by this feature.
+- **FR-017**: Retiring those engines MUST NOT remove user data: material written on
+  existing tasks under them stays on the board, readable and editable, and artifacts
+  already filed stay where they were filed.
+- **FR-018**: A Type MUST be able to declare the user's knowledge base (the LLM-wiki
+  pattern collection) as its destination. When a task of such a Type with written
+  content is finished, the system MUST deposit that material into the knowledge base
+  durably first — before, and independently of the fate of, any curation step.
+- **FR-019**: The curation step MUST write only inside the declared knowledge base and
+  MUST follow that knowledge base's own established rules; it MUST report what it
+  changed. When curation cannot run (assistant off, unconfigured, or failed), the
+  deposited material stands, the task completes, and curation is reported as failed.
+- **FR-020**: The system MUST retain the state a knowledge base held before each
+  curation, for as many states as its kept history holds, and MUST let the user undo a
+  curation back to a retained state.
+- **FR-021**: While the assistant switch is off, the system MUST construct no assistant
+  session and make no outbound call; the Document loop MUST still deliver FR-002
+  (durable writing), FR-006 (finish files as written), and FR-018 (deposit first), so
+  the board's promise that no flow requires AI holds for this feature's surfaces too.
+- **FR-022**: The system MUST present every interface text this feature adds in both
   English and Simplified Chinese, switchable by the user's setting.
-- **FR-019**: The system MUST deliver this feature equivalently on Linux and Windows
+- **FR-023**: The system MUST deliver this feature equivalently on Linux and Windows
   desktops.
-- **FR-020**: The system MUST keep everything the user writes in the application's data
-  folder under feature 001's portability rule: copying that folder to a fresh setup
-  brings the drafts and conversations with it (secrets re-entered on use, as before).
+- **FR-024**: The system MUST keep everything the user writes — drafts and conversations
+  — inside the application's data folder under feature 001's portability rule (copying
+  the folder carries the board; secrets are re-entered on use). Declared destinations,
+  including knowledge bases, live where the user pointed them and travel by the user's
+  own hand.
 
 ### Key Entities
 
@@ -250,6 +320,13 @@ actionable refusal.
   user on their own machine.
 - **Conversation**: a task-owned, continuing exchange with the assistant grounded in
   that task's material.
+- **Knowledge base (Wiki)**: a user-owned collection of documents kept following the
+  LLM-wiki pattern, which a Document Type may name as its destination; it takes
+  deposits, receives curations, holds retained states for undo, and belongs to the user.
+- **Deposit**: the user's own material handed to a knowledge base at finish, before and
+  above the fate of the curation step.
+- **Curation**: the assistant's integration of a deposit into a knowledge base,
+  confined to that collection and reversible against retained history.
 
 ## Success Criteria *(mandatory)*
 
@@ -276,6 +353,13 @@ actionable refusal.
 - **SC-008**: After 30 days of ordinary use, a user can find any previously filed
   artifact at its destination (names and locations as declared), and no application
   action has modified or removed anything already filed.
+- **SC-009**: Across deliberately induced curation failures (assistant off, unconfigured,
+  error mid-curation), 100 % of runs leave the user's deposited material intact in the
+  knowledge base with the task completed; and every completed curation the users tried
+  to undo returned the collection to the state named, 0 undo failures.
+- **SC-010**: A first-time user reproduces the master specification's learning case —
+  declare a knowledge-base-destined Type, record material, write thoughts, finish, find
+  the curated result, ask about it — in under 15 minutes without external documentation.
 
 ## Assumptions
 
@@ -284,8 +368,10 @@ actionable refusal.
 - **Starting state**: feature 001 shipped the board plus a configured-but-inert harness,
   and hid the reference implementation's assistant surfaces behind the
   assistant-runtime switch (off by default). This feature replaces inertness with the
-  first live assistance, on the master specification's taxonomy; what it deletes,
-  re-argues, or leaves of the reference flows is the subject of FR-016's open question.
+  first live assistance, on the master specification's taxonomy, and discharges
+  ADR-0001's review duty: the knowledge-base flow is re-argued and carried forward as
+  the behavior of knowledge-base-destined Document Types; the JIRA/Confluence and
+  meeting engines are retired with user data preserved (FR-016, FR-017).
 - **Plain tasks remain**: tasks with no assistance (the reference "plain" behavior)
   continue to exist as a no-assistance Type; this feature does not make assistance
   mandatory for any task.
@@ -294,15 +380,23 @@ actionable refusal.
   this feature's requirements.
 - **Destinations are user-owned locations on the user's machine**: the application files
   documents; publishing to external systems (a Confluence page, a blog service) belongs
-  to the Working system family and its connectors, not here.
+  to the Working system family and its connectors, not here — and with Q2's confined
+  answer, external reach is doubly out of scope: nothing in this feature may use it
+  even if configured (FR-015).
 - **Assistant output language**: the model's own; interface language never reaches a
   prompt (feature 001's standing rule).
-- **Undo story**: filed artifacts are the user's files and are never edited or deleted
-  by the application afterwards; the destination itself is where their history lives.
-  (The reference implementation's snapshot-based undo is part of what FR-016 decides.)
+- **Undo story**: filed artifacts at plain destinations are the user's files and are
+  never edited or deleted by the application afterwards. Inside a knowledge base the
+  rule is deliberately the other way, because the master spec asks for it: the
+  application curates there, so it keeps the history that makes each curation undoable
+  (FR-020).
 - **Dependency**: the configured model service from feature 001 (verify on demand,
   honest readiness states, secrets kept private to the machine account) is the only
-  external service this feature's first iteration needs; skills and tool servers remain
-  registered-but-inert unless FR-015's grant question answers "live".
+  external service this feature uses; skills and tool servers stay registered-but-inert
+  (FR-015) until grants arrive with a later family.
+- **Seed-set synthesis**: Q1 brings the learning/wiki workflow into this feature as
+  machinery; Q3 keeps the seeded rows minimal — exactly one generic Document Type.
+  The learning case is therefore reproducible by a user-declared Type on this
+  feature's machinery (SC-010 tests that path), not shipped as its own built-in row.
 - **Platforms, bilingual UI, data-folder portability**: standing product commitments
-  carried from feature 001 (its FR-017/018/021), restated here as FR-018/019/020.
+  carried from feature 001 (its FR-017/018/021), restated here as FR-022/FR-023/FR-024.

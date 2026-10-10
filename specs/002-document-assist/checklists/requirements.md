@@ -13,13 +13,13 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
 - [x] All acceptance scenarios are defined
 - [x] Edge cases are identified
-- [ ] Scope is clearly bounded
+- [x] Scope is clearly bounded
 - [x] Dependencies and assumptions identified
 
 ## Feature Readiness
@@ -32,10 +32,9 @@
 ## Notes
 
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`
-- Two `[NEEDS CLARIFICATION]` markers remain (FR-015 grants live vs deferred;
-  FR-016 fate of the reference-implementation engines) — both are scope decisions that
-  materially bound the feature, hence the open "Scope is clearly bounded" item. They
-  resolve together with the built-in Type set question (Q3); answers will be written
-  into the spec and this checklist re-run.
-- Once the three questions are answered, scope closure is expected: every other item
-  already passes.
+- Re-run 2026-10-10: all items pass. The three clarifications were answered on
+  2026-10-10 (Q1 faithful: knowledge-base destination re-argued with deposit-first,
+  confined curation, undoable history, and the reference engines retired with data
+  preserved; Q2 confined: no grants this feature; Q3: one generic built-in Type) and
+  folded into the spec — markers gone, User Story 4, FR-015–FR-020, and SC-009/SC-010
+  added, the tail renumbered (standing commitments now FR-022–FR-024).
