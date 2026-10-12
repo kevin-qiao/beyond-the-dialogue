@@ -16,6 +16,14 @@
 - Q: Do per-Type grants become live in this feature? → A: **No** — every Document-family assistance (organizing, conversing, curating) runs confined; registered skills and tool servers stay inert for it; per-Type grants arrive with the first family that needs external reach (FR-015).
 - Q: Which built-in Document Types ship? → A: **One** generic write-and-file Document Type; every further Document workflow — the learning-note case included — is realized as a user-declared Type on the same machinery (FR-001, FR-013).
 
+### Session 2026-10-12
+
+- Q: Where does the built-in generic write-and-file Document Type point its finished writing until the user says otherwise? → A: **No location ships with it** — the first Finish is the guided refusal (FR-007) that asks the user to choose; no default location is ever substituted (consistent with the standing abolition of destination defaults).
+- Q: Is the grounded per-task conversation only for Document-family tasks, or for every task? → A: **Every task** — the master specification's premise that AI assist can be triggered for each task governs; grounding adapts to whatever the task actually holds, and the confinement rules (FR-011, FR-015) apply identically to all of it (FR-008).
+- Q: Does an undo of a curation also remove the user's deposited material? → A: **No** — undo reverses only what the curation changed (its pages, index, log entries); the deposit is the user's own record and is never rolled back. "Retained state" means the curated content as it stood before the curation (FR-020, US4 scenario 3).
+- Q: Must a knowledge base already exist when a Type is destined to it? → A: **No** — the first destined finish establishes the LLM-wiki pattern's minimal structure at the declared location, create-only: structure a user has since changed is never re-scaffolded over (FR-018, US4 scenario 5).
+- Q: Can the user choose to file their words as written at finish, even with the assistant available? → A: **Yes** — Finish offers "organize & file" and "file as written", the Type's declaration deciding which is selected by default; choosing as-written runs no assistant step at all (FR-003, US1 scenario 7).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Write a document in the board, finish it filed and organized (Priority: P1)
@@ -24,10 +32,11 @@ A user adds a task of a Document Type ("draft the weekly study blog", "today's d
 "article on WSL2 networking") and works on it in the task's **working area**: a writing
 space on the task where they put their own words over as many sittings as the work takes,
 alongside the task's background, target, and attachments. Nothing leaves the machine
-while they write. When the work is done, Finish is the whole close-out: the assistant
-re-organizes the draft as the Type's instruction describes and files the result at the
-location the Type declares, and the task shows completed with a plain record of where
-the result went. The user's own draft is never destroyed or replaced by the filing — the
+while they write. When the work is done, Finish is the whole close-out: the user
+chooses between letting the assistant re-organize the draft as the Type's instruction
+describes — the Type's declared default — and filing their words as written; either way
+the result goes to the location the Type declares, and the task shows completed with a
+plain record of where the result went and which path ran. The user's own draft is never destroyed or replaced by the filing — the
 filed copy is what the destination receives; the task keeps the original words.
 
 **Why this priority**: This is the master specification's Document row in one motion —
@@ -63,6 +72,9 @@ first rather than touching it.
 6. **Given** a task whose working area is still blank, **When** the user finishes,
    **Then** nothing is filed, the task stays active, and the app explains that there is
    no written content yet.
+7. **Given** a Document task and the assistant configured, **When** the user chooses
+   "file as written" at finish, **Then** their exact words are filed, no assistant step
+   runs, and the report names the path taken.
 
 ---
 
@@ -74,7 +86,9 @@ open questions". The conversation is grounded in that task's own material — ba
 target, declared inputs, and the words written in the working area — so answers engage
 with what the user actually has, not generic advice. Conversations belong to the task,
 survive restarts, and can be started fresh. Chat is never a filing step: leaving a
-conversation files nothing and completes nothing.
+conversation files nothing and completes nothing. The surface is not restricted to
+Document work: any task on the board can be conversed about, grounded in whatever that
+task actually holds.
 
 **Why this priority**: The master spec's "meanwhile you can ask AI anytime, and AI can
 give you more insights according to your context" is what makes the working area an
@@ -99,6 +113,9 @@ task never quotes another task's content into what the model service receives.
    writing, finishing, and the rest of the board are unaffected.
 4. **Given** a conversation, **When** the user starts a new one, **Then** a fresh
    conversation begins while the old history remains retrievable with the task.
+5. **Given** a task with no assistance Type (plain), **When** the user converses about
+   it, **Then** the assistant engages with that task's material (title, background,
+   target, attachments), and nothing on the board changes.
 
 ---
 
@@ -149,8 +166,8 @@ after can lose it. Then the assistant curates: it integrates the new material in
 knowledge base as that collection's own established rules describe — its index, its
 pages — writing nowhere else. If the assistant cannot curate, the deposit already
 stands and the finish completes with the curation step plainly reported as failed. If
-the user dislikes a curation that did run, one undo returns the knowledge base to the
-state kept for it. The master spec's learning-note case — original material, raw
+the user dislikes a curation that did run, one undo returns the curated content to the
+state kept for it — the user's own deposited material is never rolled back. The master spec's learning-note case — original material, raw
 thoughts, well-kept notes, questions answered from that context — is this story working
 under a user-declared Type (the seeded set carries only the generic one, per the Q3
 answer).
@@ -160,7 +177,8 @@ promise — kept in full here by Q1's answer — but it extends US1's filing loo
 declarations US3's Type machinery already provides, so its value lands after those.
 
 **Independent Test**: Declare a knowledge-base-destined Document Type, finish a drafted
-task into it, and verify: the deposited material exists, the curated changes appear
+task into a location that does not yet hold a knowledge base, and verify: the minimal
+pattern structure appears, the deposited material exists, the curated changes appear
 only inside the collection, the report says what changed, and undo returns the prior
 state. Then switch the assistant off and finish another task: the deposit alone lands,
 the task completes, and the failed step is stated.
@@ -173,10 +191,15 @@ the task completes, and the failed step is stated.
 2. **Given** the assistant off, unconfigured, or its curation failing, **When** such a
    finish runs, **Then** the deposit stands, the task completes, and the app reports
    that curation did not happen.
-3. **Given** a curation that ran, **When** the user undoes it, **Then** the knowledge
-   base returns to the state kept before that curation.
+3. **Given** a curation that ran, **When** the user undoes it, **Then** the curated
+   content returns to the state kept before that curation and the user's deposited
+   material stays in the knowledge base.
 4. **Given** any curation, **When** its changes are listed, **Then** every one lies
    inside the declared knowledge base and nothing outside it changed.
+5. **Given** a Type destined to a location that does not yet hold a knowledge base,
+   **When** the first task of that Type is finished, **Then** the application
+   establishes the pattern's minimal structure there and deposits and curates into it,
+   and a later finish never rewrites structure the user has since changed.
 
 ---
 
@@ -224,9 +247,11 @@ the task completes, and the failed step is stated.
   material: it survives editing, task re-opening, and application restarts, and no
   finish step may destroy, replace, or clear it.
 - **FR-003**: When a Document-Type task with written content is finished, the system
-  MUST organize that content according to the Type's declared assistant instruction and
-  file the result at the Type's declared destination, then complete the task and report
-  where the filed copy went.
+  MUST offer the user the choice between organizing that content as the Type's declared
+  assistant instruction describes and filing it as written, with the Type's declaration
+  deciding which choice is presented as the default. Whichever is chosen, the result is
+  filed at the Type's declared destination, the task completes, and the system reports
+  where the filed copy went and which path ran.
 - **FR-004**: Filing MUST create a new file at the destination and MUST NEVER overwrite,
   move, or update a file that already exists there; a name collision produces a
   distinctly named new file beside it.
@@ -241,10 +266,13 @@ the task completes, and the failed step is stated.
 - **FR-007**: When a Type's declared destination is not usable at finish time (not
   configured, or the location no longer exists), the system MUST refuse the finish with
   a concrete, actionable reason and leave the task actionable — never complete it
-  silently, never substitute a different location.
+  silently, never substitute a different location. The built-in generic Type ships with
+  no location for exactly this reason: a fresh install's first Finish is that guided
+  refusal, and no default ever takes its place.
 - **FR-008**: The system MUST let the user hold a conversation about a single task with
-  the assistant at any time while working, grounded in that task's own material
-  (background, target, declared inputs, and written content).
+  the assistant at any time — on any task whatever its Type or family, not only
+  Document-family ones — grounded in whatever that task actually holds (title,
+  background, target, attachments, and for a Document task its written content).
 - **FR-009**: The system MUST keep each conversation with its task across restarts, MUST
   present it when the task is opened, and MUST let the user start a fresh conversation
   without losing the previous ones.
@@ -281,14 +309,18 @@ the task completes, and the failed step is stated.
 - **FR-018**: A Type MUST be able to declare the user's knowledge base (the LLM-wiki
   pattern collection) as its destination. When a task of such a Type with written
   content is finished, the system MUST deposit that material into the knowledge base
-  durably first — before, and independently of the fate of, any curation step.
+  durably first — before, and independently of the fate of, any curation step. When the
+  declared location does not yet hold a knowledge base, the system MUST establish the
+  pattern's minimal structure to receive it — create-only: existing structure and the
+  user's changes to it are never re-scaffolded or overwritten.
 - **FR-019**: The curation step MUST write only inside the declared knowledge base and
   MUST follow that knowledge base's own established rules; it MUST report what it
   changed. When curation cannot run (assistant off, unconfigured, or failed), the
   deposited material stands, the task completes, and curation is reported as failed.
-- **FR-020**: The system MUST retain the state a knowledge base held before each
-  curation, for as many states as its kept history holds, and MUST let the user undo a
-  curation back to a retained state.
+- **FR-020**: The system MUST retain the curated state a knowledge base held before
+  each curation, for as many states as its kept history holds, and MUST let the user
+  undo a curation back to a retained state. Undo reverses only what the curation
+  changed; the user's deposited material (FR-018) is never removed by an undo.
 - **FR-021**: While the assistant switch is off, the system MUST construct no assistant
   session and make no outbound call; the Document loop MUST still deliver FR-002
   (durable writing), FR-006 (finish files as written), and FR-018 (deposit first), so
@@ -315,11 +347,12 @@ the task completes, and the failed step is stated.
 - **Working area**: the space on a task where the user writes the actual work; its
   content is the user's own, durably kept, never consumed by finishing.
 - **Filed artifact**: the copy handed to the destination at finish — the organized
-  document, or the user's words as written when organizing was unavailable or refused.
+  document, or the user's words as written when organizing was unavailable, refused,
+  or chosen against at the finish step.
 - **Destination**: the location a Type declares for its finished artifacts, owned by the
   user on their own machine.
 - **Conversation**: a task-owned, continuing exchange with the assistant grounded in
-  that task's material.
+  whatever the task holds — available on any task whatever its Type or family.
 - **Knowledge base (Wiki)**: a user-owned collection of documents kept following the
   LLM-wiki pattern, which a Document Type may name as its destination; it takes
   deposits, receives curations, holds retained states for undo, and belongs to the user.
