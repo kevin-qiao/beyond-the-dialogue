@@ -1,23 +1,25 @@
 # Data Model: Document Type AI Assistant
 
-Spec: [spec.md](./spec.md) Key Entities; decisions in [research.md](./research.md).
-Storage split per the constitution: structured state in SQLite; user-owned documents as
-plain files; history as snapshots. All paths relative to the data folder stay relative
-(FR-024; `isRelativeStoredPath` is the rule, `test/portability.test.ts` is the scan).
+Covers the Key Entities in [spec.md](./spec.md). Decisions are in
+[research.md](./research.md). The constitution splits storage by the nature of the
+data: structured state in SQLite, user-owned documents as plain files, history as
+snapshots. Paths stored inside the data folder stay relative (FR-024). The rule is
+`isRelativeStoredPath`; `test/portability.test.ts` is the scan.
 
 ## Vocabulary (declared once)
 
-- **Family** — `'document' | 'working-system' | 'coding'` (new leaf declaration in
-  `src/core/domain/family.ts`). Absent/null on a Type = no-assist Type (`plain` and its
-  user-defined equivalents). SQL `CHECK` restatements name this module as their source.
-- **Finish behaviour** — the existing closed set
-  (`complete-only | file-as-is | polish-then-file | deposit-then-curate`), unchanged in
-  shape (D2).
+- **Family** — `'document' | 'working-system' | 'coding'`. Declared in the new leaf
+  module `src/core/domain/family.ts`. A Type with no family needs no assistance; `plain`
+  and its user-defined equivalents are such Types. SQL `CHECK` restatements mirror this
+  set and carry the comment naming the source module.
+- **Finish behaviour** — the existing closed set (`complete-only | file-as-is |
+  polish-then-file | deposit-then-curate`). Its shape does not change (D2).
 - **Destination** — unchanged shape: `{ store: 'wiki' | 'folder', rootPath: string,
-  subdir: string }`; `rootPath` may be empty on a *seeded built-in* (ships
-  destination-less, Q1), never on a saved user Type (FR-013 refuses at save).
-- **Retired**: `TaskCategory`/`TaskKind` — the four-value vocabulary and its SQL CHECKs
-  are deleted (migration v13); nothing dispatches on them.
+  subdir: string }`. An empty `rootPath` is legal only on the seeded built-in Types
+  (they ship without a location, Q1). It is never legal on a saved user Type (FR-013
+  refuses at save).
+- **Retired** — `TaskCategory` / `TaskKind`. The four-value vocabulary and its SQL
+  checks are deleted (migration v13). Nothing dispatches on them.
 
 ## Entities
 
@@ -25,42 +27,40 @@ plain files; history as snapshots. All paths relative to the data folder stay re
 
 | Field | Type | Rules |
 |---|---|---|
-| key | TEXT PK | stable id; built-ins: `plain`, `document` (+ user-defined) |
+| key | TEXT PK | stable id; after v13 the built-ins are `plain` and `document`, plus user-defined Types |
 | family | TEXT NULL | CHECK IN ('document','working-system','coding') or NULL — mirrors `family.ts` |
-| label / emoji / description / color | TEXT | display; default-label detection unchanged (compares vs `en` catalog values) |
-| input_schema_json | TEXT | declared inputs (D10 grounding reads it); `validateInputs` unchanged |
-| ai_guidance | TEXT NULL | the **declared assistant instruction** — drives organize (D2) |
-| is_builtin | INT | `plain` and `document` are the only built-ins after v13 |
+| label / emoji / description / color | TEXT | display only; the default-label detection (compare the stored row against the `en` catalog) is unchanged, so a user rename is never overwritten |
+| input_schema_json | TEXT | the declared inputs; D10 grounding reads them; `validateInputs` is unchanged |
+| ai_guidance | TEXT NULL | the declared assistant instruction; it drives the organize step (D2) |
+| is_builtin | INT | after v13 only `plain` and `document` are built-ins |
 | finish_behaviour | TEXT | one of the four; CHECK unchanged |
-| destination_json | TEXT NULL | required for behaviours that file; empty `rootPath` allowed only for seeded built-ins |
-| grants_json | TEXT | always `{skills:[],toolServers:[]}` this feature (D9); column shape unchanged |
+| destination_json | TEXT NULL | required for behaviours that file; an empty `rootPath` is allowed only on seeded built-ins |
+| grants_json | TEXT | always `{skills:[],toolServers:[]}` in this feature (D9); the column shape is unchanged |
 
-**Deleted rows**: built-ins `learning`, `jira`, `meeting`. **User-defined Types**: family
-mapped per D11; declarations kept — a user `learning`-kind Type becomes a
-document-family Type still declaring `deposit-then-curate`, and it works (that is the
-re-argument proving itself).
+Deleted rows: the built-ins `learning`, `jira`, `meeting`. User-defined Types keep their
+declarations and gain a family by the D11 map. A user Type that configured the learning
+kind becomes a document-family Type that still declares `deposit-then-curate` — and it
+works. That is the re-argument proving itself: the behaviour was always a declaration.
 
-**Relationships**: Task → one TaskType by key; tasks pointing at deleted keys are
-re-homed to `plain` in v13 (content untouched, FR-017).
+Relationships: each Task references one TaskType by key. Tasks pointing at a deleted
+key are re-homed to `plain` in v13. Their content is untouched (FR-017).
 
-### Task (unchanged shape; vocabulary rebuilt)
+### Task (shape unchanged; vocabulary rebuilt)
 
-`type` TEXT — CHECK (if any restatement exists) replaced by a plain FK-ish key with the
-category CHECK dropped (v13; reconcile against the fresh `SCHEMA` const — if a
-four-value CHECK survived on `tasks.type`, deleting it is also the fix that lets
-user-defined Type keys be assigned at all; verify with a test assigning a custom key).
-Background/target/attachments/notes as 001. The **working area** (Document tasks) is the
-existing `task_notes` content — same storage, new meaning by declaration (D3). Draft is
-never cleared by finish (FR-002): every strategy path is tested to leave the note
-untouched.
+`type` TEXT — if a CHECK listing the four built-in keys is live (see the reconciliation
+point in research.md), v13's rebuild removes it; user-defined keys must be assignable.
+Background, target, attachments, and notes stay as 001 defined them. The working area
+of a Document task is the existing `task_notes` content — the same storage, a new
+meaning by declaration (D3). No finish path may clear the draft (FR-002); a test
+asserts the note is byte-identical after each strategy.
 
 ### Conversation (new, v14)
 
 | Field | Type | Rules |
 |---|---|---|
 | id | TEXT PK | |
-| task_id | TEXT | FK → tasks; cascade delete with the task (final deletion, 001 FR-004) |
-| created_at | TEXT | ISO; presentation of history keeps the language it was written in |
+| task_id | TEXT | FK → tasks; deleting the task deletes its conversations (final, as 001 FR-004) |
+| created_at | TEXT | ISO; stored records keep the language they were written in |
 
 ### ConversationMessage (new, v14)
 
@@ -69,55 +69,62 @@ untouched.
 | id | TEXT PK | |
 | conversation_id | TEXT | FK → conversations; cascade |
 | role | TEXT | CHECK IN ('user','assistant') |
-| content | TEXT | non-empty; assistant messages persist with usage metadata (chatMessages rule — a missing usage breaks the SDK estimator) |
-| created_at | TEXT | order = insertion; restart-safe by storage, not memory |
+| content | TEXT | must not be empty; an assistant message stores its usage metadata — the chatMessages rule: without it the SDK's context estimator throws inside the provider call |
+| created_at | TEXT | order is insertion order; persistence comes from storage, not memory |
 
-Validation rules: every grounded send constructs from the task's own material only
-(FR-011 — egress at context construction, unchanged mechanism); chat never mutates task
-state (FR-010 enforced at the handler: the conversation service receives no task-port).
+Validation rules: a grounded send builds its context from this task's material only
+(FR-011 — the egress-at-construction mechanism is unchanged). A conversation never
+modifies task state (FR-010); the handler enforces it structurally: the conversation
+service receives no task port.
 
-### CurationRun (table `ingest_ledger` — extended v15)
+### CurationRun (table `ingest_ledger` — extended in v15)
 
 | Field | Type | Rules |
 |---|---|---|
-| id / task_id / state / deposit_files / attempts / created_at | (unchanged) | states now: `queued → running → done | failed`; **new**: `done → undone` |
-| snapshot_dir | TEXT | relative-to-wiki `.history/<run>/`; taken **after** deposit — ordering is load-bearing (D7); pinned by test |
+| id / task_id / state / deposit_files / attempts / created_at | unchanged | states now: `queued → running → done` or `failed`; new: `done → undone` |
+| snapshot_dir | TEXT | the `.history/<run>/` directory, stored relative to the collection; taken **after** the deposit — the order is load-bearing (D7) and a test pins it |
 | undone_at | TEXT NULL | set by the undo action |
 
-Undo (FR-020, Q3=A): deterministic restore of files touched by the curation
-(`diffTouchedFiles` already names them) from `snapshot_dir`; the deposit files present in
-that snapshot are restored *to themselves* — they stand. Refused when: state ≠ `done`;
-the wiki no longer resolves under the Type's destination (same refusal rule as finish —
-never silently mis-restore); the snapshot directory is missing (reported, not guessed).
+Undo (FR-020, Q3=A): restore the files the curation touched — `diffTouchedFiles`
+already names them — from `snapshot_dir`. The deposit files inside that snapshot return
+to the content they already had; they stand. Refuse the undo when: the state is not
+`done`; the collection no longer resolves under the Type's destination (the same rule
+as at finish — never mis-restore); or the snapshot directory is missing (report it, do
+not guess).
 
-### Destination & confinement (unchanged mechanism; new requirements to hold)
+### Destination and confinement (mechanism unchanged; new requirements to meet)
 
-One implementation (relative + not-`..` + not-absolute). wiki store: create-only
-scaffold at first destined finish (D6); folder store: never scaffolds (unchanged).
-Empty `rootPath`: built-in `document` Type may carry it (seeded, not saved); finish
-refuses via FR-007 localized codes. User Types: save refuses (FR-013).
+One implementation: the path must be relative, not start with `..`, and not be
+absolute. The wiki store may establish the minimal structure create-only at the first
+destined finish (D6). The folder store never establishes anything (unchanged). An empty
+`rootPath` is legal only on the seeded `document` Type; the finish then refuses with a
+localized code (FR-007). Saving a user Type with an empty `rootPath` refuses (FR-013).
 
 ## State transitions that matter
 
 - **Finish of a Document task** (FR-003/006/007, mode per D8):
-  `active → [choose mode, default from declaration] → resolve destination (refuse → stay
-  active with code) → as-written? write draft as-is : organize → verifyPolish-gate →
-  (pass) write organized / (fail) write as-is + report failed step → mark complete +
-  clear alarm → report artifact path + path taken`. `deposit-then-curate` variant:
-  write → **deposit synchronously** → mark complete → enqueue curation job; job:
-  snapshot → curate → record `done` (+ Activity shows undo).
-- **Blank working area** → finish refused with code (US1-AC6); task stays active.
-- **Assistant off/unconfigured** → mode forced as-written; zero session construction
-  (FR-021).
-- **Curation failure** → ledger `failed`, retryable from Activity (unchanged), the
-  deposit already stands.
+  `active → choose mode (default from the declaration) → resolve destination (fail → the
+  task stays active, refusal carries a code) → as-written: write the draft as-is |
+  assisted: organize → the traceability check (pass → write the organized document;
+  fail → write the draft as-is and report the step failed) → mark complete, clear the
+  alarm → report the artifact path and the path taken`. The `deposit-then-curate`
+  variant: validate → deposit synchronously → mark complete → enqueue the curation job;
+  the job runs snapshot → curate → records `done`; the Activity view offers undo.
+- **Blank working area** → the finish refuses with a code; the task stays active
+  (US1-AC6).
+- **Assistant off or unconfigured** → the mode is forced to as-written; no session is
+  constructed (FR-021).
+- **Curation failure** → the ledger shows `failed`; retry from the Activity view is
+  unchanged; the deposit already stands.
 
 ## Cross-checks (guard tests to update or add)
 
-- family set ↔ SQL CHECK mirrors (the naming-comment convention; same drill as the
-  retired categories).
-- chatContext registry total over: document-family tasks + family-less tasks (D10).
-- layering: no new `src/main` import in renderer; conversation port in `src/core/ports`,
-  adapter in `src/main/adapters`.
-- portability scan: no absolute paths in any board row, including new tables.
-- i18n literal ratchet: new user-facing strings only via catalog keys.
+- The family set and its SQL CHECK restatements stay mirrored; the naming-comment
+  convention applies, as it did for the retired categories.
+- The chatContext registry must cover both cases: document-family tasks and
+  family-less tasks (D10). The test fails on a missing entry.
+- Layering: no renderer import of `src/main`; the conversation port lives in
+  `src/core/ports` and its adapter in `src/main/adapters`.
+- Portability: no absolute path in any row, including the new tables.
+- i18n: new user-visible strings enter the catalogs only; the literal baseline stays
+  empty.
