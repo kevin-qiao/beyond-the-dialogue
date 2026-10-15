@@ -115,11 +115,14 @@ function normalizeTypeDef(def: TaskTypeDef, existing: TaskTypeDef | null): TaskT
 
 // Delete: built-ins are never deletable (spec). Tasks referencing the type
 // fall back to plain without losing core fields; already-written artifacts
-// are files on disk and are not touched (FR-016).
-export function deleteTypeDef(db: DatabaseSync, key: string): void {
+// are files on disk and are not touched (FR-014/FR-016). Returns the ids of
+// the re-homed tasks (US3-AC4: nothing silently loses its workflow — the
+// transport broadcasts each re-home and reports `rehomedTo: 'plain'`).
+export function deleteTypeDef(db: DatabaseSync, key: string): string[] {
   const existing = getType(db, key)
-  if (!existing) return
+  if (!existing) return []
   if (existing.isBuiltin) throw new Error('built-in types cannot be removed')
-  reassignTasksFromType(db, key)
+  const rehomed = reassignTasksFromType(db, key)
   deleteType(db, key)
+  return rehomed
 }

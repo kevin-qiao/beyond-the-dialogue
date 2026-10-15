@@ -557,16 +557,31 @@ function registerIpc(): void {
   // phrased in the user's language before they cross the IPC boundary.
   handleCommand(IPC.importSkillGitHub, (args) => importSkillFromGitHub(args.url))
   ipcMain.handle(IPC.listTypes, () => listTypeDefs(d()))
-  handleCommand(IPC.saveType, (args) => {
-    const existing = args.type?.key ? getTypeDef(d(), args.type.key) : null
-    const saved = existing ? updateTypeDef(d(), args.type) : createTypeDef(d(), args.type)
-    broadcast(IPC.evTypesUpdated, listTypeDefs(d()))
-    return saved
+  // types:save (contract): family-scoped validation runs in the registry
+  // service; a refusal returns { ok: false, issues } with the sentences
+  // phrased in the user's language rather than throwing. No command exposes
+  // or writes a grants field (D9): upsertType persists the empty default
+  // whatever the payload carried.
+  ipcMain.handle(IPC.saveType, (_e, args: { type: TaskTypeDef }) => {
+    try {
+      const existing = args.type?.key ? getTypeDef(d(), args.type.key) : null
+      if (existing) updateTypeDef(d(), args.type)
+      else createTypeDef(d(), args.type)
+      broadcast(IPC.evTypesUpdated, listTypeDefs(d()))
+      return { ok: true }
+    } catch (e) {
+      const localized = localizeThrown(e, loadSettings(d()).uiLanguage)
+      return { ok: false, issues: [localized instanceof Error ? localized.message : String(localized)] }
+    }
   })
-  handleCommand(IPC.deleteType, (args) => {
-    deleteTypeDef(d(), args.key)
+  // types:remove (contract): tasks using the Type are re-homed to plain —
+  // each re-home is broadcast (contract Events: task.updated "on re-home, on
+  // Type removal") and the result names where they went.
+  handleCommand(IPC.removeType, (args) => {
+    const rehomed = deleteTypeDef(d(), args.key)
+    for (const taskId of rehomed) broadcastTask(taskId)
     broadcast(IPC.evTypesUpdated, listTypeDefs(d()))
-    return undefined
+    return rehomed.length > 0 ? { ok: true, rehomedTo: 'plain' as const } : { ok: true }
   })
   handleCommand(IPC.cancelJob, (args) => {
     requireAssistant(d())

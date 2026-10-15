@@ -1773,10 +1773,14 @@ export function deleteType(db: DatabaseSync, key: string): void {
 }
 
 // Reassign tasks referencing a removed custom type back to `plain`
-// (spec: removing a custom type keeps core fields).
-export function reassignTasksFromType(db: DatabaseSync, key: string): void {
+// (spec: removing a custom type keeps core fields). Returns the ids of the
+// re-homed tasks so the caller can broadcast `task.updated` for each
+// (contract: "on finish, on re-home, on Type removal").
+export function reassignTasksFromType(db: DatabaseSync, key: string): string[] {
+  const rows = db.prepare('SELECT id FROM tasks WHERE custom_type_key = ? AND deleted_at IS NULL').all(key) as { id: string }[]
   const now = new Date().toISOString()
   db.prepare("UPDATE tasks SET type = 'plain', custom_type_key = NULL, inputs = '{}', updated_at = ? WHERE custom_type_key = ?").run(now, key)
+  return rows.map((r) => r.id)
 }
 
 // Drop task inputs the type no longer declares. Called on a type save (so a

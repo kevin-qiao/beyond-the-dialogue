@@ -46,7 +46,7 @@ type Tab = 'general' | 'types' | 'plugins' | 'ai'
 // NOT a setting here — a `store: wiki` type declares its own destination on
 // the Types tab, and with none configured a Finish is refused.
 export function SettingsView() {
-  const { snapshot, types, saveSettings, saveType, deleteType } = useApp()
+  const { snapshot, types, saveSettings, saveType, removeType } = useApp()
   const t = useT()
   const language = useLanguage()
   const [tab, setTab] = useState<Tab>('general')
@@ -424,7 +424,15 @@ export function SettingsView() {
           takenKeys={new Set(allTypeConfigs(types).filter((c) => c !== typeEditor.existing).map((c) => c.key))}
           onSave={async (cfg) => {
             try {
-              await saveType(cfg)
+              // The contract result: a save refusal (e.g. FR-013's
+              // destination without a location) arrives as structured,
+              // already-localized issues — shown, and the editor stays open
+              // so the user can fix what the refusal names.
+              const result = await saveType(cfg)
+              if (!result.ok) {
+                setTypeError((result.issues ?? []).join('; ') || t('error.unknown'))
+                return
+              }
               setTypeEditor(null)
               setTypeError(null)
             } catch (e: any) {
@@ -441,7 +449,10 @@ export function SettingsView() {
           refCount={referenceCount(pendingDelete.key)}
           onConfirm={async () => {
             try {
-              await deleteType(pendingDelete.key)
+              // Tasks using the Type are re-homed to plain (US3-AC4); main
+              // broadcasts each re-home, and the snapshot refresh picks the
+              // registry change up.
+              await removeType(pendingDelete.key)
             } catch (e: any) {
               setTypeError(e?.message ?? String(e))
             }

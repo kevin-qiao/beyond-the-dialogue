@@ -23,7 +23,7 @@ export const IPC = {
   saveNote: 'notes:save',
   listTypes: 'types:list',
   saveType: 'types:save',
-  deleteType: 'types:delete',
+  removeType: 'types:remove',
   retryJob: 'jobs:retry',
   cancelJob: 'jobs:cancel',
   getSettings: 'settings:get',
@@ -214,6 +214,20 @@ export interface SaveTypeArgs {
   type: TaskTypeDef
 }
 
+/** `types:save` result (contract): a save refusal arrives as a structured
+ *  result with localized issue sentences, not as a throw. */
+export interface SaveTypeResult {
+  ok: boolean
+  issues?: string[]
+}
+
+/** `types:remove` result (contract): tasks using the Type are re-homed,
+ *  never left without a Type in silence (FR-013/US3-AC4). */
+export interface RemoveTypeResult {
+  ok: boolean
+  rehomedTo?: 'plain'
+}
+
 export interface SaveSettingsArgs {
   // The only secret-bearing request on the map (contract guard): write-only
   // apiKey, merged by `splitInput`; absent/empty means "keep existing".
@@ -269,8 +283,8 @@ export interface RendererApi {
   importSkillFromGitHub: (url: string) => Promise<SkillEntry>
   saveNote: (args: SaveNoteArgs) => Promise<TaskNote>
   listTypes: () => Promise<TaskTypeDef[]>
-  saveType: (args: SaveTypeArgs) => Promise<TaskTypeDef>
-  deleteType: (args: { key: string }) => Promise<void>
+  saveType: (args: SaveTypeArgs) => Promise<SaveTypeResult>
+  removeType: (args: { key: string }) => Promise<RemoveTypeResult>
   retryJob: (args: { jobId: string }) => Promise<void>
   cancelJob: (args: { jobId: string }) => Promise<void>
   getSettings: () => Promise<RedactedSettings>
@@ -351,8 +365,8 @@ export interface AppCommands {
   [IPC.importSkillGitHub]: { args: { url: string }; result: SkillEntry }
   [IPC.saveNote]: { args: SaveNoteArgs; result: TaskNote }
   [IPC.listTypes]: { args: void; result: TaskTypeDef[] }
-  [IPC.saveType]: { args: SaveTypeArgs; result: TaskTypeDef }
-  [IPC.deleteType]: { args: { key: string }; result: void }
+  [IPC.saveType]: { args: SaveTypeArgs; result: SaveTypeResult }
+  [IPC.removeType]: { args: { key: string }; result: RemoveTypeResult }
   [IPC.retryJob]: { args: { jobId: string }; result: void }
   [IPC.cancelJob]: { args: { jobId: string }; result: void }
   [IPC.getSettings]: { args: void; result: RedactedSettings }

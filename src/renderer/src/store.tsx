@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import type { CreateTaskArgs, JobProgressEvent, RemoteOutcomeView, RemoteProposalView, ToastPayload, UpdateTaskArgs } from '../../shared/ipc'
+import type { CreateTaskArgs, JobProgressEvent, RemoteOutcomeView, RemoteProposalView, RemoveTypeResult, SaveTypeResult, ToastPayload, UpdateTaskArgs } from '../../shared/ipc'
 import type { AppSnapshot, FinishMode, FinishReport, IngestRecord, List, RedactedSettings, Settings, SettingsInput, Task, TaskTypeDef } from '../../shared/types'
 import { DEFAULT_LANGUAGE, localeOf, translator, type Language, type Translate } from '../../core/i18n'
 
@@ -52,8 +52,8 @@ interface AppContextValue extends AppState {
   setAlarm: (id: string, alarmAt: string | null) => Promise<Task>
   finishTask: (id: string, mode?: FinishMode) => Promise<FinishReport>
   saveNote: (taskId: string, content: string) => Promise<void>
-  saveType: (type: TaskTypeDef) => Promise<TaskTypeDef>
-  deleteType: (key: string) => Promise<void>
+  saveType: (type: TaskTypeDef) => Promise<SaveTypeResult>
+  removeType: (key: string) => Promise<RemoveTypeResult>
   retryJob: (jobId: string) => Promise<void>
   cancelJob: (jobId: string) => Promise<void>
   saveSettings: (s: SettingsInput) => Promise<RedactedSettings>
@@ -287,13 +287,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setSnapshot((prev) => prev && { ...prev, notes: { ...prev.notes, [taskId]: n } })
       },
       saveType: async (type) => {
-        const saved = await window.api.saveType({ type })
+        // The contract result: { ok, issues? } — a refusal arrives structured,
+        // with its sentences already localized in main.
+        const result = await window.api.saveType({ type })
         await refresh()
-        return saved
+        return result
       },
-      deleteType: async (key) => {
-        await window.api.deleteType({ key })
+      removeType: async (key) => {
+        const result = await window.api.removeType({ key })
         await refresh()
+        return result
       },
       retryJob: (jobId) => window.api.retryJob({ jobId }),
       cancelJob: (jobId) => window.api.cancelJob({ jobId }),
