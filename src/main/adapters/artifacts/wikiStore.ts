@@ -84,11 +84,15 @@ export class WikiArtifactStore implements ArtifactStorePort {
     const touched = snapshotWikiFiles(this.wikiRoot, [], subdir)
     const historyRoot = path.join(this.wikiRoot, '.history')
     const stamps = fs.existsSync(historyRoot) ? fs.readdirSync(historyRoot).sort() : []
+    const latest = stamps.length ? stamps[stamps.length - 1]! : null
     return {
       store: 'wiki',
       root: this.wikiRoot,
       subdir,
-      location: stamps.length ? path.join(historyRoot, stamps[stamps.length - 1]!) : null,
+      location: latest ? path.join(historyRoot, latest) : null,
+      // The storable form (FR-024): relative to the collection root, so the
+      // ledger row survives the collection moving with the user's data.
+      relLocation: latest ? `.history/${latest}` : null,
       // `snapshotWikiFiles` returns what it actually backed up; `before` is
       // what existed. They agree, but the backup list is the authoritative one.
       files: touched.length ? touched : before

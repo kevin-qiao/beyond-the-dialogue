@@ -44,6 +44,7 @@ export const IPC = {
   conversationsDelete: 'conversations:delete',
   getActivity: 'wiki:activity',
   retryIngest: 'wiki:retry-ingest',
+  undoCuration: 'wiki:undoCuration',
   attachmentsAddFromDialog: 'attachments:add-from-dialog',
   attachmentsRemove: 'attachments:remove',
   attachmentsOpen: 'attachments:open',
@@ -261,6 +262,18 @@ export interface ConversationsDeleteArgs {
   conversationId: string
 }
 
+/** `wiki:undoCuration` (contract): the restore is a code operation on
+ *  user-owned files; refusals arrive as localized sentences in `error`. */
+export interface UndoCurationArgs {
+  recordId: string
+}
+
+export interface UndoCurationResult {
+  ok: boolean
+  restored?: string[]
+  error?: string
+}
+
 // The API surface exposed on window.api by the preload script.
 export interface RendererApi {
   getSnapshot: () => Promise<AppSnapshot>
@@ -305,6 +318,7 @@ export interface RendererApi {
   conversationsDelete: (args: ConversationsDeleteArgs) => Promise<{ ok: boolean }>
   getActivity: () => Promise<import('./types').IngestRecord[]>
   retryIngest: (args: { ingestId: string }) => Promise<void>
+  undoCuration: (args: UndoCurationArgs) => Promise<UndoCurationResult>
   getProposals: () => Promise<RemoteProposalView[]>
   confirmRemoteChange: (args: { proposalId: string }) => Promise<RemoteOutcomeView>
   dismissProposal: (args: { proposalId: string }) => Promise<void>
@@ -384,6 +398,7 @@ export interface AppCommands {
   [IPC.conversationsDelete]: { args: ConversationsDeleteArgs; result: { ok: boolean } }
   [IPC.getActivity]: { args: void; result: import('./types').IngestRecord[] }
   [IPC.retryIngest]: { args: { ingestId: string }; result: void }
+  [IPC.undoCuration]: { args: UndoCurationArgs; result: UndoCurationResult }
   [IPC.getProposals]: { args: void; result: RemoteProposalView[] }
   [IPC.confirmRemoteChange]: { args: { proposalId: string }; result: RemoteOutcomeView }
   [IPC.dismissProposal]: { args: { proposalId: string }; result: void }

@@ -8,22 +8,26 @@ import type { MessageKey, Translate } from '../../../../core/i18n'
 function stateBadge(state: string): string {
   if (state === 'done') return 'ok'
   if (state === 'failed') return 'err'
+  if (state === 'undone') return 'muted'
   return 'running'
 }
 
 // Job and ingest states are rendered as words, so they are translated. The
 // record's own words are used for anything unrecognised rather than hidden —
 // an unknown state is a fact about the record, not a label we can invent.
+// 'undone' is feature 002's new ledger state (FR-020): a curation the user
+// reversed — the deposit it made still stands.
 const STATE_LABEL: Record<string, MessageKey> = {
   queued: 'job.state.queued',
   running: 'job.state.running',
   done: 'job.state.done',
-  failed: 'job.state.failed'
+  failed: 'job.state.failed',
+  undone: 'job.state.undone'
 }
 
+// The queue carries one kind since feature 002 (D4); the label map keeps the
+// retired names for any legacy event that could still describe a history row.
 const KIND_LABEL: Record<string, MessageKey> = {
-  preprocess: 'job.kind.preprocess',
-  suggestion: 'job.kind.suggestion',
   ingest: 'job.kind.ingest'
 }
 
@@ -54,13 +58,31 @@ function JobRow({ job }: { job: JobProgressEvent }) {
 // shape is the same because the question it answers is the same — what did
 // this finish actually write, and did anything go wrong?
 function IngestRow({ rec, step }: { rec: IngestRecord; step: string | null }) {
-  const { retryIngest, snapshot } = useApp()
+  const { retryIngest, snapshot, notify } = useApp()
   const t = useT()
   const locale = useLocale()
   // A degraded finish (done, but the assistant step failed) is reported as a
   // warning rather than a failure: the user's content WAS filed, and saying
   // otherwise would be wrong. It is still never presented as a clean success.
   const degraded = rec.state === 'done' && !!rec.error
+
+  // The undo (FR-020): offered on a DONE curation whose run kept a snapshot.
+  // It is a code operation on user-owned files — no session, no model — so
+  // unlike retry it is NOT assistant-gated: reversing a curation that already
+  // ran must not depend on the switch's current position.
+  const canUndo = rec.state === 'done' && !!rec.snapshotDir
+  const undo = async () => {
+    const result = await window.api.undoCuration({ recordId: rec.id })
+    if (result.ok) {
+      const files = (result.restored ?? []).join(', ')
+      notify(files ? t('activity.undo.restored', { files }) : t('activity.undo.restoredNone'))
+    } else {
+      // The refusal reasons arrive already localized (not done / snapshot
+      // missing / collection unresolvable).
+      notify(result.error ?? t('error.unknown'))
+    }
+  }
+
   return (
     <div className={`activity-row state-${rec.state}${degraded ? ' degraded' : ''}`}>
       <div className="activity-head">
@@ -76,13 +98,21 @@ function IngestRow({ rec, step }: { rec: IngestRecord; step: string | null }) {
       )}
       {rec.depositFiles.length > 0 && <div className="muted">{t('job.deposited', { files: rec.depositFiles.join(', ') })}</div>}
       {rec.touchedFiles.length > 0 && <div className="muted">{t('job.filesWritten', { files: rec.touchedFiles.join(', ') })}</div>}
+      {rec.state === 'undone' && rec.undoneAt && (
+        <div className="muted">{t('activity.undo.at', { when: new Date(rec.undoneAt).toLocaleString(locale) })}</div>
+      )}
       {rec.error && rec.state !== 'queued' && <div className={degraded ? 'muted' : 'error-text'}>{rec.error}</div>}
       {/* Retrying a finish is assistant working; while the harness is off
           the action is hidden, though the history itself remains visible —
-          a record of what happened, not a promise of what works (D1). */}
+          a record of what happened, not a promise of what works. */}
       {rec.state === 'failed' && snapshot && isAssistantEnabled(snapshot.settings) && (
         <button className="mini-btn" onClick={() => void retryIngest(rec.id)}>
           {t('common.retry')}
+        </button>
+      )}
+      {canUndo && (
+        <button className="mini-btn" onClick={() => void undo()}>
+          {t('activity.undo')}
         </button>
       )}
     </div>

@@ -107,7 +107,8 @@ export class FolderArtifactStore implements ArtifactStorePort {
   }
 
   async snapshot(target: DestinationRef): Promise<SnapshotHandle> {
-    const location = path.join(target.absRoot, '.history', new Date().toISOString().replace(/[:.]/g, '-'))
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const location = path.join(target.absRoot, '.history', stamp)
     const files = listFiles(target.absRoot)
     // Only materialize a backup directory when there is something to protect;
     // an empty `.history` in a user's folder is noise with no undo value.
@@ -124,6 +125,7 @@ export class FolderArtifactStore implements ArtifactStorePort {
       root: target.absRoot,
       subdir: '',
       location: files.length > 0 ? location : null,
+      relLocation: files.length > 0 ? `.history/${stamp}` : null,
       files
     }
   }

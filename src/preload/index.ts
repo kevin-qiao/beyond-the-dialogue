@@ -41,6 +41,7 @@ const api: RendererApi = {
   conversationsDelete: (args) => ipcRenderer.invoke(IPC.conversationsDelete, args),
   getActivity: () => ipcRenderer.invoke(IPC.getActivity),
   retryIngest: (args) => ipcRenderer.invoke(IPC.retryIngest, args),
+  undoCuration: (args) => ipcRenderer.invoke(IPC.undoCuration, args),
   attachmentsAddFromDialog: (args) => ipcRenderer.invoke(IPC.attachmentsAddFromDialog, args),
   attachmentsRemove: (args) => ipcRenderer.invoke(IPC.attachmentsRemove, args),
   attachmentsOpen: (args) => ipcRenderer.invoke(IPC.attachmentsOpen, args),

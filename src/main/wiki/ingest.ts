@@ -1,6 +1,6 @@
 import type { JobContext } from '../job-queue'
 import type { IngestRecord } from '../../shared/types'
-import { getTask, listTypes, updateIngest } from '../db'
+import { getIngest, getTask, listTypes, updateIngest } from '../db'
 import { loadRuntimeSettings } from '../runtimeSettings'
 import { message } from '../../core/i18n'
 import { LocalizedError } from '../../core/i18n/issues'
@@ -51,6 +51,12 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
 
   const record = (patch: Parameters<typeof updateIngest>[2]): void => updateIngest(db, job.id, patch)
 
+  // The finish already deposited synchronously (D7's order: deposit first,
+  // then this job snapshots and curates). The ledger row names what landed;
+  // the strategy reports it instead of depositing a second time.
+  const ledger = getIngest(db, job.id)
+  const priorDeposit = ledger?.depositFiles ?? []
+
   // A learning task may override where its curated note lands. The default is
   // the destination's own subdir + slug, which is exactly what
   // resolveLearningNotePath produces when nothing is overridden.
@@ -81,11 +87,15 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
     onDetail: (detail) => {
       if (detail.depositFiles) record({ depositFiles: detail.depositFiles })
       if (detail.protectedFiles) record({ touchedFiles: detail.protectedFiles })
+      // The snapshot location (RELATIVE to the collection, FR-024) is what
+      // the undo action restores from (T040) — recorded as it is taken.
+      if (detail.snapshotDir) record({ snapshotDir: detail.snapshotDir })
     },
     // No preprocess summary (D4): the retired engine's rows are history no
     // live path reads; the deposit carries the user's own material.
     attachmentPath: typeof task.inputs.filePath === 'string' ? task.inputs.filePath : undefined,
-    noteTargetRel: noteTargetRel || undefined
+    noteTargetRel: noteTargetRel || undefined,
+    priorDeposit
   })
 
   // What the agent actually created or modified.

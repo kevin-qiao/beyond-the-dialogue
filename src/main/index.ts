@@ -26,7 +26,8 @@ import { JobQueue } from './job-queue'
 import { runIngestJob } from './wiki/ingest'
 import { configureRuntimeFromSettings, isConfigured, listModelsForProvider, listProviders, testPrompt } from './ai/agent-runtime'
 import { runChatTurn } from './ai/chat'
-import { getNotes, listIngest, getTask, saveNotes, getJob, getAttachment } from './db'
+import { getNotes, listIngest, getTask, saveNotes, getJob, getAttachment, getIngest as getIngestRecord } from './db'
+import { undoCuration } from './wiki/undo'
 import { notePathFor } from './wiki/vault'
 import { createTypeDef, deleteTypeDef, effectiveTypeDef, getTypeDef, listTypeDefs, updateTypeDef } from './types'
 import { importSkillFolder } from './skills'
@@ -296,9 +297,11 @@ function finishDeps(): FinishDeps {
     taskTargetOverride: (task) =>
       typeof task.inputs.learningNotePath === 'string' ? task.inputs.learningNotePath : undefined,
     // deposit-then-curate hands the long-running curating agent to the queue,
-    // which owns the activity record for that behaviour.
-    enqueueCurate: (task) => {
-      queue!.enqueueIngest(task.id, task.title, [])
+    // which owns the activity record for that behaviour. The synchronous
+    // deposit's files ride the enqueue: the ledger names them, and the job's
+    // strategy reports them instead of depositing twice (D7).
+    enqueueCurate: (task, depositFiles) => {
+      queue!.enqueueIngest(task.id, task.title, depositFiles)
     }
   }
 }
@@ -735,6 +738,20 @@ function registerIpc(): void {
       broadcastTask(task.id)
     }
     return undefined
+  })
+  // The curation undo (FR-020): a code operation on user-owned files — no
+  // session, no model — and NOT assistant-gated: reversing a curation that
+  // already ran is board-adjacent history work that must not depend on the
+  // switch's current position. Refusals arrive phrased in the result.
+  handleCommand(IPC.undoCuration, (args) => {
+    const result = undoCuration(d(), args.recordId)
+    if (!result.ok) {
+      const language = loadSettings(d()).uiLanguage
+      return { ok: false, error: localizeThrown(result.error, language).message }
+    }
+    const rec = getIngestRecord(d(), args.recordId)
+    if (rec) broadcast(IPC.evIngestUpdated, rec)
+    return { ok: true, restored: result.restored }
   })
 }
 

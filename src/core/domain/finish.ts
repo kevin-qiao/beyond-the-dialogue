@@ -71,12 +71,21 @@ export interface FinishContext {
   /**
    * Structural detail as the strategy produces it, so the activity record can
    * show what was preserved even when a later step fails. `onStep` carries the
-   * human-readable progress; this carries the file lists.
+   * human-readable progress; this carries the file lists and the snapshot
+   * location (RELATIVE to the collection — the storable form, FR-024) the
+   * undo action restores from (T040).
    */
-  onDetail?: (detail: { depositFiles?: string[]; protectedFiles?: string[] }) => void
+  onDetail?: (detail: { depositFiles?: string[]; protectedFiles?: string[]; snapshotDir?: string }) => void
   /** Pre-rendered AI pre-process summary, for the deposit-first safety net. */
   summary?: string
   attachmentPath?: string
+  /**
+   * The deposit that ALREADY landed — synchronously, at finish time — when
+   * the curating job re-enters this strategy (D7's order: deposit first at
+   * finish, snapshot and curation in the job). The strategy does not
+   * re-deposit what the finish deposited: one code path, no double work.
+   */
+  priorDeposit?: string[]
   /**
    * The curated target the curating agent should write to, relative to the
    * destination root. Supplied by the caller because a wiki destination lets
@@ -211,24 +220,47 @@ export const polishThenFile: FinishStrategy = async (ctx) => {
 export const depositThenCurate: FinishStrategy = async (ctx) => {
   const dest = requireDestination(ctx)
 
-  ctx.onStep?.(message(ctx.language, 'finish.step.depositing'), message(ctx.language, 'finish.step.depositingDetail'))
-  const deposit = await ctx.store.deposit(dest, {
-    taskId: ctx.task.id,
-    title: ctx.task.title,
-    content: ctx.workingContent,
-    summary: ctx.summary,
-    attachmentPath: ctx.attachmentPath
-  })
-  // Reported as it happens: the deposit is the part that survives a later
-  // failure, so the activity record must show it even if the rest never runs.
-  ctx.onDetail?.({ depositFiles: deposit.files })
-  if (deposit.files.length === 0) {
-    throw new Error('nothing to ingest: task has no notes or AI summary')
+  // The wiki store establishes the pattern's minimal structure create-only
+  // at the first destined finish (D6/FR-018) — the step is named for the
+  // Activity surface; a folder destination is never scaffolded.
+  if (dest.store === 'wiki') {
+    ctx.onStep?.(message(ctx.language, 'finish.step.settingUp'), message(ctx.language, 'finish.step.settingUpDetail'))
   }
 
+  // Deposit-first (D7): the user's material lands synchronously and survives
+  // any later failure. When the curating JOB re-enters this strategy, the
+  // finish already deposited — the prior deposit is reported, not repeated
+  // ("the job does not re-implement the finish, and the finish does not
+  // re-implement the job").
+  let depositFiles: string[]
+  if (ctx.priorDeposit && ctx.priorDeposit.length > 0) {
+    depositFiles = ctx.priorDeposit
+    ctx.onDetail?.({ depositFiles })
+  } else {
+    ctx.onStep?.(message(ctx.language, 'finish.step.depositing'), message(ctx.language, 'finish.step.depositingDetail'))
+    const deposit = await ctx.store.deposit(dest, {
+      taskId: ctx.task.id,
+      title: ctx.task.title,
+      content: ctx.workingContent,
+      summary: ctx.summary,
+      attachmentPath: ctx.attachmentPath
+    })
+    // Reported as it happens: the deposit is the part that survives a later
+    // failure, so the activity record must show it even if the rest never runs.
+    depositFiles = deposit.files
+    ctx.onDetail?.({ depositFiles })
+  }
+  if (depositFiles.length === 0) {
+    throw new LocalizedError([{ key: 'document.empty' }])
+  }
+
+  // The snapshot comes AFTER the deposit — the order is load-bearing (D7):
+  // because the deposit stands first, the snapshot is of the collection as
+  // the user's material already entered it, and undo restores curation
+  // against exactly that retained state.
   ctx.onStep?.(message(ctx.language, 'finish.step.snapshotting'), message(ctx.language, 'finish.step.snapshottingDetail'))
   const handle = await ctx.store.snapshot(dest)
-  ctx.onDetail?.({ protectedFiles: handle.files })
+  ctx.onDetail?.({ protectedFiles: handle.files, ...(handle.relLocation ? { snapshotDir: handle.relLocation } : {}) })
 
   if (!ctx.session.isAvailable()) {
     throw new Error('AI not configured: no API key')
@@ -241,7 +273,7 @@ export const depositThenCurate: FinishStrategy = async (ctx) => {
     // agent has to reach the schema file, the raw deposit, index.md and log.md.
     cwd: dest.root,
     systemPrompt: STORE_SCHEMA_PROMPT,
-    prompt: buildCuratePrompt(ctx, deposit.files),
+    prompt: buildCuratePrompt(ctx, depositFiles),
     tools: ['read', 'write', 'edit', 'grep', 'find', 'ls'],
     thinkingLevel: 'medium',
     signal: ctx.signal,
@@ -253,7 +285,7 @@ export const depositThenCurate: FinishStrategy = async (ctx) => {
     artifactPath: dest.abs,
     assistantStep: 'succeeded',
     touchedFiles,
-    depositFiles: deposit.files
+    depositFiles: depositFiles
   }
 }
 
