@@ -8,7 +8,6 @@ import { ChatPanel } from './ChatPanel'
 import { IconChevronDown, IconChevronLeft, IconChevronRight, IconChevronUp, IconTarget } from '../ui/icons'
 import { effectiveType } from '../../lib/typeCatalog'
 import { workingAreaFor, type WorkingArea } from '../../../../core/domain/workingArea'
-import { isAssistantEnabled } from '../../../../core/domain/assistant'
 
 // The Family selects the working surface (research D1/D3): a document-family
 // Type surfaces the task's note as the WORKING AREA — the writing space the
@@ -67,13 +66,12 @@ export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
 
   const meta = effectiveType(task, snapshot?.taskTypes)
   const listName = snapshot?.lists.find((l) => l.id === task.listId)?.name ?? 'Inbox'
-  // The chat belongs in the band for the Types whose working area grounds a
-  // chat in the task (the document family); the plain notes surface keeps its
-  // chat-free treatment until US2 attaches conversations to every task.
   const area = workingAreaFor(meta.family)
-  // Chat is an assistant surface: the tab does not exist while the harness
-  // is declared off (D1) — no refusal notice, nothing.
-  const hasChat = area !== 'notes' && isAssistantEnabled(snapshot!.settings)
+  // Conversations attach to EVERY task (FR-008): the Chat tab always exists.
+  // While the assistant is off or unconfigured the panel itself states the
+  // reason plainly (US2-AC3) and the stored history stays readable — the tab
+  // hiding would hide the user's own record with it.
+  const hasChat = true
 
   return (
     <aside className="focus-col">

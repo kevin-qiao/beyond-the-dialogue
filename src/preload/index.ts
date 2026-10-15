@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent, ArtifactsFiledEvent, RemoteProposalView } from '../shared/ipc'
+import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload, ConversationDeltaEvent, ConversationUpdatedEvent, ArtifactsFiledEvent, RemoteProposalView } from '../shared/ipc'
 import type { IngestRecord, List, RedactedSettings, SkillEntry, Task, TaskNote, TaskTypeDef } from '../shared/types'
 
 const api: RendererApi = {
@@ -34,8 +34,11 @@ const api: RendererApi = {
   listModels: (provider) => ipcRenderer.invoke(IPC.listModels, provider),
   listProviders: () => ipcRenderer.invoke(IPC.listProviders),
   testConnection: (settings) => ipcRenderer.invoke(IPC.testConnection, settings),
-  sendChat: (args) => ipcRenderer.invoke(IPC.sendChat, args),
-  resetChat: (args) => ipcRenderer.invoke(IPC.resetChat, args),
+  conversationsList: (args) => ipcRenderer.invoke(IPC.conversationsList, args),
+  conversationsCreate: (args) => ipcRenderer.invoke(IPC.conversationsCreate, args),
+  conversationsSend: (args) => ipcRenderer.invoke(IPC.conversationsSend, args),
+  conversationsMessages: (args) => ipcRenderer.invoke(IPC.conversationsMessages, args),
+  conversationsDelete: (args) => ipcRenderer.invoke(IPC.conversationsDelete, args),
   getActivity: () => ipcRenderer.invoke(IPC.getActivity),
   retryIngest: (args) => ipcRenderer.invoke(IPC.retryIngest, args),
   attachmentsAddFromDialog: (args) => ipcRenderer.invoke(IPC.attachmentsAddFromDialog, args),
@@ -86,20 +89,15 @@ const api: RendererApi = {
     ipcRenderer.on(IPC.evArtifactsFiled, h)
     return () => ipcRenderer.removeListener(IPC.evArtifactsFiled, h)
   },
-  onChatDelta: (cb) => {
-    const h = (_e: unknown, e: ChatDeltaEvent) => cb(e)
-    ipcRenderer.on(IPC.evChatDelta, h)
-    return () => ipcRenderer.removeListener(IPC.evChatDelta, h)
+  onConversationDelta: (cb) => {
+    const h = (_e: unknown, e: ConversationDeltaEvent) => cb(e)
+    ipcRenderer.on(IPC.evConversationDelta, h)
+    return () => ipcRenderer.removeListener(IPC.evConversationDelta, h)
   },
-  onChatDone: (cb) => {
-    const h = (_e: unknown, e: ChatDoneEvent) => cb(e)
-    ipcRenderer.on(IPC.evChatDone, h)
-    return () => ipcRenderer.removeListener(IPC.evChatDone, h)
-  },
-  onChatError: (cb) => {
-    const h = (_e: unknown, e: ChatErrorEvent) => cb(e)
-    ipcRenderer.on(IPC.evChatError, h)
-    return () => ipcRenderer.removeListener(IPC.evChatError, h)
+  onConversationUpdated: (cb) => {
+    const h = (_e: unknown, e: ConversationUpdatedEvent) => cb(e)
+    ipcRenderer.on(IPC.evConversationUpdated, h)
+    return () => ipcRenderer.removeListener(IPC.evConversationUpdated, h)
   },
   onOpenTask: (cb) => {
     const h = (_e: unknown, taskId: string) => cb(taskId)

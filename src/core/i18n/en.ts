@@ -294,15 +294,17 @@ export const en = {
   'error.aiNotConfigured': 'AI not configured: open Settings to configure a provider, model and API key',
   'error.unknown': 'unknown error',
 
-  // ---- the chat ----
-  'chat.title': 'Chat',
-  'chat.newConversation': 'New conversation',
-  'chat.debugIntro': 'Debug: talk to your configured model to verify the connection and model behavior.',
-  'chat.debugEmpty':
-    'No messages yet. Say hello, or ask the model to describe itself — anything that confirms the provider is reachable.',
-  'chat.emptyHint': 'Ask the agent anything',
+  // ---- the task conversation surface (feature 002, US2) ----
+  // The debug-chat keys (title/intro/empty) are retired with the drawer
+  // (T027): conversations are task-owned stored state now.
+  'chat.listLabel': 'Conversations',
+  'chat.new': 'New conversation',
+  'chat.conversationLabel': 'Conversation {n}',
+  'chat.delete': 'Delete this conversation',
+  'chat.sendFailed': 'The reply failed — your stored history is intact',
+  'chat.emptyHint': 'Ask about this task — replies are grounded in its own material',
   'chat.replying': 'The model is replying…',
-  'chat.placeholder': 'Message the agent… (Enter to send)',
+  'chat.placeholder': 'Message the assistant… (Enter to send)',
 
   // ---- the top bar ----
   'app.loading': 'Loading…',
@@ -320,8 +322,6 @@ export const en = {
   'drawer.activity.sub': 'agent jobs · ingest history · live progress',
   'drawer.settings.title': 'Settings',
   'drawer.settings.sub': 'ai provider · theme · preferences',
-  'drawer.chat.title': 'Debug chat',
-  'drawer.chat.sub': 'agent session · stream events',
 
   // ---- activity: jobs and ingest records ----
   'activity.sub': 'Agent work — live',
@@ -362,8 +362,6 @@ export const en = {
   'palette.action.settings.sub': 'Types, AI, theme',
   'palette.action.activity': 'Open activity',
   'palette.action.activity.sub': 'Agent job progress',
-  'palette.action.chat': 'Open debug chat',
-  'palette.action.chat.sub': 'Talk to the model directly',
   'palette.action.today': 'Go to My Day',
   'palette.action.today.sub': 'Switch to the My Day view',
   'palette.action.theme': 'Toggle theme',

@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { CreateTaskArgs, JobProgressEvent, RemoteOutcomeView, RemoteProposalView, ToastPayload, UpdateTaskArgs } from '../../shared/ipc'
-import type { AppSnapshot, ChatMessage, FinishMode, FinishReport, IngestRecord, List, RedactedSettings, Settings, SettingsInput, Task, TaskTypeDef } from '../../shared/types'
+import type { AppSnapshot, FinishMode, FinishReport, IngestRecord, List, RedactedSettings, Settings, SettingsInput, Task, TaskTypeDef } from '../../shared/types'
 import { DEFAULT_LANGUAGE, localeOf, translator, type Language, type Translate } from '../../core/i18n'
 
 interface AppState {
@@ -16,7 +16,9 @@ interface AppState {
 // Task column mode (board): what the middle column shows. Auxiliary surfaces
 // (Activity/Settings/Chat) are drawers, not views.
 export type View = 'my-day' | 'todo'
-export type DrawerView = 'activity' | 'settings' | 'chat'
+// The debug-chat drawer is retired with the in-memory transcript (T027):
+// conversations are task-owned stored state and live in the focus column.
+export type DrawerView = 'activity' | 'settings'
 
 interface AppContextValue extends AppState {
   /** The language the app's own text is shown in (Settings → Appearance). */
@@ -37,10 +39,6 @@ interface AppContextValue extends AppState {
   dismissToast: () => void
   liveJobs: JobProgressEvent[]
   ingestSteps: Record<string, string | null>
-  /** The transcript of one chat surface. `taskId` undefined = the debug chat. */
-  chatFor: (taskId?: string) => ChatSurface
-  sendChat: (text: string, taskId?: string) => Promise<void>
-  resetChat: (taskId?: string) => Promise<void>
   setQuery: (q: string) => void
   searchTasks: (tasks: Task[]) => Task[]
   createList: (name: string) => Promise<List>
@@ -70,23 +68,6 @@ interface AppContextValue extends AppState {
   types: TaskTypeDef[]
 }
 
-// One chat surface's transcript and its in-flight state. The app holds one per
-// surface (per task, plus the debug drawer) rather than a single shared
-// conversation: with one array, opening another task's chat showed the
-// previous task's exchange, and sending from it threw the other one away.
-export interface ChatSurface {
-  messages: ChatMessage[]
-  streaming: string | null
-  running: boolean
-  error: string | null
-}
-
-const NO_CHAT: ChatSurface = { messages: [], streaming: null, running: false, error: null }
-
-// Surface key: a task id, or the debug chat's empty string. Mirrors the main
-// process's `chatKeyOf`.
-const chatKey = (taskId?: string | null): string => taskId ?? ''
-
 const AppCtx = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -104,13 +85,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [query, setQuery] = useState('')
   const [liveJobs, setLiveJobs] = useState<Record<string, JobProgressEvent>>({})
   const [ingestSteps, setIngestSteps] = useState<Record<string, string | null>>({})
-  const [chats, setChats] = useState<Record<string, ChatSurface>>({})
   const snapshotRef = useRef<AppSnapshot | null>(null)
-
-  // Update one surface's transcript without touching the others.
-  const patchChat = useCallback((key: string, fn: (cur: ChatSurface) => ChatSurface) => {
-    setChats((prev) => ({ ...prev, [key]: fn(prev[key] ?? NO_CHAT) }))
-  }, [])
 
   useEffect(() => {
     snapshotRef.current = snapshot
@@ -198,22 +173,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const offIngestProgress = window.api.onIngestProgress((e) => {
       setIngestSteps((prev) => ({ ...prev, [e.ingestId]: e.stepLabel }))
     })
-    // Chat events are routed by owner, so a reply lands in the transcript of
-    // the surface that asked for it — never in whichever panel is on screen.
-    const offChatDelta = window.api.onChatDelta((e) => {
-      patchChat(chatKey(e.owner), (cur) => ({ ...cur, streaming: (cur.streaming ?? '') + e.delta }))
-    })
-    const offChatDone = window.api.onChatDone((e) => {
-      patchChat(chatKey(e.owner), (cur) => ({
-        ...cur,
-        messages: [...cur.messages, { role: 'assistant', content: e.text }],
-        streaming: null,
-        running: false
-      }))
-    })
-    const offChatError = window.api.onChatError((e) => {
-      patchChat(chatKey(e.owner), (cur) => ({ ...cur, streaming: null, running: false, error: e.error }))
-    })
+    // Conversation events are consumed by the ChatPanel that owns the
+    // surface (T029): the transcript is per-conversation stored state, not a
+    // store-level cache, so the subscriptions live with the panel.
     const offOpenTask = window.api.onOpenTask((taskId) => {
       setSelectedTaskId(taskId)
     })
@@ -227,12 +189,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       offIngest()
       offProposals()
       offIngestProgress()
-      offChatDelta()
-      offChatDone()
-      offChatError()
       offOpenTask()
     }
-  }, [mutateTask, refresh, patchChat])
+  }, [mutateTask, refresh])
 
   // The language rides the snapshot, so it arrives with every settings change
   // and needs no context of its own. Derived here rather than inside the value
@@ -268,37 +227,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dismissToast: () => setToast(null),
       liveJobs: Object.values(liveJobs).sort((a, b) => a.jobId.localeCompare(b.jobId)),
       ingestSteps,
-      chatFor: (taskId) => chats[chatKey(taskId)] ?? NO_CHAT,
-      sendChat: async (text, taskId) => {
-        const key = chatKey(taskId)
-        patchChat(key, (cur) => ({
-          ...cur,
-          error: null,
-          streaming: null,
-          running: true,
-          messages: [...cur.messages, { role: 'user', content: text }]
-        }))
-        try {
-          await window.api.sendChat({ text, taskId })
-        } catch (e: any) {
-          // The call itself rejected, so no chat:error event will follow.
-          // Roll the message back — main never recorded it either, and a
-          // transcript that shows a message the model never saw is worse than
-          // losing one — and clear the running state so the composer is not
-          // left disabled on "the model is replying…" until a restart.
-          patchChat(key, (cur) => ({
-            ...cur,
-            running: false,
-            streaming: null,
-            messages: cur.messages.slice(0, -1),
-            error: e?.message ?? t('error.mainUnreachable')
-          }))
-        }
-      },
-      resetChat: async (taskId) => {
-        await window.api.resetChat({ taskId })
-        setChats((prev) => ({ ...prev, [chatKey(taskId)]: NO_CHAT }))
-      },
       setActiveView,
       selectList,
       selectTask,
@@ -409,7 +337,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast,
     liveJobs,
     ingestSteps,
-    chats,
     query,
     setActiveView,
     openDrawer,
@@ -417,8 +344,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     selectList,
     selectTask,
     refresh,
-    mutateTask,
-    patchChat
+    mutateTask
   ])
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>

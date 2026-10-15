@@ -1,4 +1,4 @@
-import type { AppSnapshot, Attachment, DestinationStore, FinishMode, FinishReport, List, RedactedSettings, SettingsInput, SkillEntry, Task, TaskNote, TaskTypeDef } from './types'
+import type { AppSnapshot, Attachment, Conversation, ConversationMessage, DestinationStore, FinishMode, FinishReport, List, RedactedSettings, SettingsInput, SkillEntry, Task, TaskNote, TaskTypeDef } from './types'
 
 // IPC channel names. Commands are renderer -> main invokes; events are
 // main -> renderer pushes.
@@ -35,8 +35,13 @@ export const IPC = {
   getProposals: 'remote:get-proposals',
   confirmRemoteChange: 'remote:confirm',
   dismissProposal: 'remote:dismiss',
-  sendChat: 'chat:send',
-  resetChat: 'chat:reset',
+  // Conversations (feature 002, contracts/document-assist-ipc.md). The old
+  // chat:send / chat:reset channels are retired with the in-memory transcript.
+  conversationsList: 'conversations:list',
+  conversationsCreate: 'conversations:create',
+  conversationsSend: 'conversations:send',
+  conversationsMessages: 'conversations:messages',
+  conversationsDelete: 'conversations:delete',
   getActivity: 'wiki:activity',
   retryIngest: 'wiki:retry-ingest',
   attachmentsAddFromDialog: 'attachments:add-from-dialog',
@@ -53,9 +58,12 @@ export const IPC = {
   evIngestProgress: 'ev:ingest-progress',
   // Feature 002 contract events use the contract's own names.
   evArtifactsFiled: 'artifacts.filed',
-  evChatDelta: 'ev:chat-delta',
-  evChatDone: 'ev:chat-done',
-  evChatError: 'ev:chat-error',
+  // The old ev:chat-delta channel, re-keyed per the contract: live streaming
+  // keeps a named channel, and the completed turn arrives as
+  // conversation.updated — no delta is ever shown without the stored message
+  // behind it.
+  evConversationDelta: 'conversation.delta',
+  evConversationUpdated: 'conversation.updated',
   evOpenTask: 'ev:open-task',
   evProposals: 'ev:proposals'
 } as const
@@ -130,24 +138,26 @@ export interface ToastPayload {
   view?: 'activity'
 }
 
-// Every chat event names the surface it belongs to: the owning task id, or
-// null for the ungrounded debug chat. Transcripts are per-surface, so a delta
-// must be routable to the panel that asked for it rather than to whichever
-// panel happens to be mounted.
-export interface ChatOwner {
-  owner: string | null
-}
-
-export interface ChatDeltaEvent extends ChatOwner {
+// Conversation events (contract): a delta streams against its conversation,
+// and every stored message is announced — no delta is ever shown without the
+// stored message behind it.
+export interface ConversationDeltaEvent {
+  conversationId: string
   delta: string
 }
 
-export interface ChatDoneEvent extends ChatOwner {
-  text: string
+export interface ConversationUpdatedEvent {
+  taskId: string
+  conversationId: string
+  message: ConversationMessage
 }
 
-export interface ChatErrorEvent extends ChatOwner {
-  error: string
+/** `conversations:send` result (contract): the stored assistant message, or
+ *  the honest reason nothing was stored. */
+export interface ConversationSendResult {
+  ok: boolean
+  message?: ConversationMessage
+  error?: string
 }
 
 export interface CreateListArgs {
@@ -210,22 +220,31 @@ export interface SaveSettingsArgs {
   settings: SettingsInput
 }
 
-export interface SendChatArgs {
-  text: string
-  // When set, the chat is grounded in this task's kind context (inputs,
-  // pre-process outputs, current note). Undefined = plain debug chat.
-  taskId?: string
-}
-
 // The retired preprocess/suggestion channels (tasks:run-preprocess,
 // suggestions:dismiss, ev:preprocess-updated, ev:suggestions-updated) are
-// deleted with the engines (D4). Their stored rows are history; no surface
-// reads or writes them.
+// deleted with the engines (D4), and chat:send / chat:reset with the
+// in-memory transcript (T027): a conversation is stored state now, addressed
+// by its own id.
 
-export interface ResetChatArgs {
-  // Which surface's conversation to drop. Undefined = the ungrounded debug
-  // chat, which is also what the debug drawer means.
-  taskId?: string
+export interface ConversationsListArgs {
+  taskId: string
+}
+
+export interface ConversationsCreateArgs {
+  taskId: string
+}
+
+export interface ConversationsSendArgs {
+  conversationId: string
+  content: string
+}
+
+export interface ConversationsMessagesArgs {
+  conversationId: string
+}
+
+export interface ConversationsDeleteArgs {
+  conversationId: string
 }
 
 // The API surface exposed on window.api by the preload script.
@@ -265,8 +284,11 @@ export interface RendererApi {
   attachmentsAddFromDialog: (args: AttachmentAddArgs) => Promise<Attachment | null>
   attachmentsRemove: (args: AttachmentRemoveArgs) => Promise<void>
   attachmentsOpen: (args: AttachmentOpenArgs) => Promise<void>
-  sendChat: (args: SendChatArgs) => Promise<void>
-  resetChat: (args: ResetChatArgs) => Promise<void>
+  conversationsList: (args: ConversationsListArgs) => Promise<Conversation[]>
+  conversationsCreate: (args: ConversationsCreateArgs) => Promise<Conversation>
+  conversationsSend: (args: ConversationsSendArgs) => Promise<ConversationSendResult>
+  conversationsMessages: (args: ConversationsMessagesArgs) => Promise<ConversationMessage[]>
+  conversationsDelete: (args: ConversationsDeleteArgs) => Promise<{ ok: boolean }>
   getActivity: () => Promise<import('./types').IngestRecord[]>
   retryIngest: (args: { ingestId: string }) => Promise<void>
   getProposals: () => Promise<RemoteProposalView[]>
@@ -282,9 +304,8 @@ export interface RendererApi {
   onIngestUpdated: (cb: (rec: import('./types').IngestRecord) => void) => () => void
   onIngestProgress: (cb: (e: IngestProgressEvent) => void) => () => void
   onArtifactsFiled: (cb: (e: ArtifactsFiledEvent) => void) => () => void
-  onChatDelta: (cb: (e: ChatDeltaEvent) => void) => () => void
-  onChatDone: (cb: (e: ChatDoneEvent) => void) => () => void
-  onChatError: (cb: (e: ChatErrorEvent) => void) => () => void
+  onConversationDelta: (cb: (e: ConversationDeltaEvent) => void) => () => void
+  onConversationUpdated: (cb: (e: ConversationUpdatedEvent) => void) => () => void
   onOpenTask: (cb: (taskId: string) => void) => () => void
   onProposals: (cb: (proposals: RemoteProposalView[]) => void) => () => void
 }
@@ -304,9 +325,8 @@ export interface AppEvents {
   [IPC.evIngestUpdated]: import('./types').IngestRecord
   [IPC.evIngestProgress]: IngestProgressEvent
   [IPC.evArtifactsFiled]: ArtifactsFiledEvent
-  [IPC.evChatDelta]: ChatDeltaEvent
-  [IPC.evChatDone]: ChatDoneEvent
-  [IPC.evChatError]: ChatErrorEvent
+  [IPC.evConversationDelta]: ConversationDeltaEvent
+  [IPC.evConversationUpdated]: ConversationUpdatedEvent
   [IPC.evOpenTask]: string
   [IPC.evProposals]: RemoteProposalView[]
 }
@@ -343,8 +363,11 @@ export interface AppCommands {
   [IPC.attachmentsAddFromDialog]: { args: AttachmentAddArgs; result: Attachment | null }
   [IPC.attachmentsRemove]: { args: AttachmentRemoveArgs; result: void }
   [IPC.attachmentsOpen]: { args: AttachmentOpenArgs; result: void }
-  [IPC.sendChat]: { args: SendChatArgs; result: void }
-  [IPC.resetChat]: { args: ResetChatArgs; result: void }
+  [IPC.conversationsList]: { args: ConversationsListArgs; result: Conversation[] }
+  [IPC.conversationsCreate]: { args: ConversationsCreateArgs; result: Conversation }
+  [IPC.conversationsSend]: { args: ConversationsSendArgs; result: ConversationSendResult }
+  [IPC.conversationsMessages]: { args: ConversationsMessagesArgs; result: ConversationMessage[] }
+  [IPC.conversationsDelete]: { args: ConversationsDeleteArgs; result: { ok: boolean } }
   [IPC.getActivity]: { args: void; result: import('./types').IngestRecord[] }
   [IPC.retryIngest]: { args: { ingestId: string }; result: void }
   [IPC.getProposals]: { args: void; result: RemoteProposalView[] }

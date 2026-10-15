@@ -39,7 +39,10 @@ export function toSdkMessages(history: readonly ChatMessage[], now: number = Dat
       ? {
           role: 'assistant',
           content: [{ type: 'text', text: m.content }],
-          usage: UNKNOWN_USAGE,
+          // Feature 002: stored conversation messages carry the usage the
+          // provider reported; anything without one (the grounding pair, a
+          // legacy transcript) gets the honest zero and the SDK counts text.
+          usage: m.usage ?? UNKNOWN_USAGE,
           stopReason: 'stop',
           timestamp: now
         }

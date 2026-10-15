@@ -25,7 +25,7 @@ import {
 import { JobQueue } from './job-queue'
 import { runIngestJob } from './wiki/ingest'
 import { configureRuntimeFromSettings, isConfigured, listModelsForProvider, listProviders, testPrompt } from './ai/agent-runtime'
-import { ChatSession } from './ai/chat'
+import { runChatTurn } from './ai/chat'
 import { getNotes, listIngest, getTask, saveNotes, getJob, getAttachment } from './db'
 import { notePathFor } from './wiki/vault'
 import { createTypeDef, deleteTypeDef, effectiveTypeDef, getTypeDef, listTypeDefs, updateTypeDef } from './types'
@@ -43,8 +43,16 @@ import { getProviderKey, readSecrets, stripStaleAuthFile, getMcpEnv, storeMcpEnv
 import { loadRuntimeSettings } from './runtimeSettings'
 import { createAttachmentStore } from './adapters/attachments'
 import { LocalizedError } from '../core/i18n/issues'
-import { buildSessionContext, createProposalQueue } from '../core/domain/grant'
-import { buildChatContext } from '../core/domain/chatContext'
+import { createProposalQueue } from '../core/domain/grant'
+import {
+  createConversation,
+  deleteConversation,
+  listConversations,
+  listMessages,
+  sendTurn
+} from '../core/services/conversationService'
+import type { ConversationTurnPort } from '../core/ports/conversations'
+import { createSqliteConversationStore } from './adapters/sqlite/conversationStore'
 import { localeOf, message } from '../core/i18n'
 import { localizeThrown } from './errors'
 import {
@@ -62,36 +70,11 @@ import { systemClock } from '../core/ports/clock'
 let mainWindow: BrowserWindow | null = null
 let db: DB | null = null
 let queue: JobQueue | null = null
-// Debug chat + task-grounded working-area chat: one in-memory conversation per
-// SURFACE (design D4), not one per app. A single shared session made every
-// panel share one transcript — opening another task's chat showed the previous
-// task's exchange, and sending from it discarded the other conversation.
-const chatSessions = new Map<string, ChatEntry>()
+// The in-memory per-surface transcript map is deleted (T026/D5): conversations
+// are stored state in the v14 tables, addressed by their own id, and a turn
+// builds one short-lived model call from the stored history. Nothing chat-
+// shaped is retained in this process between turns.
 let alarms: AlarmScheduler | null = null
-
-interface ChatEntry {
-  session: ChatSession
-  // Identifies the grounding this conversation was built from. The session
-  // captures its context on the first message, so without comparing this a
-  // pre-process that landed mid-conversation would never reach the model.
-  grounding: string
-}
-
-// The surface key: a task id, or the debug chat's empty string. The wire
-// carries `null` for the debug surface; this is the in-process key for it.
-function chatKeyOf(taskId: string | null): string {
-  return taskId ?? ''
-}
-
-function chatEntryFor(taskId: string | null): ChatEntry {
-  const key = chatKeyOf(taskId)
-  let entry = chatSessions.get(key)
-  if (!entry) {
-    entry = { session: new ChatSession(), grounding: '' }
-    chatSessions.set(key, entry)
-  }
-  return entry
-}
 
 function rescheduleAlarms(): void {
   alarms?.reschedule()
@@ -129,34 +112,20 @@ function raiseAlarmNotification(fire: { taskId: string; title: string; dueAt: st
   n.show()
 }
 
-// Declaration-built chat grounding (research D10). What each case contributes
-// lives in src/core/domain/chatContext.ts; this is the transport-side wrapper.
-//
-// THE EGRESS BOUNDARY. Once a session has been granted external reach, it can
-// echo onward whatever it can see — so the full context stops being built for
-// it (FR-011). Filtering at the tool boundary would be too late: the content
-// would already be in the prompt. In this feature no Type declares a grant
-// (D9), so the boundary is structural: there is nothing to grant.
-function chatContextFor(d: DatabaseSync, taskId: string): string | undefined {
-  const task = getTask(d, taskId)
-  if (!task) return undefined
-  return buildSessionContext({
-    task,
-    purpose: 'interactive',
-    fullContext: () => fullChatContext(d, task)
-  })
-}
-
-function fullChatContext(d: DatabaseSync, task: Task): string {
-  const def = effectiveTypeDef(d, task)
-  // A missing registry case would silently thin the grounding, which is the
-  // failure this replaced — so it is a total registry lookup over the two
-  // first-class cases (document-family, family-less), never a fallback.
-  return buildChatContext(def, {
-    task,
-    typeDef: def,
-    workingContent: getNotes(d, task.id)?.content ?? null
-  })
+// The conversation turn port (research D5): availability is read from the
+// declared switch and the configured model service at call time, and a turn
+// is ONE short-lived stream through the existing SDK seam (runChatTurn →
+// streamChat) — nothing is retained afterwards. Grounding and its egress
+// wrapper live in the conversation service, built from the store's read-only
+// task material (FR-010/FR-011).
+function conversationTurn(d: DatabaseSync): ConversationTurnPort {
+  return {
+    availability: () => {
+      if (!isAssistantEnabled(loadSettings(d))) return 'off'
+      return isConfigured(loadRuntimeSettings(d)) ? 'ready' : 'not-configured'
+    },
+    run: ({ history, onDelta }) => runChatTurn(loadRuntimeSettings(d), history, onDelta)
+  }
 }
 
 /** Attachments ride the task aggregate (contract: "new attachments ride
@@ -437,9 +406,11 @@ function registerIpc(): void {
     // (FR-004 as clarified). The alarm consumption works through the
     // `deleted_at` filter in AlarmScheduler.pending() — nothing to do here.
     createAttachmentStore(d()).purgeForTask(args.id)
-    // A deleted task's conversation can never be reopened, so it is dropped
-    // rather than kept for the life of the process.
-    chatSessions.delete(chatKeyOf(args.id))
+    // A deletion is final for conversations too (data-model: deleting the
+    // task deletes its conversations, as 001 FR-004): the tombstone keeps the
+    // task out of every view, and its exchanges are dropped with it.
+    const convStore = createSqliteConversationStore(d())
+    for (const c of listConversations(convStore, args.id)) deleteConversation(convStore, c.id)
     rescheduleAlarms()
     broadcast(IPC.evTaskUpdated, { id: args.id, deleted: true })
     return undefined
@@ -667,37 +638,36 @@ function registerIpc(): void {
     broadcast(IPC.evSettingsUpdated, toRedacted(stored, readSecrets().secrets))
     return result
   })
-  handleCommand(IPC.sendChat, async (args) => {
-    requireAssistant(d())
-    const settings = loadRuntimeSettings(d())
-    const taskId = args.taskId ?? null
-    // Conversations are per-surface: the entry is created on the surface's
-    // first message and kept for as long as the app runs, so a task's chat is
-    // still there when the user comes back to it.
-    const entry = chatEntryFor(taskId)
-    // The grounding is rebuilt from the task's CURRENT material on every send
-    // and swapped in: the working area moves while a conversation is open, and
-    // the reply must see the task as it stands (feature 002 replaces the
-    // preprocess-version comparison — there is no background job to race).
-    const context = taskId ? chatContextFor(d(), taskId) : undefined
-    entry.session.refreshContext(context)
-    try {
-      const reply = await entry.session.send(
-        args.text,
-        settings,
-        (delta) => broadcast(IPC.evChatDelta, { owner: taskId, delta }),
-        context
-      )
-      broadcast(IPC.evChatDone, { owner: taskId, text: reply })
-    } catch (e: any) {
-      broadcast(IPC.evChatError, { owner: taskId, error: e?.message ?? String(e) })
-    }
+  // ---- conversations (feature 002, US2) ----
+  //
+  // Available on ANY task (FR-008) and NOT assistant-gated for reading: the
+  // history is the user's own record. A send while off/unconfigured does not
+  // throw — it returns the stated reason (US2-AC3), so the surface can say
+  // plainly why it is unavailable while the board carries on.
+  handleCommand(IPC.conversationsList, (args) => listConversations(createSqliteConversationStore(d()), args.taskId))
+  handleCommand(IPC.conversationsCreate, (args) => createConversation(createSqliteConversationStore(d()), args.taskId))
+  handleCommand(IPC.conversationsMessages, (args) => listMessages(createSqliteConversationStore(d()), args.conversationId))
+  handleCommand(IPC.conversationsDelete, (args) => {
+    deleteConversation(createSqliteConversationStore(d()), args.conversationId)
+    return { ok: true }
   })
-  handleCommand(IPC.resetChat, (args) => {
-    requireAssistant(d())
-    const taskId = args?.taskId ?? null
-    chatEntryFor(taskId).session.reset()
-    return undefined
+  handleCommand(IPC.conversationsSend, async (args) => {
+    const store = createSqliteConversationStore(d())
+    const conv = store.get(args.conversationId)
+    if (!conv) throw new Error('conversation not found')
+    const outcome = await sendTurn(
+      { store, turn: conversationTurn(d()), language: loadSettings(d()).uiLanguage },
+      { conversationId: args.conversationId, content: args.content },
+      {
+        // Deltas stream against their conversation; the stored turn then
+        // arrives as conversation.updated — no delta exists without its
+        // stored message behind it (contract Events).
+        onDelta: (delta) => broadcast(IPC.evConversationDelta, { conversationId: args.conversationId, delta }),
+        onStored: (m) => broadcast(IPC.evConversationUpdated, { taskId: conv.taskId, conversationId: conv.id, message: m })
+      }
+    )
+    if (!outcome.ok) return { ok: false, error: outcome.error }
+    return { ok: true, message: outcome.message }
   })
   handleCommand(IPC.getProposals, () => {
     requireAssistant(d())

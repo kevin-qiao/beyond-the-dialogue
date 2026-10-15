@@ -161,14 +161,18 @@ export async function runSimplePrompt(
   return text
 }
 
-// Debug chat (connection check): a streaming multi-turn conversation against
-// the configured model. History is supplied by the caller (ChatSession in
-// chat.ts); deltas are pushed to onDelta as tokens arrive.
+// A streaming conversation turn against the configured model. History is
+// supplied by the caller (the conversation service shapes it from storage);
+// deltas are pushed to onDelta as tokens arrive. The reply returns WITH the
+// provider's usage metadata: the stored assistant message carries it, and the
+// next turn's shaped history needs it — an assistant entry without usage
+// makes the SDK's context estimator throw inside the provider call (see
+// chatMessages.ts).
 export async function streamChat(
   settings: SettingsInput,
   history: ChatMessage[],
   onDelta: (delta: string) => void
-): Promise<string> {
+): Promise<{ text: string; usage?: Record<string, unknown> | null }> {
   const r = await getRuntime()
   const model = resolveModel(settings.provider, settings.model)
   if (!model) throw new Error(`no model available for provider ${settings.provider}`)
@@ -183,12 +187,19 @@ export async function streamChat(
       onDelta(ev.delta)
     }
   }
-  if (text) return text
-  // Providers that emit no deltas: fall back to the final message content.
   const result = await stream.result()
+  const usage = usageOf(result)
+  if (text) return { text, usage }
+  // Providers that emit no deltas: fall back to the final message content.
   const final = textOf(result)
-  if (final) return final
+  if (final) return { text: final, usage }
   // Nothing streamed and nothing in the final message: this is a failure, and
   // returning '' would reach the user as a chat reply that never appears.
   throw new Error(noReplyReason(result))
+}
+
+/** The usage metadata of a provider result, as a storable record (or null). */
+function usageOf(result: any): Record<string, unknown> | null {
+  const usage = result?.usage ?? result?.message?.usage
+  return usage && typeof usage === 'object' && !Array.isArray(usage) ? (usage as Record<string, unknown>) : null
 }

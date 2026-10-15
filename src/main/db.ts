@@ -4,6 +4,8 @@ import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
   Attachment,
+  Conversation,
+  ConversationMessage,
   Destination,
   Family,
   FinishBehaviour,
@@ -1924,6 +1926,90 @@ export function saveNotes(db: DatabaseSync, n: Omit<TaskNote, 'updatedAt'>): Tas
     )
   }
   return getNotes(db, n.taskId)!
+}
+
+// ---- Conversations (feature 002, v14 tables, FR-008–FR-011) ----
+
+function mapConversation(r: any): Conversation {
+  return {
+    id: r.id,
+    taskId: r.task_id,
+    createdAt: r.created_at,
+    ...(r.message_count !== undefined ? { messageCount: Number(r.message_count) } : {})
+  }
+}
+
+function parseUsage(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+function mapConversationMessage(r: any): ConversationMessage {
+  return {
+    id: r.id,
+    conversationId: r.conversation_id,
+    role: r.role,
+    content: r.content,
+    usage: parseUsage(r.usage_json),
+    createdAt: r.created_at
+  }
+}
+
+export function createConversation(db: DatabaseSync, taskId: string): Conversation {
+  const id = randomUUID()
+  db.prepare('INSERT INTO task_conversations (id, task_id, created_at) VALUES (?, ?, ?)').run(id, taskId, new Date().toISOString())
+  return getConversation(db, id)!
+}
+
+export function getConversation(db: DatabaseSync, id: string): Conversation | null {
+  const r = db.prepare('SELECT * FROM task_conversations WHERE id = ?').get(id)
+  return r ? mapConversation(r) : null
+}
+
+/** The task's conversations, newest first, each with its message count. */
+export function listConversations(db: DatabaseSync, taskId: string): Conversation[] {
+  const rows = db
+    .prepare(
+      `SELECT c.*, (SELECT COUNT(*) FROM conversation_messages m WHERE m.conversation_id = c.id) AS message_count
+       FROM task_conversations c WHERE c.task_id = ? ORDER BY c.created_at DESC, c.rowid DESC`
+    )
+    .all(taskId)
+  return rows.map(mapConversation)
+}
+
+/**
+ * Append a message. Order is INSERTION order — `rowid` is the authority the
+ * read query sorts by, so persistence (not memory) decides the transcript
+ * (data-model: "order is insertion order; persistence comes from storage").
+ */
+export function appendConversationMessage(
+  db: DatabaseSync,
+  conversationId: string,
+  entry: { role: 'user' | 'assistant'; content: string; usage?: Record<string, unknown> | null }
+): ConversationMessage {
+  const id = randomUUID()
+  db.prepare(
+    'INSERT INTO conversation_messages (id, conversation_id, role, content, usage_json, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, conversationId, entry.role, entry.content, entry.usage ? JSON.stringify(entry.usage) : null, new Date().toISOString())
+  const r = db.prepare('SELECT * FROM conversation_messages WHERE id = ?').get(id)
+  return mapConversationMessage(r)
+}
+
+export function listConversationMessages(db: DatabaseSync, conversationId: string): ConversationMessage[] {
+  const rows = db
+    .prepare('SELECT * FROM conversation_messages WHERE conversation_id = ? ORDER BY rowid ASC')
+    .all(conversationId)
+  return rows.map(mapConversationMessage)
+}
+
+/** Cascade does the work: deleting the conversation deletes its messages. */
+export function deleteConversation(db: DatabaseSync, id: string): void {
+  db.prepare('DELETE FROM task_conversations WHERE id = ?').run(id)
 }
 
 // ---- Suggestions: RETIRED (D4) — table and rows stay as history ----

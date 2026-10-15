@@ -486,11 +486,16 @@ export interface IngestRecord {
   snapshotDir: string | null
 }
 
-// ---- Debug chat ----
+// ---- Chat history shaping ----
 
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  /** The chatMessages rule: an assistant entry carries its usage metadata —
+   *  without it the SDK's context estimator throws inside the provider call.
+   *  Stored conversation messages supply it; absent means "unknown" and the
+   *  shaping layer substitutes the honest zero. */
+  usage?: Record<string, unknown> | null
 }
 
 // ---- Views ----

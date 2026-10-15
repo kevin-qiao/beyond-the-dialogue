@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useApp } from './store'
-import { isAssistantEnabled } from '../../core/domain/assistant'
 import { useT } from './lib/useT'
 import { ListsRail } from './components/board/ListsRail'
 import { TaskColumn } from './components/board/TaskColumn'
@@ -8,7 +7,7 @@ import { FocusColumn } from './components/focus/FocusColumn'
 import { DrawerHost } from './components/overlays/DrawerHost'
 import { WelcomeView } from './components/overlays/WelcomeView'
 import { CommandPalette } from './components/overlays/CommandPalette'
-import { IconActivity, IconChat, IconMoon, IconSearch, IconSettings, IconSun } from './components/ui/icons'
+import { IconActivity, IconMoon, IconSearch, IconSettings, IconSun } from './components/ui/icons'
 
 // Platform-aware shortcut label for the command palette hint (⌘K on macOS,
 // Ctrl K everywhere else).
@@ -179,13 +178,8 @@ export function App() {
           >
             <IconActivity />
           </button>
-          {/* Debug chat is an assistant surface — it does not exist while
-              the harness is declared off (D1). */}
-          {isAssistantEnabled(snapshot.settings) && (
-            <button className="icon-btn top-action" title={t('drawer.chat.title')} onClick={() => openDrawer('chat')}>
-              <IconChat />
-            </button>
-          )}
+          {/* The debug-chat entry is retired (T027): conversations are
+              task-owned and live in the focus column's Chat tab. */}
           <button
             className="icon-btn top-action"
             title={snapshot?.settings.theme === 'light' ? t('nav.theme.toDark') : t('nav.theme.toLight')}

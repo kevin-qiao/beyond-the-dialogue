@@ -266,14 +266,16 @@ export const zhCN: Catalog = {
   'error.aiNotConfigured': 'AI 未配置：请在设置中配置服务商、模型与 API 密钥',
   'error.unknown': '未知错误',
 
-  // ---- the chat ----
-  'chat.title': '对话',
-  'chat.newConversation': '新对话',
-  'chat.debugIntro': '调试：与你配置的模型对话，确认连接与模型行为。',
-  'chat.debugEmpty': '还没有消息。打个招呼，或让模型做个自我介绍 — 任何能确认服务商可达的对话都可以。',
-  'chat.emptyHint': '问 Agent 任何问题',
+  // ---- 任务对话界面（feature 002, US2）----
+  // 调试对话的键随抽屉一并退役（T027）：对话现在是任务所有的持久状态。
+  'chat.listLabel': '对话',
+  'chat.new': '新对话',
+  'chat.conversationLabel': '对话 {n}',
+  'chat.delete': '删除这个对话',
+  'chat.sendFailed': '回复失败 —— 已保存的历史记录完好无损',
+  'chat.emptyHint': '问问这个任务 —— 回复会以任务自身的材料为依据',
   'chat.replying': '模型正在回复…',
-  'chat.placeholder': '给 Agent 发消息…（回车发送）',
+  'chat.placeholder': '给助手发消息…（回车发送）',
 
   // ---- the top bar ----
   'app.loading': '加载中…',
@@ -291,8 +293,6 @@ export const zhCN: Catalog = {
   'drawer.activity.sub': 'Agent 任务 · 沉淀记录 · 实时进度',
   'drawer.settings.title': '设置',
   'drawer.settings.sub': 'AI 服务商 · 主题 · 偏好',
-  'drawer.chat.title': '调试对话',
-  'drawer.chat.sub': 'Agent 会话 · 流式事件',
 
   // ---- activity: jobs and ingest records ----
   'activity.sub': 'Agent 的工作 — 实时',
@@ -333,8 +333,6 @@ export const zhCN: Catalog = {
   'palette.action.settings.sub': '类型、AI、主题',
   'palette.action.activity': '打开活动',
   'palette.action.activity.sub': 'Agent 任务进度',
-  'palette.action.chat': '打开调试对话',
-  'palette.action.chat.sub': '直接和模型对话',
   'palette.action.today': '前往 My Day',
   'palette.action.today.sub': '切换到 My Day 视图',
   'palette.action.theme': '切换主题',

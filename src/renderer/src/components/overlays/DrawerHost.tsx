@@ -1,23 +1,23 @@
 import { useApp } from '../../store'
 import { useT } from '../../lib/useT'
-import { isAssistantEnabled } from '../../../../core/domain/assistant'
 import type { MessageKey } from '../../../../core/i18n'
 import { ActivityView } from './ActivityView'
 import { SettingsView } from './SettingsView'
-import { ChatView } from './ChatView'
 
 // Each drawer's heading, as keys rather than text: the title and subtitle are
 // looked up when the drawer opens, so they follow the language like the rest.
-const TITLES: Record<'activity' | 'settings' | 'chat', { title: MessageKey; sub: MessageKey }> = {
+//
+// The debug-chat drawer is retired (T027/T029): conversations are task-owned
+// stored state and live in the focus column's Chat tab, on every task.
+const TITLES: Record<'activity' | 'settings', { title: MessageKey; sub: MessageKey }> = {
   activity: { title: 'drawer.activity.title', sub: 'drawer.activity.sub' },
-  settings: { title: 'drawer.settings.title', sub: 'drawer.settings.sub' },
-  chat: { title: 'drawer.chat.title', sub: 'drawer.chat.sub' }
+  settings: { title: 'drawer.settings.title', sub: 'drawer.settings.sub' }
 }
 
-// Drawer host (spec app-layout): Activity, Settings, and the debug chat open
-// as right-side drawers overlaying the board, which stays mounted behind them.
+// Drawer host (spec app-layout): Activity and Settings open as right-side
+// drawers overlaying the board, which stays mounted behind them.
 export function DrawerHost() {
-  const { drawer, closeDrawer, snapshot } = useApp()
+  const { drawer, closeDrawer } = useApp()
   const t = useT()
   if (!drawer) return null
 
@@ -39,10 +39,6 @@ export function DrawerHost() {
         <div className="drawer-body">
           {drawer === 'activity' && <ActivityView />}
           {drawer === 'settings' && <SettingsView />}
-          {/* Chat is assistant working; while the harness is declared off the
-              drawer does not open at all (D1) — the palette and topbar hide
-              their entries too, this is the belt to their braces. */}
-          {drawer === 'chat' && snapshot && isAssistantEnabled(snapshot.settings) && <ChatView />}
         </div>
       </aside>
     </div>
