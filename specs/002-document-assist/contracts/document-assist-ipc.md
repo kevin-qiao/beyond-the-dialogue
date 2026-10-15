@@ -19,10 +19,10 @@ survives.
 
 | Command | Args | Result | Notes |
 |---|---|---|---|
-| `tasks:finish` | `{ taskId, mode?: 'assisted' \| 'as-written' }` | `{ ok, artifact?: { path, store }, path: 'organized' \| 'as-written' \| 'deposited', assistantStep?: 'failed' \| 'skipped' \| 'ran', issues?: codes }` | the Type's declaration sets the default mode; refusal codes: `destination.not_configured` (the destination-less built-in, Q1), `document.empty` (blank draft), `destination.unreachable` (the location is gone); the as-written mode constructs no session |
+| `tasks:finish` | `{ taskId, mode?: 'assisted' \| 'as-written' }` | `{ ok, artifact?: { path, store }, path: 'organized' \| 'as-written' \| 'deposited', assistantStep?: 'failed' \| 'skipped' \| 'ran', issues?: codes }` | the Type's declaration sets the default mode; refusal codes: `destination.not_configured` (the destination-less built-in, Q1), `document.empty` (blank draft), `destination.unreachable` (the location is gone); the as-written mode constructs no session; `assistantStep: 'skipped'` is the switch-off / degraded reporting value on both filing paths |
 | `conversations:list` | `{ taskId }` | `Conversation[]` — summaries: id, createdAt, messageCount | available on any task (FR-008) |
 | `conversations:create` | `{ taskId }` | `Conversation` | starts a fresh conversation; earlier ones remain (FR-009) |
-| `conversations:send` | `{ conversationId, content }` | streamed through events; the final result is `{ ok, message?: ConversationMessage, error? }` | the context is built from this task's material only (FR-011); a send never changes task state (FR-010) — the handler gives the conversation service no task port |
+| `conversations:send` | `{ conversationId, content }` | streamed via `conversation.delta`; the final result is `{ ok, message?: ConversationMessage, error? }` | the context is built from this task's material only (FR-011); a send never changes task state (FR-010) — the handler gives the conversation service no task port |
 | `conversations:messages` | `{ conversationId }` | `ConversationMessage[]` | stored, so order survives a restart (FR-009) |
 | `conversations:delete` | `{ conversationId }` | `{ ok }` | deleting the task deletes its conversations separately (final, as 001 FR-004) |
 | `types:save` | `TaskTypeDef`, family-scoped | `{ ok, issues? }` | save refuses a user Type whose destination has no location (FR-013); validation is family-scoped |
@@ -36,6 +36,7 @@ survives.
 | `task.updated` | Task | on finish, on re-home, on Type removal |
 | `jobs.step` (existing) | the step labels, including the new organize and curate labels | during an organized finish and a curation job; labels are produced already localized — `jobs.step_label` stores what happened, in the language it happened in |
 | `conversation.updated` | `{ taskId, conversationId, message }` | after each stored turn |
+| `conversation.delta` | `{ conversationId, delta }` | streamed during an assistant reply; the stored turn then arrives as `conversation.updated` — no delta exists without its stored message (the old `ev:chat-delta` channel, re-keyed) |
 | `artifacts.filed` | `{ taskId, path, store, mode }` | after a finish write succeeds |
 | `ingest.updated` | IngestRecord, now including `undoneAt` | curation queued → done / failed / undone |
 

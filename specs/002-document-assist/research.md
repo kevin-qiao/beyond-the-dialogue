@@ -209,8 +209,10 @@ per-source grounding the master spec asks for, and it removes the guard's value.
 - **v14** — add `task_conversations` and `conversation_messages`; both cascade-delete
   with the task (deletion is final, as 001 FR-004 defined).
 - **v15** — `ingest_ledger` gains the undo columns (`undone_at`, the `undone` state);
-  the category CHECKs on `task_preprocess` and `tasks` are rebuilt to remove the retired
-  vocabulary; all rows are preserved.
+  the retired category CHECKs on `task_preprocess` and `tasks` are **dropped**, not
+  restated — the columns are kept as free TEXT, because a gated rebuild re-inserts the
+  existing rows and no CHECK narrower than the retired values those history rows hold can
+  pass; all rows are preserved.
 
 Each step follows the `ran(v)`/`mark(v)` ladder. Row mappers are updated snake↔camel.
 The portability scan stays green: no board row stores an absolute path; Type
