@@ -1,4 +1,4 @@
-import type { AppSnapshot, Attachment, List, RedactedSettings, SettingsInput, SkillEntry, Task, TaskNote, TaskTypeDef } from './types'
+import type { AppSnapshot, Attachment, DestinationStore, FinishMode, FinishReport, List, RedactedSettings, SettingsInput, SkillEntry, Task, TaskNote, TaskTypeDef } from './types'
 
 // IPC channel names. Commands are renderer -> main invokes; events are
 // main -> renderer pushes.
@@ -51,6 +51,8 @@ export const IPC = {
   evTypesUpdated: 'ev:types-updated',
   evIngestUpdated: 'ev:ingest-updated',
   evIngestProgress: 'ev:ingest-progress',
+  // Feature 002 contract events use the contract's own names.
+  evArtifactsFiled: 'artifacts.filed',
   evChatDelta: 'ev:chat-delta',
   evChatDone: 'ev:chat-done',
   evChatError: 'ev:chat-error',
@@ -106,6 +108,21 @@ export interface IngestProgressEvent {
   ingestId: string
   taskId: string | null
   stepLabel: string | null
+}
+
+/** Emitted after a finish write succeeds (contract Events). */
+export interface ArtifactsFiledEvent {
+  taskId: string
+  path: string
+  store: DestinationStore
+  mode: FinishMode
+}
+
+/** `tasks:finish` args — the mode is the user's choice at the finish step;
+ *  the Type's declaration sets the default when it is absent (D8). */
+export interface FinishTaskArgs {
+  taskId: string
+  mode?: FinishMode
 }
 
 export interface ToastPayload {
@@ -224,7 +241,7 @@ export interface RendererApi {
   setMyDay: (args: { id: string; inMyDay: boolean }) => Promise<Task>
   setTaskDone: (args: { id: string; done: boolean }) => Promise<Task>
   setAlarm: (args: SetAlarmArgs) => Promise<Task>
-  finishTask: (args: { id: string }) => Promise<Task>
+  finishTask: (args: FinishTaskArgs) => Promise<FinishReport>
   chooseFile: () => Promise<string | null>
   chooseFolder: () => Promise<string | null>
   importSkill: () => Promise<SkillEntry | null>
@@ -264,6 +281,7 @@ export interface RendererApi {
   onToast: (cb: (t: ToastPayload) => void) => () => void
   onIngestUpdated: (cb: (rec: import('./types').IngestRecord) => void) => () => void
   onIngestProgress: (cb: (e: IngestProgressEvent) => void) => () => void
+  onArtifactsFiled: (cb: (e: ArtifactsFiledEvent) => void) => () => void
   onChatDelta: (cb: (e: ChatDeltaEvent) => void) => () => void
   onChatDone: (cb: (e: ChatDoneEvent) => void) => () => void
   onChatError: (cb: (e: ChatErrorEvent) => void) => () => void
@@ -285,6 +303,7 @@ export interface AppEvents {
   [IPC.evTypesUpdated]: TaskTypeDef[]
   [IPC.evIngestUpdated]: import('./types').IngestRecord
   [IPC.evIngestProgress]: IngestProgressEvent
+  [IPC.evArtifactsFiled]: ArtifactsFiledEvent
   [IPC.evChatDelta]: ChatDeltaEvent
   [IPC.evChatDone]: ChatDoneEvent
   [IPC.evChatError]: ChatErrorEvent
@@ -305,7 +324,7 @@ export interface AppCommands {
   [IPC.setMyDay]: { args: { id: string; inMyDay: boolean }; result: Task }
   [IPC.setTaskDone]: { args: { id: string; done: boolean }; result: Task }
   [IPC.setAlarm]: { args: SetAlarmArgs; result: Task }
-  [IPC.finishTask]: { args: { id: string }; result: Task }
+  [IPC.finishTask]: { args: FinishTaskArgs; result: FinishReport }
   [IPC.chooseFile]: { args: void; result: string | null }
   [IPC.chooseFolder]: { args: void; result: string | null }
   [IPC.importSkill]: { args: void; result: SkillEntry | null }

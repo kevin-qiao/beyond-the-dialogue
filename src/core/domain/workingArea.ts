@@ -50,14 +50,7 @@ export function finishActionLabel(def: TaskTypeDef | null | undefined): string {
   }
 }
 
-/** The warning shown when finishing with nothing written, per behaviour. */
-export function emptyContentWarning(def: TaskTypeDef | null | undefined): string | null {
-  const behaviour = def ? declaredWorkflow(def).finishBehaviour : null
-  if (behaviour === 'deposit-then-curate') {
-    return 'Your note is empty. Nothing meaningful will be ingested to your wiki if you finish now.'
-  }
-  if (behaviour === 'polish-then-file' || behaviour === 'file-as-is') {
-    return 'Nothing has been written yet, so the file would be empty.'
-  }
-  return null
-}
+// The empty-content warning is deleted with feature 002: a blank working area
+// is no longer a confirm dialog's question but the core's refusal — the
+// finish refuses with the localized `document.empty` code and the task stays
+// active (US1-AC6). One rule, stated where it is enforced.

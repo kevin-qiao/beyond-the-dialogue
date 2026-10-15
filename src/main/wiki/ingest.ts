@@ -42,7 +42,7 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   // scaffold in the working directory.
   const wikiRoot = (dest.rootPath ?? '').trim()
   if (!wikiRoot) {
-    throw new LocalizedError([{ key: 'wiki.notConfigured' }])
+    throw new LocalizedError([{ key: 'destination.notConfigured' }])
   }
 
   const storage = createSqliteStorage(db)

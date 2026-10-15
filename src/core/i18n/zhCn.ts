@@ -85,9 +85,11 @@ export const zhCN: Catalog = {
   'task.delete.message': '删除“{title}”？此操作无法撤销。',
   'task.finish': '完成',
   'task.finish.failed': '完成失败',
-  'task.finishEmpty.title': '还没写笔记就要完成？',
-  'task.finishEmpty.message': '你的学习笔记是空的；现在完成，不会有任何内容沉淀进你的 Wiki。',
-  'task.finishEmpty.confirm': '仍然完成',
+  // 完成时的双模式选择（D8/FR-003）：按类型指令整理草稿，或原样归档。
+  // 只在会出现助手步骤的地方显示。
+  'task.finish.modeLabel': '完成方式',
+  'task.finish.organize': '整理并归档',
+  'task.finish.asWritten': '原样归档',
 
   // ---- the alarm ----
   'task.alarm.label': '闹钟',
@@ -141,6 +143,7 @@ export const zhCN: Catalog = {
 
   // ---- the focus column and its editor ----
   'focus.empty': '选择一个任务，打开它的 AI 面板与工作区。',
+  'focus.workingArea': '工作区',
   'focus.show': '显示任务焦点',
   'focus.hide': '隐藏焦点栏',
   'focus.ai.show': '显示 AI 面板',
@@ -158,8 +161,8 @@ export const zhCN: Catalog = {
   'job.step.complete': '完成',
   'finish.step.filingUnpolished': '原样归档',
   'finish.step.noAi': 'AI 未配置',
-  'finish.step.polishing': '润色中',
-  'finish.step.polishingDetail': '正在重新整理纪要',
+  'finish.step.organizing': '整理中',
+  'finish.step.organizingDetail': '正在重新组织你的草稿',
   'finish.step.depositing': '沉淀中',
   'finish.step.depositingDetail': '正在保全原始素材',
   'finish.step.snapshotting': '快照中',
@@ -170,7 +173,12 @@ export const zhCN: Catalog = {
 
   // ---- toasts the domain raises ----
   'toast.finishDeferred': '任务已完成 — 助手正在整理成文',
-  'toast.filedTo': '已完成 — 归档到 {path}',
+  // 完成报告会说明产物去了哪里、走的是哪条路径（FR-003）；
+  // 跳过报告是 US1-AC4 的直白陈述。
+  'toast.filedOrganized': '已完成 — 整理后归档到 {path}',
+  'toast.filedAsWritten': '已完成 — 原样归档到 {path}',
+  'toast.organizeSkipped': '整理步骤没有运行 —— 助手处于关闭状态',
+  'toast.depositOnly': '已完成 — 你的素材已沉淀；整理步骤没有运行（助手已关闭）',
   'toast.filedUnpolished': '已原样归档 — 助手步骤失败：{error}',
 
   // ---- refusals the domain states as codes ----
@@ -225,12 +233,11 @@ export const zhCN: Catalog = {
   'skill.github.badArchive': '下载的压缩包已被拒绝 —— 格式错误或包含不安全路径',
   'skill.github.noSkillMd': '在 {where} 中找不到 SKILL.md —— 请把 URL 指向包含它的文件夹',
 
-  'artifact.destinationUnset': '尚未配置输出位置',
-  'artifact.folderMissing': '目标文件夹不存在：{path} — 请创建它，或在设置中选择其它文件夹',
+  // 「未配置 / 不存在 / 不可用」三个旧码已并入契约的两个码
+  // （destination.notConfigured / destination.unreachable，见上）：
+  // 两种存储共用同一套拒绝码。
   'artifact.folderNotWritable': '目标文件夹不可写：{path}',
-  'artifact.wikiUnusable': 'Wiki 输出位置不可用：{error}',
   'artifact.wikiNotWritable': 'Wiki 输出位置不可写：{path}',
-  'wiki.notConfigured': '该类型未配置 Wiki 目录 —— 请在「设置 → 类型」中编辑该类型并设置其输出位置',
   'ingest.typeNotDestined': '类型“{type}”并不归档到 Wiki',
   'ingest.notePathOutside': '笔记路径“{path}”不在当前 Wiki 内 — 请在任务输入中重新指定',
 

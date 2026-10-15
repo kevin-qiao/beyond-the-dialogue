@@ -141,7 +141,7 @@ export function depositTask(db: DatabaseSync, taskId: string): DepositResult {
   const dest = def ? declaredWorkflow(def).destination : undefined
   const wikiPath = dest && dest.store === 'wiki' ? (dest.rootPath ?? '').trim() : ''
   if (!wikiPath) {
-    throw new LocalizedError([{ key: 'wiki.notConfigured' }])
+    throw new LocalizedError([{ key: 'destination.notConfigured' }])
   }
   // Create-only scaffolding first: the deposit and the curating agent both
   // need the wiki's structure (schema file, index, log) to exist.

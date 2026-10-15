@@ -89,10 +89,15 @@ export const en = {
   'task.delete.message': 'Delete "{title}"? This cannot be undone.',
   'task.finish': 'Finish',
   'task.finish.failed': 'Finish failed',
-  'task.finishEmpty.title': 'Finish without notes?',
-  'task.finishEmpty.message':
-    'Your learning note is empty. Nothing meaningful will be ingested to your wiki if you finish now.',
-  'task.finishEmpty.confirm': 'Finish anyway',
+  // The two-mode finish choice (D8/FR-003): organize the draft as the Type's
+  // instruction describes, or file the exact words. Shown only where an
+  // assistant step would run.
+  'task.finish.modeLabel': 'Finish mode',
+  'task.finish.organize': 'Organize & file',
+  'task.finish.asWritten': 'File as written',
+  // The finishEmpty confirm-dialog keys are deleted with feature 002: a blank
+  // working area is the core's refusal (document.empty, US1-AC6), not a
+  // renderer-side question.
 
   // ---- the alarm ----
   'task.alarm.label': 'Alarm',
@@ -148,6 +153,7 @@ export const en = {
 
   // ---- the focus column and its editor ----
   'focus.empty': 'Select a task to open its AI band and working area.',
+  'focus.workingArea': 'Working area',
   'focus.show': 'Show task focus',
   'focus.hide': 'Hide focus column',
   'focus.ai.show': 'Show AI band',
@@ -168,8 +174,8 @@ export const en = {
   'job.step.complete': 'Complete',
   'finish.step.filingUnpolished': 'Filing unpolished',
   'finish.step.noAi': 'AI not configured',
-  'finish.step.polishing': 'Polishing',
-  'finish.step.polishingDetail': 'Re-organizing the minutes',
+  'finish.step.organizing': 'Organizing',
+  'finish.step.organizingDetail': 'Re-organizing your draft',
   'finish.step.depositing': 'Depositing',
   'finish.step.depositingDetail': 'Preserving the raw material',
   'finish.step.snapshotting': 'Snapshotting',
@@ -180,7 +186,12 @@ export const en = {
 
   // ---- toasts the domain raises ----
   'toast.finishDeferred': 'Task finished — the assistant is writing it up',
-  'toast.filedTo': 'Finished — filed to {path}',
+  // The finish report line names where the artifact went AND which path ran
+  // (FR-003); the skipped-step report is US1-AC4's plain statement.
+  'toast.filedOrganized': 'Finished — organized and filed to {path}',
+  'toast.filedAsWritten': 'Finished — filed as written to {path}',
+  'toast.organizeSkipped': 'The organizing step did not run — the assistant is switched off',
+  'toast.depositOnly': 'Finished — your material is deposited; the curation step did not run (the assistant is off)',
   'toast.filedUnpolished': 'Filed as written — the assistant step failed: {error}',
 
   // ---- refusals the domain states as codes ----
@@ -240,12 +251,11 @@ export const en = {
   'skill.github.badArchive': 'the downloaded archive was refused — it is malformed or contains an unsafe path',
   'skill.github.noSkillMd': 'no SKILL.md found in {where} — point the URL at the folder that contains it',
 
-  'artifact.destinationUnset': 'destination is not configured',
-  'artifact.folderMissing': 'destination folder does not exist: {path} — create it or choose another in Settings',
+  // The unset/missing/unusable destination codes are retired in favor of the
+  // contract's two (destination.notConfigured / destination.unreachable,
+  // above): one code per situation, for both stores.
   'artifact.folderNotWritable': 'destination folder is not writable: {path}',
-  'artifact.wikiUnusable': 'wiki destination is not usable: {error}',
   'artifact.wikiNotWritable': 'wiki destination is not writable: {path}',
-  'wiki.notConfigured': 'no wiki directory is configured for this type — edit the type in Settings (Types) and set its destination',
   'ingest.typeNotDestined': 'type "{type}" is not destined for the wiki',
   'ingest.notePathOutside': 'learning-note path "{path}" is outside the current wiki — re-point it in the task inputs',
 

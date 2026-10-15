@@ -168,6 +168,37 @@ export interface McpServerEntry {
   disabled?: boolean
 }
 
+// ---- Finish (feature 002, contracts/document-assist-ipc.md) ----
+
+/**
+ * The choice Finish offers where an assistant step would run (D8): let the
+ * assistant organize the draft, or file the user's exact words. The Type's
+ * declaration sets the DEFAULT the UI presents — an organize-capable Type
+ * defaults to 'assisted', a file-as-is Type to 'as-written' — and while the
+ * assistant is off or unconfigured the resolved mode is always 'as-written'
+ * (FR-021): no session is constructed at all.
+ */
+export type FinishMode = 'assisted' | 'as-written'
+
+/** Which path actually ran: the organized document, the words as written,
+ *  or the knowledge-base deposit (curation follows in the background). */
+export type FinishPathTaken = 'organized' | 'as-written' | 'deposited'
+
+/** The `tasks:finish` result: where the filed copy went and which path ran
+ *  (FR-003's report). Refusals cross the boundary as localized throws, so
+ *  `issues` only ever rides a non-throwing degraded report. */
+export interface FinishReport {
+  ok: boolean
+  /** The filed copy, when the finish wrote one. */
+  artifact?: { path: string; store: DestinationStore }
+  path: FinishPathTaken
+  /** 'skipped' is the switch-off / degraded reporting value (contract);
+   *  'ran' means the organize step succeeded; 'failed' means it was tried and
+   *  the user's words were filed as written instead (FR-005/FR-006). */
+  assistantStep?: 'failed' | 'skipped' | 'ran'
+  issues?: string[]
+}
+
 // ---- Task management ----
 
 // Retired machinery kept honest: the `preprocess_status` COLUMN and its stored

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { openDB, migrate, createList, saveSettings, getTask, type DB } from '../src/main/db'
+import { openDB, migrate, createList, saveSettings, saveNotes, type DB } from '../src/main/db'
 import { createSqliteStorage } from '../src/main/adapters/sqlite/storageAdapter'
 import { createTask, setMyDay, updateTask } from '../src/core/services/taskService'
 import { finishTask } from '../src/core/services/finishService'
@@ -137,17 +137,17 @@ test('a full board day with the switch off constructs NOTHING at any seam (FR-01
   conn.close()
 })
 
-test('finish while off refuses a filing behaviour BEFORE completion — and complete-only still works', async () => {
-  const { conn, settings, listId, minutesDir } = harness()
+test('finish while off files as written with ZERO sessions — the 001 refusal is deleted (FR-006/FR-021, T016)', async () => {
+  const { conn, listId, minutesDir } = harness()
   installCountingSeams()
   const storage = createSqliteStorage(conn.db)
 
-  // NOTE (T016): this pins the 001-era off-state: a non-complete-only finish
-  // refuses with assistant.disabled. Feature 002 replaces the refusal with the
-  // forced as-written path (FR-006/FR-021: the board never blocks on AI, and
-  // off files the user's words with zero outbound calls); this assertion
-  // flips with that task.
+  // The document type declares polish-then-file. While off it stays reachable
+  // on its as-written path: the user's own words are filed, the task
+  // completes, and no seam is touched — the guarantee that the app will not
+  // silently rewrite prose now does not depend on a failure path (D8).
   const minutes = createTask(storage, { listId, title: 'standup', type: 'plain', customTypeKey: 'minutes' })
+  saveNotes(conn.db, { taskId: minutes.id, notePath: 'notes/x.md', content: 'Decision: ship it.' })
   const deps: FinishDeps = {
     language: 'en',
     assistantEnabled: false,
@@ -159,18 +159,20 @@ test('finish while off refuses a filing behaviour BEFORE completion — and comp
     notifier: { toast: () => {}, progress: () => {} },
     enqueueCurate: () => {}
   }
-  await assert.rejects(
-    () => finishTask(deps, minutes.id),
-    (e: any) => e.name === 'FinishRefused' && e.issues[0]?.key === 'assistant.disabled'
-  )
-  assert.equal(getTask(conn.db, minutes.id)!.completed, false, 'refused before marking complete')
-  assert.deepEqual(fs.readdirSync(minutesDir), [], 'and before writing anything')
+  const outcome = await finishTask(deps, minutes.id, { mode: 'assisted' })
+  assert.equal(outcome.task.completed, true, 'the board never blocks on AI')
+  assert.equal(outcome.mode, 'as-written', 'the off state forced the mode')
+  assert.equal(outcome.report.path, 'as-written')
+  assert.equal(outcome.report.assistantStep, 'skipped')
+  assert.deepEqual(fs.readdirSync(minutesDir), ['standup.md'])
+  assert.equal(fs.readFileSync(path.join(minutesDir, 'standup.md'), 'utf-8'), 'Decision: ship it.')
 
-  // The board half of finish still works while off: complete-only is board.
+  // complete-only is board work as always.
   const plain = createTask(storage, { listId, title: 'pay rent', type: 'plain' })
-  const outcome = await finishTask(deps, plain.id)
-  assert.equal(outcome.task.completed, true)
+  const plainOutcome = await finishTask(deps, plain.id)
+  assert.equal(plainOutcome.task.completed, true)
 
-  assert.deepEqual(constructions.kind, [], 'not even the refused paths built a session')
+  assert.deepEqual(constructions.kind, [], 'no path built a session while off')
+  assert.equal(mcpFactories, 0)
   conn.close()
 })

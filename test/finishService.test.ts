@@ -10,7 +10,14 @@ import { createSqliteStorage } from '../src/main/adapters/sqlite/storageAdapter'
 import { folderArtifactStore, ensureDestination } from '../src/main/adapters/artifacts/folderStore'
 import { nodePathPort } from '../src/main/adapters/paths'
 import { systemClock } from '../src/core/ports/clock'
-import { finishTask, resolveBehaviour, FinishRefused, type FinishDeps } from '../src/core/services/finishService'
+import {
+  finishTask,
+  resolveBehaviour,
+  defaultFinishMode,
+  resolveFinishMode,
+  FinishRefused,
+  type FinishDeps
+} from '../src/core/services/finishService'
 import { setUserDataRoot } from '../src/main/paths'
 import type { AgentSessionPort } from '../src/core/ports/agent'
 import type { DB } from '../src/main/db'
@@ -19,9 +26,10 @@ import type { TaskTypeDef } from '../src/shared/types'
 // The finish service: ordering and refusal guarantees that the strategies
 // cannot express on their own, because they are about what happens AROUND the
 // behaviour — specifically, that nothing is marked complete until the finish
-// is known to have succeeded.
+// is known to have succeeded, and (since feature 002) the mode machinery: the
+// declaration's default, the off-state forcing, and the contract report.
 
-const MINUTES = 'Decision: ship the beta in March.\n\nAna raised the onboarding drop-off.\n'
+const DRAFT = 'Decision: ship the beta in March.\n\nAna raised the onboarding drop-off.\n'
 
 function harness() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-finsvc-'))
@@ -42,36 +50,33 @@ function harness() {
     skills: [],
     mcpServers: []
   })
-  const destDir = path.join(dir, 'minutes')
+  const destDir = path.join(dir, 'filed')
   ensureDestination(destDir)
 
   createTypeDef(conn.db, {
-    key: 'minutes',
-    kind: 'meeting',
-    label: 'Minutes',
-    emoji: '🗓',
+    key: 'journal',
+    family: 'document',
+    label: 'Journal',
+    emoji: '📔',
     inputSchema: [],
     isBuiltin: false,
     finishBehaviour: 'polish-then-file',
-    destination: { store: 'folder', rootPath: destDir, subdir: '' },
-    grants: { skills: [], toolServers: [] }
-  } as TaskTypeDef)
+    destination: { store: 'folder', rootPath: destDir, subdir: '' }
+  })
 
   const list = createList(conn.db, 'Work')
-  const task = createTask(conn.db, { listId: list.id, title: 'Weekly sync', type: 'meeting', customTypeKey: 'minutes', inputs: {} })
-  saveNotes(conn.db, { taskId: task.id, notePath: path.join(dir, 'note.md'), content: MINUTES })
+  const task = createTask(conn.db, { listId: list.id, title: 'Weekly sync', type: 'plain', customTypeKey: 'journal', inputs: {} })
+  saveNotes(conn.db, { taskId: task.id, notePath: path.join(dir, 'note.md'), content: DRAFT })
 
   return { dir, conn, destDir, task }
 }
 
-function depsFor(conn: DB, session: AgentSessionPort): FinishDeps {
+function depsFor(conn: DB, session: AgentSessionPort, assistantEnabled = true): FinishDeps {
   return {
     // Tests render English; the language is explicit rather than absent so a
     // missing one cannot hide as a silent fallback.
     language: 'en',
-    // These pins drive the assistant behaviours, so the switch is on. The
-    // gated-dispatch pins below flip it.
-    assistantEnabled: true,
+    assistantEnabled,
     paths: nodePathPort,
     storage: createSqliteStorage(conn.db),
     storeFor: () => folderArtifactStore,
@@ -87,24 +92,32 @@ const polishedSession = (): AgentSessionPort => ({
   async run() {
     return JSON.stringify({
       polished: '**Decision:** ship the beta in March.\n\nAna raised the onboarding drop-off.',
-      actionItems: ['Ana raised the onboarding drop-off'],
       preservedFacts: ['ship the beta in March']
     })
   }
 })
 
-test('a successful finish marks the task complete and records the artifact', async () => {
+test('a successful assisted finish marks the task complete, records the artifact, and reports the path', async () => {
   const { conn, destDir, task } = harness()
-  const outcome = await finishTask(depsFor(conn, polishedSession()), task.id)
+  const outcome = await finishTask(depsFor(conn, polishedSession()), task.id, { mode: 'assisted' })
 
   assert.equal(outcome.behaviour, 'polish-then-file')
   assert.equal(outcome.deferred, false)
+  assert.equal(outcome.mode, 'assisted')
   assert.equal(getTask(conn.db, task.id)!.completed, true)
+
+  // The contract report: where the copy went and which path ran (FR-003).
+  assert.deepEqual(outcome.report, {
+    ok: true,
+    artifact: { path: path.join(destDir, 'weekly-sync.md'), store: 'folder' },
+    path: 'organized',
+    assistantStep: 'ran'
+  })
 
   const file = fs.readdirSync(destDir)
   assert.deepEqual(file, ['weekly-sync.md'])
   const written = fs.readFileSync(path.join(destDir, 'weekly-sync.md'), 'utf-8')
-  assert.ok(written.includes('## Action items'), 'the action-items section is present')
+  assert.ok(written.includes('**Decision:**'), 'the organized document was filed')
 
   // The outcome reached the activity record, with the files it touched.
   const activity = listIngest(conn.db)
@@ -122,25 +135,25 @@ test('the destination is validated BEFORE the task is marked complete', async ()
   deps.storage.listTypes = () =>
     [
       {
-        key: 'minutes',
-        kind: 'meeting',
-        label: 'Minutes',
-        emoji: '🗓',
+        key: 'journal',
+        family: 'document',
+        label: 'Journal',
+        emoji: '📔',
         inputSchema: [],
         isBuiltin: false,
         finishBehaviour: 'polish-then-file',
-        destination: { store: 'folder', rootPath: gone, subdir: '' },
-        grants: { skills: [], toolServers: [] }
+        destination: { store: 'folder', rootPath: gone, subdir: '' }
       } as TaskTypeDef
     ]
 
-  // The destination's own refusal, passed through with its code intact.
+  // The destination's own refusal, passed through with its code intact
+  // (US1-AC5: destination.unreachable — never half-filed, never substituted).
   await assert.rejects(() => finishTask(deps, task.id), (e: unknown) => {
-    assert.deepEqual(issueKeysOf(e), ['artifact.folderMissing'])
+    assert.deepEqual(issueKeysOf(e), ['destination.unreachable'])
     return true
   })
 
-  // Not completed, so the user can fix the destination and try again (FR-027).
+  // Not completed, so the user can fix the destination and try again.
   assert.equal(getTask(conn.db, task.id)!.completed, false)
   // ...and nothing was written anywhere.
   assert.equal(fs.existsSync(gone), false)
@@ -190,15 +203,14 @@ test('missing required inputs refuse the finish before anything else happens', a
   deps.storage.listTypes = () =>
     [
       {
-        key: 'minutes',
-        kind: 'meeting',
-        label: 'Minutes',
-        emoji: '🗓',
+        key: 'journal',
+        family: 'document',
+        label: 'Journal',
+        emoji: '📔',
         inputSchema: [{ key: 'target', label: 'Objective', type: 'text', required: true }],
         isBuiltin: false,
         finishBehaviour: 'polish-then-file',
-        destination: { store: 'folder', rootPath: destDir, subdir: '' },
-        grants: { skills: [], toolServers: [] }
+        destination: { store: 'folder', rootPath: destDir, subdir: '' }
       } as TaskTypeDef
     ]
 
@@ -212,93 +224,156 @@ test('missing required inputs refuse the finish before anything else happens', a
   conn.close()
 })
 
-test('no AI provider still completes the finish and files the user content', async () => {
+test('no AI provider still completes the finish and files the user content as written (FR-006)', async () => {
   const { conn, destDir, task } = harness()
-  const unavailable: AgentSessionPort = { isAvailable: () => false, async run() {
-    throw new Error('must not be called')
-  } }
-  const outcome = await finishTask(depsFor(conn, unavailable), task.id)
+  let sessionCalls = 0
+  const unavailable: AgentSessionPort = {
+    isAvailable: () => false,
+    async run() {
+      sessionCalls++
+      throw new Error('must not be called')
+    }
+  }
+  // The caller asked for assisted; the unconfigured state forces as-written —
+  // and the report says plainly that the organizing step did not run.
+  const outcome = await finishTask(depsFor(conn, unavailable), task.id, { mode: 'assisted' })
 
   assert.equal(outcome.task.completed, true, 'finishing never fails solely because AI is unavailable')
-  assert.equal(outcome.result!.assistantStep, 'failed')
-  assert.equal(fs.readFileSync(path.join(destDir, 'weekly-sync.md'), 'utf-8'), MINUTES)
+  assert.equal(outcome.mode, 'as-written')
+  assert.equal(sessionCalls, 0, 'no session was constructed')
+  assert.equal(outcome.report.path, 'as-written')
+  assert.equal(outcome.report.assistantStep, 'skipped')
+  assert.equal(fs.readFileSync(path.join(destDir, 'weekly-sync.md'), 'utf-8'), DRAFT)
 
   const activity = listIngest(conn.db)
   assert.equal(activity[0]!.state, 'done')
-  assert.ok(activity[0]!.error?.includes('no AI provider'), 'the skipped assistant step is reported')
+  assert.equal(activity[0]!.error, null, 'nothing failed — the step was skipped, and the report says so')
   conn.close()
 })
 
 test('finishing twice leaves both versions, neither overwritten', async () => {
   const { conn, destDir, task } = harness()
-  await finishTask(depsFor(conn, polishedSession()), task.id)
-  await finishTask(depsFor(conn, polishedSession()), task.id)
+  await finishTask(depsFor(conn, polishedSession()), task.id, { mode: 'assisted' })
+  await finishTask(depsFor(conn, polishedSession()), task.id, { mode: 'assisted' })
 
   assert.deepEqual(fs.readdirSync(destDir).sort(), ['weekly-sync-2.md', 'weekly-sync.md'])
   conn.close()
 })
 
-test('a wiki-destined type with no directory is refused, not defaulted', async () => {
+test('a destination with no location is refused, not defaulted — for either store', async () => {
   const { conn, task } = harness()
-  // The classic row: a built-in seeded before its owner ever set a wiki
-  // directory. There is no global location to inherit and no built-in default,
-  // so this must refuse while the task is still actionable.
+  // The seeded shape: a Type that ships (or was left) without a location.
+  // There is no global location to inherit and no built-in default, so this
+  // must refuse while the task is still actionable (FR-007/Q1).
   const deps = depsFor(conn, polishedSession())
   deps.storage.listTypes = () =>
     [
       {
-        key: 'minutes',
-        kind: 'meeting',
-        label: 'Minutes',
-        emoji: '🗓',
+        key: 'journal',
+        family: 'document',
+        label: 'Journal',
+        emoji: '📔',
         inputSchema: [],
         isBuiltin: false,
         finishBehaviour: 'polish-then-file',
-        destination: { store: 'wiki', rootPath: null, subdir: 'learning-notes' },
-        grants: { skills: [], toolServers: [] }
+        destination: { store: 'wiki', rootPath: '', subdir: 'learning-notes' }
       } as TaskTypeDef
     ]
 
   await assert.rejects(() => finishTask(deps, task.id), (e: unknown) => {
-    assert.deepEqual(issueKeysOf(e), ['wiki.notConfigured'])
+    assert.deepEqual(issueKeysOf(e), ['destination.notConfigured'])
     return true
   })
   assert.equal(getTask(conn.db, task.id)!.completed, false, 'refused while still actionable, never half-completed')
 })
 
-// ---- the switch gates the behaviour dispatch (feature 001, T005, D1) ----
+// ---- the mode machinery (feature 002, D8/FR-021) ----
 
-test('resolveBehaviour: while off, only complete-only is reachable', () => {
+test('resolveBehaviour reads the declaration with no gating and no fallback', () => {
   const mk = (finishBehaviour: TaskTypeDef['finishBehaviour']) =>
-    ({ key: 'k', kind: 'plain', label: 'K', emoji: '·', inputSchema: [], isBuiltin: false, finishBehaviour, grants: { skills: [], toolServers: [] } }) as TaskTypeDef
-  assert.equal(resolveBehaviour(mk('complete-only'), false), 'complete-only')
-  for (const behaviour of ['file-as-is', 'polish-then-file', 'deposit-then-curate'] as const) {
-    assert.throws(
-      () => resolveBehaviour(mk(behaviour), false),
-      (e: any) => e.name === 'FinishRefused' && e.issues[0]?.key === 'assistant.disabled',
-      behaviour + ' must refuse while the switch is off'
-    )
-  }
-  // On, everything declared is reachable (the historical behavior).
-  assert.equal(resolveBehaviour(mk('file-as-is'), true), 'file-as-is')
+    ({ key: 'k', family: null, label: 'K', emoji: '·', inputSchema: [], isBuiltin: false, finishBehaviour }) as TaskTypeDef
+  // Every declared behaviour is reachable — the off-switch no longer refuses;
+  // it forces the as-written MODE (the resolver below).
+  assert.equal(resolveBehaviour(mk('complete-only')), 'complete-only')
+  assert.equal(resolveBehaviour(mk('file-as-is')), 'file-as-is')
+  assert.equal(resolveBehaviour(mk('polish-then-file')), 'polish-then-file')
+  assert.equal(resolveBehaviour(mk('deposit-then-curate')), 'deposit-then-curate')
+  // An undeclared behaviour is a refusal, never a guess.
+  assert.throws(
+    () => resolveBehaviour(mk(undefined as never)),
+    (e: any) => e.name === 'FinishRefused' && e.issues[0]?.key === 'finish.noBehaviour'
+  )
 })
 
-test('a finish with the switch off refuses a writing type BEFORE completing, and completes a plain one', async () => {
+test('the declaration sets the default mode; the off state forces as-written', () => {
+  const mk = (finishBehaviour: TaskTypeDef['finishBehaviour']) =>
+    ({ key: 'k', family: 'document', label: 'K', emoji: '·', inputSchema: [], isBuiltin: false, finishBehaviour }) as TaskTypeDef
+  // An organize-capable Type defaults to assisted; everything else to
+  // as-written — from the declaration, never from a type key (D8).
+  assert.equal(defaultFinishMode(mk('polish-then-file')), 'assisted')
+  assert.equal(defaultFinishMode(mk('file-as-is')), 'as-written')
+  assert.equal(defaultFinishMode(mk('deposit-then-curate')), 'as-written')
+  assert.equal(defaultFinishMode(mk('complete-only')), 'as-written')
+  // With the assistant unavailable the resolution is forced, whatever was
+  // requested (FR-021).
+  assert.equal(resolveFinishMode(mk('polish-then-file'), 'assisted', false), 'as-written')
+  assert.equal(resolveFinishMode(mk('polish-then-file'), undefined, false), 'as-written')
+  // Available: the request wins, the declaration fills the gap.
+  assert.equal(resolveFinishMode(mk('polish-then-file'), 'as-written', true), 'as-written')
+  assert.equal(resolveFinishMode(mk('polish-then-file'), undefined, true), 'assisted')
+})
+
+test('with the switch off, a writing type FILES AS WRITTEN and completes — the 001 refusal is deleted (FR-021)', async () => {
   const { conn, destDir, task } = harness()
-  const off = { ...depsFor(conn, polishedSession()), assistantEnabled: false }
-  // The meeting type declares polish-then-file: refused, and the task is NOT
-  // completed — nothing half-happens (the ordering rule).
-  await assert.rejects(
-    () => finishTask(off, task.id),
-    (e: any) => e.name === 'FinishRefused' && e.issues[0]?.key === 'assistant.disabled'
+  let sessionCalls = 0
+  const deps = depsFor(
+    conn,
+    {
+      isAvailable: () => true,
+      async run() {
+        sessionCalls++
+        return ''
+      }
+    },
+    false // switch off
   )
-  assert.equal(getTask(conn.db, task.id)!.completed, false)
-  assert.deepEqual(fs.readdirSync(destDir), [], 'no artifact was written')
+
+  // The document type declares polish-then-file: while off it stays reachable
+  // on its as-written path — the user's own words file with zero sessions.
+  const outcome = await finishTask(deps, task.id, { mode: 'assisted' })
+  assert.equal(outcome.task.completed, true, 'the board never blocks on AI')
+  assert.equal(sessionCalls, 0, 'no session was constructed while off')
+  assert.equal(outcome.report.path, 'as-written')
+  assert.equal(outcome.report.assistantStep, 'skipped')
+  assert.equal(fs.readFileSync(path.join(destDir, 'weekly-sync.md'), 'utf-8'), DRAFT)
 
   // A complete-only type finishes normally while off: completing is board work.
   const plainList = createList(conn.db, 'P')
   const plain = createTask(conn.db, { listId: plainList.id, title: 'plain', type: 'plain' })
-  const outcome = await finishTask(off, plain.id)
-  assert.equal(outcome.task.completed, true)
+  const plainOutcome = await finishTask(deps, plain.id)
+  assert.equal(plainOutcome.task.completed, true)
+  assert.equal(plainOutcome.report.path, 'as-written')
+  conn.close()
+})
+
+test('a blank draft refuses with document.empty before the destination is even resolved (US1-AC6)', async () => {
+  const { conn, destDir, task } = harness()
+  saveNotes(conn.db, { taskId: task.id, notePath: 'notes/x.md', content: '' })
+  const deps = depsFor(conn, polishedSession())
+  // A destination that would ALSO refuse — proving the ordering: the user
+  // hears about the blank draft, the thing they can act on first.
+  const gone = path.join(destDir, 'nope')
+  deps.storeFor = () => ({
+    ...folderArtifactStore,
+    async prepare() {
+      throw new Error('must not be reached')
+    }
+  })
+  await assert.rejects(() => finishTask(deps, task.id), (e: unknown) => {
+    assert.deepEqual(issueKeysOf(e), ['document.empty'])
+    return true
+  })
+  assert.equal(getTask(conn.db, task.id)!.completed, false)
+  assert.equal(fs.existsSync(gone), false)
   conn.close()
 })

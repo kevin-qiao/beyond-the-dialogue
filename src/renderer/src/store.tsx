@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { CreateTaskArgs, JobProgressEvent, RemoteOutcomeView, RemoteProposalView, ToastPayload, UpdateTaskArgs } from '../../shared/ipc'
-import type { AppSnapshot, ChatMessage, IngestRecord, List, RedactedSettings, Settings, SettingsInput, Task, TaskTypeDef } from '../../shared/types'
+import type { AppSnapshot, ChatMessage, FinishMode, FinishReport, IngestRecord, List, RedactedSettings, Settings, SettingsInput, Task, TaskTypeDef } from '../../shared/types'
 import { DEFAULT_LANGUAGE, localeOf, translator, type Language, type Translate } from '../../core/i18n'
 
 interface AppState {
@@ -52,7 +52,7 @@ interface AppContextValue extends AppState {
   toggleTask: (id: string) => Promise<Task>
   setMyDay: (id: string, inMyDay: boolean) => Promise<Task>
   setAlarm: (id: string, alarmAt: string | null) => Promise<Task>
-  finishTask: (id: string) => Promise<Task>
+  finishTask: (id: string, mode?: FinishMode) => Promise<FinishReport>
   saveNote: (taskId: string, content: string) => Promise<void>
   saveType: (type: TaskTypeDef) => Promise<TaskTypeDef>
   deleteType: (key: string) => Promise<void>
@@ -346,10 +346,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         mutateTask(t)
         return t
       },
-      finishTask: async (id) => {
-        const t = await window.api.finishTask({ id })
-        mutateTask(t)
-        return t
+      finishTask: async (id, mode) => {
+        // The result is the contract report (where the copy went, which path
+        // ran); the finished task itself arrives through evTaskUpdated, which
+        // the main handler broadcasts after the write succeeds.
+        return window.api.finishTask({ taskId: id, mode })
       },
       saveNote: async (taskId, content) => {
         const n = await window.api.saveNote({ taskId, content })

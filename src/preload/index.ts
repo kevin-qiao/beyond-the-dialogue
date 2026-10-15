@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent, RemoteProposalView } from '../shared/ipc'
+import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent, ArtifactsFiledEvent, RemoteProposalView } from '../shared/ipc'
 import type { IngestRecord, List, RedactedSettings, SkillEntry, Task, TaskNote, TaskTypeDef } from '../shared/types'
 
 const api: RendererApi = {
@@ -80,6 +80,11 @@ const api: RendererApi = {
     const h = (_e: unknown, e: IngestProgressEvent) => cb(e)
     ipcRenderer.on(IPC.evIngestProgress, h)
     return () => ipcRenderer.removeListener(IPC.evIngestProgress, h)
+  },
+  onArtifactsFiled: (cb) => {
+    const h = (_e: unknown, e: ArtifactsFiledEvent) => cb(e)
+    ipcRenderer.on(IPC.evArtifactsFiled, h)
+    return () => ipcRenderer.removeListener(IPC.evArtifactsFiled, h)
   },
   onChatDelta: (cb) => {
     const h = (_e: unknown, e: ChatDeltaEvent) => cb(e)

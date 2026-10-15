@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { WORKING_AREAS, emptyContentWarning, finishActionLabel, workingAreaFor } from '../src/core/domain/workingArea'
+import { WORKING_AREAS, finishActionLabel, workingAreaFor } from '../src/core/domain/workingArea'
 import { FAMILIES } from '../src/core/domain/family'
 import { FINISH_BEHAVIOURS } from '../src/core/domain/finish'
 import type { TaskTypeDef } from '../src/shared/types'
@@ -65,16 +65,9 @@ test('a type that declares nothing gets the neutral label', () => {
   assert.equal(finishActionLabel(undefined), 'Finish')
 })
 
-test('the empty-content warning is offered only where finishing would write something', () => {
-  // No warning for behaviours that write nothing: finishing an empty plain task
-  // is exactly what it is for.
-  assert.equal(emptyContentWarning(defWith('complete-only')), null)
-  assert.equal(emptyContentWarning(null), null)
-  // A writing behaviour warns, and says what the consequence is.
-  assert.match(emptyContentWarning(defWith('deposit-then-curate'))!, /wiki/)
-  assert.match(emptyContentWarning(defWith('polish-then-file'))!, /empty/)
-  assert.match(emptyContentWarning(defWith('file-as-is'))!, /empty/)
-})
+// The empty-content warning is gone: a blank working area is the core's
+// refusal (document.empty, US1-AC6), pinned by test/organize.test.ts — not a
+// renderer-side confirm dialog.
 
 test('an undeclared behaviour gets the neutral label — no history to fall back to', () => {
   // Feature 002 deleted the legacy-workflow fallback with the categories

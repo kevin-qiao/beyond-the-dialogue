@@ -519,18 +519,18 @@ function registerIpc(): void {
     return notes
   })
   handleCommand(IPC.finishTask, async (args) => {
-    // Finish is dispatched on the type's DECLARED behaviour, not on a hardcoded
-    // category comparison (contracts/finish-behaviours.md). The service
-    // validates and confines before anything is marked complete, so a bad
-    // destination or a missing input is reported while the task is still
-    // actionable.
-    const stepKey = `finish:${args.id}`
+    // Finish is dispatched on the type's DECLARED behaviour and the user's
+    // MODE choice (contracts/document-assist-ipc.md). The service validates,
+    // refuses a blank draft, and confines the destination before anything is
+    // marked complete, so a bad destination or a missing input is reported
+    // while the task is still actionable — localized by handleCommand.
+    const stepKey = `finish:${args.taskId}`
     try {
-      const outcome = await runFinishTask(finishDeps(), args.id)
+      const outcome = await runFinishTask(finishDeps(), args.taskId, { mode: args.mode })
       broadcast(IPC.evJobProgress, {
         jobId: stepKey,
         kind: 'ingest',
-        taskId: args.id,
+        taskId: args.taskId,
         state: 'done',
         stepLabel: null,
         error: null
@@ -538,18 +538,28 @@ function registerIpc(): void {
       rescheduleAlarms()
       const agg = withAttachments(d(), outcome.task)
       broadcast(IPC.evTaskUpdated, agg)
-      broadcastActivityFor(args.id)
-      return agg
+      // The contract event: after a finish write succeeds, the surface learns
+      // where the filed copy went and which path ran.
+      if (outcome.report.artifact) {
+        broadcast(IPC.evArtifactsFiled, {
+          taskId: args.taskId,
+          path: outcome.report.artifact.path,
+          store: outcome.report.artifact.store,
+          mode: outcome.mode
+        })
+      }
+      broadcastActivityFor(args.taskId)
+      return outcome.report
     } catch (e: any) {
       broadcast(IPC.evJobProgress, {
         jobId: stepKey,
         kind: 'ingest',
-        taskId: args.id,
+        taskId: args.taskId,
         state: 'failed',
         stepLabel: null,
         error: e?.message ?? String(e)
       })
-      broadcastActivityFor(args.id)
+      broadcastActivityFor(args.taskId)
       throw e
     }
   })

@@ -113,7 +113,7 @@ test('depositing to the wiki refuses when the type declares no directory', () =>
   assert.throws(
     () => depositTask(conn.db, t.id),
     (e: unknown) => {
-      assert.deepEqual(issueKeysOf(e), ['wiki.notConfigured'])
+      assert.deepEqual(issueKeysOf(e), ['destination.notConfigured'])
       return true
     }
   )
