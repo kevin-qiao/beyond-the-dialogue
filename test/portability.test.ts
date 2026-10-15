@@ -85,6 +85,14 @@ test('the board tables contain no absolute filesystem paths (D6, mechanical)', (
   const atts = listAttachments(conn.db)
   assert.ok(atts.length >= 1)
   for (const a of atts) assert.ok(isRelativeStoredPath(a.path), `${a.path} is relative to the root`)
+
+  // Feature 002's new path-bearing board row: the ledger's snapshot_dir is
+  // stored RELATIVE to the collection (FR-024/T045) — an absolute value
+  // would die when the collection travels by the user's own hand.
+  const ledgers = conn.db.prepare('SELECT snapshot_dir FROM ingest_ledger').all() as { snapshot_dir: string | null }[]
+  for (const l of ledgers) {
+    assert.ok(l.snapshot_dir === null || isRelativeStoredPath(l.snapshot_dir), `snapshot_dir must be relative: ${l.snapshot_dir}`)
+  }
   conn.close()
 })
 

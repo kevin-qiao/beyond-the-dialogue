@@ -86,7 +86,12 @@ test('renderer imports nothing from src/main', () => {
   const offenders: string[] = []
   for (const f of walk(RENDERER, (f) => /\.tsx?$/.test(f))) {
     const code = stripComments(fs.readFileSync(f, 'utf-8'))
-    for (const m of code.matchAll(/from\s+['"]([^'"]+)['"]/g)) {
+    // Both import forms: `from '…'` AND the bare side-effect `import '…'` —
+    // a guard that only sees the first form passes on the second, and a check
+    // that cannot fail is broken (the drill proved it: a bare
+    // `import '../../../main/db'` walked straight through).
+    const specifiers = [...code.matchAll(/from\s+['"]([^'"]+)['"]/g), ...code.matchAll(/^\s*import\s+['"]([^'"]+)['"]/gm)]
+    for (const m of specifiers) {
       // Only relative specifiers can reach src/main from the renderer.
       const spec = m[1]!
       if (!spec.startsWith('.')) continue
