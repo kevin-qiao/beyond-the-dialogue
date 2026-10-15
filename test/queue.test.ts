@@ -40,17 +40,19 @@ test('4.2 job queue runs at most maxConcurrent at once', async () => {
 
 test('4.2 restart re-queues interrupted running jobs', async () => {
   const { db } = freshDB()
-  // simulate a crash: a job stuck in running state in the DB
+  // simulate a crash: a job stuck in running state in the DB. `ingest` is the
+  // one live kind since feature 002 (D4); the retired-kind history behaviour
+  // is pinned in test/ai.test.ts.
   db.db
     .prepare(
       'INSERT INTO enrichment_jobs (id, kind, task_id, state, attempts, created_at) VALUES (?, ?, ?, ?, ?, ?)'
     )
-    .run('job-interrupted', 'preprocess', null, 'running', 1, new Date().toISOString())
+    .run('job-interrupted', 'ingest', null, 'running', 1, new Date().toISOString())
   const running = listRunningJobs(db.db)
   assert.equal(running.length, 1)
   const requeued = new JobQueue(db.db, 2)
   let ran = 0
-  requeued.register('preprocess', async () => {
+  requeued.register('ingest', async () => {
     ran++
   })
   const n = requeued.requeueInterrupted()
@@ -97,20 +99,19 @@ test('4.4 transient classification', () => {
   assert.equal(isTransientError(new Error('boom')), false)
 })
 
-test('4.7 suggestion and analysis job kinds dispatch correctly', async () => {
+test('4.7 the queue carries exactly one kind: ingest dispatches to its handler', async () => {
+  // The suggestion/preprocess kinds are deleted (D4) — `JobKind` is 'ingest'
+  // alone, and the retired rows' history rule is pinned in test/ai.test.ts.
   const { db } = freshDB()
   const q = new JobQueue(db.db, 2)
   const kinds: string[] = []
-  q.register('suggestion', async () => {
-    kinds.push('suggestion')
+  q.register('ingest', async () => {
+    kinds.push('ingest')
   })
-  q.register('preprocess', async () => {
-    kinds.push('preprocess')
-  })
-  q.enqueue('suggestion', 'task-1')
-  q.enqueue('preprocess', 'task-2')
+  q.enqueue('ingest', 'task-1')
+  q.enqueue('ingest', 'task-2')
   await sleep(80)
-  assert.deepEqual(kinds.sort(), ['preprocess', 'suggestion'])
+  assert.deepEqual(kinds.sort(), ['ingest', 'ingest'])
   db.close()
 })
 

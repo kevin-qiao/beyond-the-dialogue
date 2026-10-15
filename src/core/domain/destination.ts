@@ -1,8 +1,19 @@
 import type { Destination, ResolvedDestination } from '../../shared/types'
 import type { PathPort } from '../ports/paths'
 import { slugify } from './slug'
-import { DESTINATION_STORES, isDestinationStore } from './categories'
 import type { IssueList } from '../i18n/issues'
+
+// Which store an artifact destination is handled by (contracts/destination.md).
+// Feature 002 moved this declaration here from the retired `categories.ts`:
+// this is the module that dispatches on it ("the destination-store set moves
+// to the module that dispatches on it" — research D1).
+
+export const DESTINATION_STORES = ['wiki', 'folder'] as const
+export type DestinationStore = (typeof DESTINATION_STORES)[number]
+
+export function isDestinationStore(value: unknown): value is DestinationStore {
+  return typeof value === 'string' && (DESTINATION_STORES as readonly string[]).includes(value)
+}
 
 // Output destinations: where a type's finished artifacts are written
 // (contracts/destination.md).
@@ -118,31 +129,37 @@ export function confineOverride(
  * Configuration-time validation (contracts/destination.md §5, first four
  * rows). Returns codes for the caller to phrase; an empty array means valid.
  *
+ * Feature 002 unified the blank-root rule across both stores (data-model
+ * Vocabulary: Destination): an empty `rootPath` is legal ONLY on a seeded
+ * built-in Type — the generic Document Type ships without a location (Q1) and
+ * its Finish is the guided `destination.not_configured` refusal (FR-007). On a
+ * saved USER Type it is never legal: a filing behaviour with no location is
+ * refused AT SAVE with an actionable code (FR-013). A named-but-relative root
+ * is a save-time error for everyone.
+ *
  * The last two rows of that table — the path resolves inside the root, and
  * the root is writable — are runtime conditions checked when a finish runs,
- * because a folder can disappear after the type was saved.
+ * because a folder can disappear after the type was saved
+ * (`destination.unreachable`).
  */
-export function validateDestination(paths: PathPort, dest: Destination | undefined | null): IssueList {
+export function validateDestination(
+  paths: PathPort,
+  dest: Destination | undefined | null,
+  opts: { seededBuiltin?: boolean } = {}
+): IssueList {
   if (!dest) return []
   const errors: IssueList = []
   if (!isDestinationStore(dest.store)) {
     errors.push({ key: 'destination.storeUnknown', params: { stores: DESTINATION_STORES.join(', ') } })
     return errors
   }
-  // Both stores declare their own location — there is no global wiki path to
-  // inherit and no built-in default. The stores differ in WHEN the absence of
-  // a root is wrong: a folder destination means nothing without one, so it is
-  // a save-time error; a wiki destination may legitimately be saved before it
-  // has been pointed (the seeded Learning type starts that way), so a blank
-  // root is an INCOMPLETE config refused at Finish, while a named-but-relative
-  // root is the save-time error.
-  if (dest.store === 'wiki') {
-    const root = (dest.rootPath ?? '').trim()
-    if (root && !isAbsolutePath(paths, root)) {
-      errors.push({ key: 'destination.wikiNeedsRoot' })
-    }
-  } else if (!isAbsolutePath(paths, dest.rootPath)) {
-    errors.push({ key: 'destination.folderNeedsAbsoluteRoot' })
+  const root = (dest.rootPath ?? '').trim()
+  if (!root) {
+    if (!opts.seededBuiltin) errors.push({ key: 'validation.destinationNeedsRoot' })
+  } else if (!isAbsolutePath(paths, root)) {
+    errors.push(
+      dest.store === 'wiki' ? { key: 'destination.wikiNeedsRoot' } : { key: 'destination.folderNeedsAbsoluteRoot' }
+    )
   }
   const subdir = dest.subdir ?? ''
   if (typeof subdir !== 'string') {

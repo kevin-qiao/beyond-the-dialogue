@@ -9,10 +9,10 @@ import { useDialog } from '../ui/Dialog'
 
 // The markdown / notes working area of the focus column (spec app-layout).
 //
-// Which surface a task gets is decided by `workingAreaFor(category)`; the
+// Which surface a task gets is decided by `workingAreaFor(family)` (research
+// D3: a document-family Type's note IS the working area — the draft); the
 // Finish button reads from the type's DECLARED behaviour, so the label always
-// describes what will actually happen — "ingest to wiki" is true for one
-// behaviour out of four, and saying it for a meeting would be a lie.
+// describes what will actually happen.
 
 /** The markdown editing surface: the editor's Write/Preview tabs over one
  *  body, plus Finish and any proposed remote change. The chat is not here — it
@@ -84,6 +84,6 @@ function PlainArea({ task }: { task: Task }) {
 
 export function TaskNotes({ task }: { task: Task }) {
   const { snapshot } = useApp()
-  const area = workingAreaFor(effectiveType(task, snapshot?.taskTypes).kind)
+  const area = workingAreaFor(effectiveType(task, snapshot?.taskTypes).family)
   return area === 'markdown' ? <MarkdownArea task={task} /> : <PlainArea task={task} />
 }

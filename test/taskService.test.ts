@@ -4,19 +4,22 @@ import { assertRefusedWith } from './helpers/issues'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { openDB, migrate, saveSettings, createList, savePreprocess, type DB } from '../src/main/db'
+import { openDB, migrate, saveSettings, createList, type DB } from '../src/main/db'
 import { createSqliteStorage } from '../src/main/adapters/sqlite/storageAdapter'
 import { createTask, setMyDay, updateTask } from '../src/core/services/taskService'
 import { setUserDataRoot } from '../src/main/paths'
-import { createTypeDef, effectiveTypeDef, preprocessInputHash } from '../src/main/types'
+import { createTypeDef } from '../src/main/types'
 import type { StoragePort } from '../src/core/ports/storage'
 import type { Settings } from '../src/shared/types'
 
 // The task use cases, exercised through the port rather than through an IPC
-// handler. These rules used to live inside `src/main/index.ts`, where nothing
-// could reach them without launching Electron — so the routing decisions
-// (which job to enqueue, when a re-run is due) were the least tested part of
-// the app.
+// handler.
+//
+// Feature 002 (D4): the pre-process/suggestion engines are deleted — no board
+// interaction starts background AI work any more, so every mutation outcome
+// carries an EMPTY enqueue, with the switch on or off. What remains here is
+// the routing that survives: input validation against the effective type,
+// input discarding on a type switch, and the honest no-op contract.
 
 function harness(configured = true): { conn: DB; storage: StoragePort; settings: Settings; listId: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-tasksvc-'))
@@ -32,8 +35,6 @@ function harness(configured = true): { conn: DB; storage: StoragePort; settings:
     showWelcome: false,
     theme: 'light',
     uiLanguage: 'en',
-    // These pins exercise the ASSISTANT paths (the hash-gate, the My Day
-    // first-add rules), so the switch is on. The off-gate pins below flip it.
     assistantRuntime: 'on',
     lastCheck: null,
     skills: [],
@@ -44,119 +45,95 @@ function harness(configured = true): { conn: DB; storage: StoragePort; settings:
   return { conn, storage: createSqliteStorage(conn.db), settings, listId: list.id }
 }
 
+/** A custom type with declared inputs, standing in for the retired built-ins. */
+function surveyType(db: DB["db"]): void {
+  createTypeDef(db, {
+    key: 'survey',
+    family: 'document',
+    label: 'Survey',
+    emoji: '🔎',
+    inputSchema: [
+      { key: 'target', label: 'Target', type: 'text', required: true },
+      { key: 'purpose', label: 'Purpose', type: 'textarea' },
+      {
+        key: 'sourceKind',
+        label: 'Source',
+        type: 'select',
+        options: [
+          { value: 'issue', label: 'Issue' },
+          { value: 'page', label: 'Page' }
+        ]
+      }
+    ],
+    isBuiltin: false,
+    finishBehaviour: 'complete-only'
+  })
+}
+
 test('createTask validates inputs against the effective type before persisting', () => {
   const { conn, storage, listId } = harness()
+  surveyType(conn.db)
   // The refusal carries a code: the sentence is applied where the language is
   // known, so the code is what a caller at this layer can rely on.
   assertRefusedWith(
-    () => createTask(storage, { listId, title: 'x', type: 'jira', inputs: { sourceKind: 'slack-message' } }),
+    () => createTask(storage, { listId, title: 'x', type: 'plain', customTypeKey: 'survey', inputs: { sourceKind: 'slack-message' } }),
     'validation.inputNotAnOption'
   )
-  assertRefusedWith(() => createTask(storage, { listId, title: 'x', type: 'learning', inputs: { nope: '1' } }), 'validation.unknownInput')
-  const ok = createTask(storage, { listId, title: 'x', type: 'learning', inputs: { target: 'eigenvalues' } })
+  assertRefusedWith(
+    () => createTask(storage, { listId, title: 'x', type: 'plain', customTypeKey: 'survey', inputs: { nope: '1' } }),
+    'validation.unknownInput'
+  )
+  const ok = createTask(storage, { listId, title: 'x', type: 'plain', customTypeKey: 'survey', inputs: { target: 'eigenvalues' } })
   assert.equal(ok.inputs.target, 'eigenvalues')
   conn.close()
 })
 
-test('a first My Day add requests the category-appropriate work, never both', () => {
+test('no board interaction enqueues background work any more (D4)', () => {
   const { conn, storage, settings, listId } = harness()
+  surveyType(conn.db)
 
+  // The first My Day add — which used to fire the suggestion job or the
+  // category's pre-process — starts nothing.
   const plain = createTask(storage, { listId, title: 'plain', type: 'plain' })
-  assert.deepEqual(setMyDay(storage, plain.id, true, settings).enqueue, ['suggestion'])
+  assert.deepEqual(setMyDay(storage, plain.id, true, settings).enqueue, [])
 
-  // A category with a pre-process gets that instead; its activity suggestions
-  // arrive as chips from the pre-process output, so the two never both run.
-  const learning = createTask(storage, { listId, title: 'learn', type: 'learning', inputs: { target: 'x' } })
-  const added = setMyDay(storage, learning.id, true, settings)
-  assert.deepEqual(added.enqueue, ['preprocess'])
-  assert.equal(added.task.preprocessStatus, 'queued')
+  const survey = createTask(storage, { listId, title: 'survey', type: 'plain', customTypeKey: 'survey', inputs: { target: 'x' } })
+  const added = setMyDay(storage, survey.id, true, settings)
+  assert.deepEqual(added.enqueue, [])
+  // The retired status column keeps its stored values as history but nothing
+  // new ever moves it to 'queued'.
+  assert.equal(added.task.preprocessStatus, 'none')
 
-  // Re-adding (or removing) is not a first add.
-  assert.deepEqual(setMyDay(storage, learning.id, true, settings).enqueue, [])
+  // Re-adding (or removing) is likewise inert.
+  assert.deepEqual(setMyDay(storage, survey.id, true, settings).enqueue, [])
   assert.deepEqual(setMyDay(storage, plain.id, false, settings).enqueue, [])
   conn.close()
 })
 
-test('with no provider configured, a first add requests nothing', () => {
-  const { conn, storage, settings, listId } = harness(false)
-  const learning = createTask(storage, { listId, title: 'learn', type: 'learning', inputs: { target: 'x' } })
-  assert.deepEqual(setMyDay(storage, learning.id, true, settings).enqueue, [])
+test('an edit enqueues nothing, whatever changed', () => {
+  const { conn, storage, settings, listId } = harness()
+  surveyType(conn.db)
+  const task = createTask(storage, { listId, title: 'survey', type: 'plain', customTypeKey: 'survey', inputs: { target: 'A' } })
+  setMyDay(storage, task.id, true, settings)
+
+  // The hash-gated pre-process re-run is deleted with the engine: a relevant
+  // input change is just an edit.
+  const relevant = updateTask(storage, { id: task.id, inputs: { target: 'B', purpose: 'go deeper' } }, settings)
+  assert.deepEqual(relevant.enqueue, [])
+  assert.equal(relevant.task.inputs.target, 'B')
+  assert.equal(relevant.task.preprocessStatus, 'none', 'no status ever moves')
   conn.close()
 })
 
-test('an edit that changes a relevant input re-runs pre-processing, an irrelevant one does not', () => {
+test('switching type discards the inputs the new type does not declare', () => {
   const { conn, storage, settings, listId } = harness()
-  // A type declaring an INERT extra field, so the assertion is about the
-  // mechanism rather than about the built-in learning schema (which no longer
-  // declares one — the per-task skill/MCP placeholders were retired in v7).
-  createTypeDef(conn.db, {
-    key: 'learn_inert',
-    kind: 'learning',
-    label: 'Learn with inert',
-    emoji: '🎓',
-    inputSchema: [
-      { key: 'target', label: 'Target', type: 'text', required: true },
-      { key: 'purpose', label: 'Purpose', type: 'textarea' },
-      { key: 'decoration', label: 'Decoration', type: 'text', inert: true }
-    ],
-    isBuiltin: false,
-    finishBehaviour: 'complete-only',
-    grants: { skills: [], toolServers: [] }
-  })
-  const task = createTask(storage, { listId, title: 'learn', type: 'plain', customTypeKey: 'learn_inert', inputs: { target: 'A' } })
-  setMyDay(storage, task.id, true, settings)
-  // Stand in for a completed run that consumed the current inputs.
-  const def = effectiveTypeDef(conn.db, task)!
-  savePreprocess(conn.db, {
-    taskId: task.id,
-    kind: 'learning',
-    summary: '',
-    analysis: '',
-    suggestions: [],
-    status: 'ready',
-    inputsHash: preprocessInputHash(storage.getTask(task.id)!, def)
-  })
-  // A completed run: the gate refuses to re-run while one is in flight, so
-  // without this both assertions below would pass vacuously.
-  storage.updateTask(task.id, { preprocessStatus: 'ready' })
+  surveyType(conn.db)
+  const task = createTask(storage, { listId, title: 'survey', type: 'plain', customTypeKey: 'survey', inputs: { target: 'A' } })
 
-  // An inert field is declared but does not feed the pre-process, so changing
-  // it must NOT invalidate the run.
-  const inertOnly = updateTask(storage, { id: task.id, inputs: { target: 'A', decoration: 'x' } }, settings)
-  assert.deepEqual(inertOnly.enqueue, [], 'an inert input change does not invalidate the outputs')
-
-  const relevant = updateTask(storage, { id: task.id, inputs: { target: 'A', decoration: 'x', purpose: 'go deeper' } }, settings)
-  assert.deepEqual(relevant.enqueue, ['preprocess'])
-  assert.equal(relevant.task.preprocessStatus, 'queued')
-  conn.close()
-})
-
-test('an edit never re-runs for a task that is not in My Day or is already running', () => {
-  const { conn, storage, settings, listId } = harness()
-  const task = createTask(storage, { listId, title: 'learn', type: 'learning', inputs: { target: 'A' } })
-
-  // Not in My Day.
-  assert.deepEqual(updateTask(storage, { id: task.id, inputs: { target: 'B' } }, settings).enqueue, [])
-
-  setMyDay(storage, task.id, true, settings)
-  // A run is in flight.
-  assert.deepEqual(updateTask(storage, { id: task.id, inputs: { target: 'B' } }, settings).enqueue, [])
-
-  storage.updateTask(task.id, { preprocessStatus: 'ready' })
-  assert.deepEqual(updateTask(storage, { id: task.id, inputs: { target: 'C' } }, settings).enqueue, ['preprocess'])
-  conn.close()
-})
-
-test('switching type discards inputs and does not trigger a re-run on its own', () => {
-  const { conn, storage, settings, listId } = harness()
-  const task = createTask(storage, { listId, title: 'learn', type: 'learning', inputs: { target: 'A' } })
-  setMyDay(storage, task.id, true, settings)
-  storage.updateTask(task.id, { preprocessStatus: 'ready' })
-
-  const outcome = updateTask(storage, { id: task.id, type: 'jira', customTypeKey: null, inputs: { target: 'A' } }, settings)
-  assert.equal(outcome.task.type, 'jira')
+  const outcome = updateTask(storage, { id: task.id, type: 'document', customTypeKey: null, inputs: { target: 'A' } }, settings)
+  assert.equal(outcome.task.type, 'document')
   assert.deepEqual(outcome.task.inputs, {}, 'the previous type’s inputs are not carried across')
-  assert.deepEqual(outcome.enqueue, [], 'the My Day re-add is what re-runs, with the new type’s inputs')
+  assert.deepEqual(outcome.enqueue, [])
   conn.close()
 })
 
@@ -192,54 +169,20 @@ test('saveSettings applies the plugin rules and the first-run rule, then persist
   conn.close()
 })
 
-// ---- the assistant switch gates the enqueues (feature 001, T004, FR-015,
-// research D7) ----
+// ---- the assistant switch: board work never depends on it (FR-021) ----
 
-test('with the switch off, no My Day add enqueues anything and nothing is queued', () => {
+test('with the switch off, board interactions behave exactly as with it on', () => {
   const { conn, storage, settings, listId } = harness()
+  surveyType(conn.db)
   const off: Settings = { ...settings, assistantRuntime: 'off' }
 
-  // The plain-task suggestion — the one place a BOARD interaction used to
-  // reach the network (D7) — never fires.
-  const plain = createTask(storage, { listId, title: 'plain', type: 'plain' })
-  const plainAdd = setMyDay(storage, plain.id, true, off)
-  assert.deepEqual(plainAdd.enqueue, [])
-
-  // A pre-processable category neither enqueues nor flips preprocess_status.
-  const learning = createTask(storage, { listId, title: 'learn', type: 'learning', inputs: { target: 'x' } })
-  const learnAdd = setMyDay(storage, learning.id, true, off)
-  assert.deepEqual(learnAdd.enqueue, [])
-  assert.equal(learnAdd.task.preprocessStatus, 'none', 'no queued status while off')
-
-  // Meeting likewise.
-  const meeting = createTask(storage, { listId, title: 'standup', type: 'meeting' })
-  assert.deepEqual(setMyDay(storage, meeting.id, true, off).enqueue, [])
-  conn.close()
-})
-
-test('with the switch off, an edit never re-runs pre-processing — even a relevant input change', () => {
-  const { conn, storage, settings, listId } = harness()
-  const off: Settings = { ...settings, assistantRuntime: 'off' }
-  const task = createTask(storage, { listId, title: 'learn', type: 'learning', inputs: { target: 'A' } })
-  setMyDay(storage, task.id, true, off) // no-op
-  storage.updateTask(task.id, { preprocessStatus: 'ready' })
-
-  const outcome = updateTask(storage, { id: task.id, inputs: { target: 'CHANGED' } }, off)
-  assert.deepEqual(outcome.enqueue, [])
-  assert.equal(outcome.task.preprocessStatus, 'ready', 'the status never moves to queued')
-  conn.close()
-})
-
-test('the switch is read from settings at the service edge, not from a kind comparison', () => {
-  // The gate covers EVERY category identically: plain, learning, meeting all
-  // get zero enqueue while off — there is no branch that could forget one
-  // (Principle I). The three assertions above are the census; this one names
-  // the mechanism.
-  const { conn, storage, settings, listId } = harness()
-  const off: Settings = { ...settings, assistantRuntime: 'off' }
-  for (const type of ['plain', 'learning', 'meeting'] as const) {
-    const t = createTask(storage, { listId, title: `t-${type}`, type, inputs: type === 'learning' ? { target: 'x' } : {} })
-    assert.deepEqual(setMyDay(storage, t.id, true, off).enqueue, [], type)
+  // The honest form of the old gate: there is nothing left to gate. Adds and
+  // edits are pure board work in both switch states.
+  for (const s of [settings, off]) {
+    const t = createTask(storage, { listId, title: `t-${s.assistantRuntime}`, type: 'plain', customTypeKey: 'survey', inputs: { target: 'x' } })
+    assert.deepEqual(setMyDay(storage, t.id, true, s).enqueue, [])
+    assert.deepEqual(updateTask(storage, { id: t.id, inputs: { target: 'CHANGED' } }, s).enqueue, [])
+    assert.equal(storage.getTask(t.id)!.preprocessStatus, 'none')
   }
   conn.close()
 })

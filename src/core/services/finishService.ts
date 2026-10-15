@@ -8,8 +8,7 @@ import type { StoragePort } from '../ports/storage'
 import { confineOverride, resolveArtifact } from '../domain/destination'
 import { declaredWorkflow, effectiveType } from '../domain/taskType'
 import { hasUnfilledRequiredInputs } from '../domain/validation'
-import { FINISH_STRATEGIES, type FinishContext, type FinishResult } from '../domain/finish'
-import { writesArtifact, type FinishBehaviour } from '../domain/categories'
+import { FINISH_STRATEGIES, writesArtifact, type FinishBehaviour, type FinishContext, type FinishResult } from '../domain/finish'
 import { message, type Language } from '../i18n'
 import { isLocalizedError, LocalizedError, type IssueList } from '../i18n/issues'
 
@@ -162,7 +161,10 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
       deps.notifier.progress(label, progress)
       if (activity) deps.storage.updateActivity(activity.id, { state: 'running' })
     },
-    summary: renderSummary(deps, taskId),
+    // No `summary`: the pre-process engine is deleted (D4) and its stored
+    // rows are history no live path reads. A deposit carries the user's own
+    // material — the draft and the optional attachment — never a stale
+    // preprocess block.
     attachmentPath: typeof task.inputs.filePath === 'string' ? task.inputs.filePath : undefined
   }
 
@@ -271,21 +273,5 @@ function markComplete(deps: FinishDeps, task: Task): Task {
     // Completing a task cancels its alarm (spec task-notifications).
     alarmAt: null
   })
-}
-
-function renderSummary(deps: FinishDeps, taskId: string): string | undefined {
-  const p = deps.storage.getPreprocess(taskId)
-  if (!p) return undefined
-  return `# AI Pre-process Summary — ${p.taskId}
-
-## Summary
-${p.summary || '(none)'}
-
-## Analysis
-${p.analysis || '(none)'}
-
-## Activity suggestions
-${p.suggestions.map((s) => `- ${s}`).join('\n') || '(none)'}
-`
 }
 

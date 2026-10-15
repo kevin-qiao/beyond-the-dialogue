@@ -158,11 +158,11 @@ test('2.2 settings persist and stay in DB — with no secret the Settings table 
   db.close()
 })
 
-test('learning task creation records inputs and type', () => {
+test('task creation records inputs and type', () => {
   const { db } = freshDB()
   const l = listLists(db.db)[0]!
-  const t = createTask(db.db, { listId: l.id, title: 'learn', type: 'learning', inputs: { target: 'Fourier transforms' } })
-  assert.equal(t.type, 'learning')
+  const t = createTask(db.db, { listId: l.id, title: 'write', type: 'document', inputs: { target: 'Fourier transforms' } })
+  assert.equal(t.type, 'document')
   assert.equal(t.inputs.target, 'Fourier transforms')
   assert.equal(t.preprocessStatus, 'none')
   assert.equal(t.alarmAt, null)
@@ -172,8 +172,11 @@ test('learning task creation records inputs and type', () => {
 test('built-in types are seeded and no paper_reading type exists', () => {
   const { db } = freshDB()
   const types = (db.db.prepare('SELECT * FROM task_types ORDER BY sort').all() as any[]).map((r) => r.key)
-  // SC-002: the built-in set grows from three to four (Meeting is new).
-  assert.deepEqual(types.sort(), ['jira', 'learning', 'meeting', 'plain'])
+  // Feature 002 (Q1/Q3, D11): the seeded set is exactly two — `plain` (no
+  // family) and one generic write-and-file `document` Type. The learning /
+  // jira / meeting built-ins are retired; every further workflow is a
+  // user-declared Type on the same machinery.
+  assert.deepEqual(types.sort(), ['document', 'plain'])
   const check = db.db.prepare("SELECT sql FROM sqlite_master WHERE name='tasks'").get() as { sql: string }
   assert.ok(!check.sql.includes('paper_reading'))
   db.close()
@@ -226,7 +229,10 @@ test('v3 migration: paper rows become learning, notes and core fields preserved'
   migrate(db.db)
 
   const t1 = getTask(db.db, 't1')!
-  assert.equal(t1.type, 'learning', 'paper_reading row maps to learning')
+  // The ladder now runs to v15: v3 maps paper_reading → learning, and v13
+  // re-homes tasks of the deleted built-in to `plain` — content untouched
+  // (FR-017).
+  assert.equal(t1.type, 'plain', 'paper_reading row ends re-homed to plain after the full ladder')
   assert.equal(t1.inMyDay, true, 'My Day membership preserved')
   assert.equal(t1.title, 'NFTrig paper', 'title preserved')
   assert.equal(t1.inputs.link, undefined, 'link input removed (v4 migration strips it)')
@@ -237,10 +243,11 @@ test('v3 migration: paper rows become learning, notes and core fields preserved'
   const note = db.db.prepare('SELECT * FROM task_notes WHERE task_id = ?').get('t1') as { content: string }
   assert.equal(note.content, '# my paper notes')
 
-  // Custom types moved from the settings blob into the registry.
+  // Custom types moved from the settings blob into the registry — and v13's
+  // D11 map gives the learning-kind import the document family.
   const custom = db.db.prepare("SELECT * FROM task_types WHERE key = 'code_review'").get() as any
   assert.ok(custom, 'custom type migrated to task_types')
-  assert.equal(custom.kind, 'learning', 'legacy custom types inherit the learning kind')
+  assert.equal(custom.family, 'document', 'legacy learning-kind custom types map to the document family (D11)')
   assert.equal(custom.is_builtin, 0)
   assert.equal(db.db.prepare("SELECT 1 FROM settings WHERE key = 'customTypes'").get(), undefined)
 
@@ -323,96 +330,108 @@ function legacyV4DB() {
   return dir
 }
 
-test('v5 applies to a legacy database and backfills the learning declaration', () => {
+test('a legacy v4 database migrates through the ladder with user data preserved (v5 backfill → v13 vocabulary)', () => {
   const dir = legacyV4DB()
   const db = openDB(dir)
   migrate(db.db)
 
-  // The tasks rebuild preserved rows and their child references.
+  // The tasks rebuilds (v5, v11, v13) preserved rows and their child
+  // references; v13 re-homed the learning task to `plain`, content untouched
+  // (FR-017).
   const t1 = getTask(db.db, 't1')!
   assert.equal(t1.title, 'Keep me')
-  assert.equal(t1.type, 'learning')
+  assert.equal(t1.type, 'plain', 'the deleted built-in re-homes to plain')
   assert.equal(t1.inMyDay, true)
-  assert.deepEqual(t1.inputs, { target: 'x' })
-  assert.ok(db.db.prepare("SELECT 1 FROM suggestions WHERE id='s1' AND task_id='t1'").get(), 'child row survived the rebuild')
+  assert.deepEqual(t1.inputs, { target: 'x' }, 'inputs survive the ladder byte-for-byte')
+  assert.ok(db.db.prepare("SELECT 1 FROM suggestions WHERE id='s1' AND task_id='t1'").get(), 'child row survived the rebuilds')
 
-  // Learning's behaviour is re-expressed as a declaration (FR-003).
-  const learning = db.db.prepare("SELECT * FROM task_types WHERE key='learning'").get() as any
-  assert.equal(learning.finish_behaviour, 'deposit-then-curate')
-  assert.deepEqual(JSON.parse(learning.destination_json), { store: 'wiki', rootPath: null, subdir: 'learning-notes' })
-  assert.deepEqual(JSON.parse(learning.grants_json), { skills: [], toolServers: [] })
+  // The retired built-ins are gone; the seeded set is plain + document.
+  assert.equal(db.db.prepare("SELECT 1 FROM task_types WHERE key='learning'").get(), undefined, 'learning built-in deleted (D11)')
+  assert.equal(db.db.prepare("SELECT 1 FROM task_types WHERE key='jira'").get(), undefined)
+  assert.equal(db.db.prepare("SELECT 1 FROM task_types WHERE key='meeting'").get(), undefined)
 
-  // plain finishes locally and writes nothing.
   const plain = db.db.prepare("SELECT * FROM task_types WHERE key='plain'").get() as any
+  assert.equal(plain.family, null, 'plain keeps no family')
   assert.equal(plain.finish_behaviour, 'complete-only')
   assert.equal(plain.destination_json, null)
 
-  // The Meeting built-in landed with no migration of its own.
-  const meeting = db.db.prepare("SELECT * FROM task_types WHERE key='meeting'").get() as any
-  assert.ok(meeting, 'Meeting seeded on the next startup of an existing database')
-  assert.equal(meeting.kind, 'meeting')
-  assert.equal(meeting.finish_behaviour, 'polish-then-file')
-  assert.equal(JSON.parse(meeting.destination_json).store, 'folder')
+  const document = db.db.prepare("SELECT * FROM task_types WHERE key='document'").get() as any
+  assert.ok(document, 'the seeded document built-in lands on an existing database')
+  assert.equal(document.family, 'document')
+  assert.equal(document.is_builtin, 1)
+  assert.equal(document.finish_behaviour, 'polish-then-file')
+  assert.deepEqual(JSON.parse(document.destination_json), { store: 'folder', rootPath: '', subdir: '' }, 'ships without a location (Q1)')
+  // Grants stay the empty default — storage-only (D9).
+  assert.deepEqual(JSON.parse(document.grants_json), { skills: [], toolServers: [] })
 
   db.close()
 })
 
-test('v5 widens the category CHECK: meeting accepted, unknown values still rejected', () => {
+test('v13/v15 drop the retired CHECKs: type keys are free, family mirrors family.ts, history rows survive', () => {
   const dir = legacyV4DB()
   const db = openDB(dir)
   migrate(db.db)
   const now = new Date().toISOString()
 
-  // accepted on tasks
+  // tasks.type is free TEXT: the new built-in key and a user-defined key are
+  // both assignable (the research.md reconciliation point, settled).
   db.db
     .prepare(`INSERT INTO tasks (id,list_id,title,notes,type,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
-    .run('t2', 'l1', 'Standup', '', 'meeting', now, now)
-  assert.equal(getTask(db.db, 't2')!.type, 'meeting')
+    .run('t2', 'l1', 'Draft', '', 'document', now, now)
+  db.db
+    .prepare(`INSERT INTO tasks (id,list_id,title,notes,type,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
+    .run('t3', 'l1', 'Custom', '', 'code_review', now, now)
+  assert.equal(getTask(db.db, 't2')!.type, 'document')
+  assert.equal(getTask(db.db, 't3')!.type, 'code_review')
 
-  // still rejected
+  // task_types.family mirrors the declared set: the three families and NULL
+  // are accepted; anything else is rejected.
+  db.db
+    .prepare(`INSERT INTO task_types (key,family,label,emoji,input_schema,is_builtin,sort,finish_behaviour) VALUES (?,?,?,?,?,0,0,'complete-only')`)
+    .run('standup', 'working-system', 'Standup', '📣', '[]')
+  db.db
+    .prepare(`INSERT INTO task_types (key,family,label,emoji,input_schema,is_builtin,sort,finish_behaviour) VALUES (?,?,?,?,?,0,0,'complete-only')`)
+    .run('noassist', null, 'No assist', '🗂', '[]')
   assert.throws(() =>
     db.db
-      .prepare(`INSERT INTO tasks (id,list_id,title,notes,type,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
-      .run('t3', 'l1', 'Bad', '', 'paper_reading', now, now)
+      .prepare(`INSERT INTO task_types (key,family,label,emoji,input_schema,is_builtin,sort,finish_behaviour) VALUES (?,?,?,?,?,0,0,'complete-only')`)
+      .run('bad', 'webinar', 'Bad', '❓', '[]')
   )
 
-  // accepted on task_types and task_preprocess
-  db.db
-    .prepare(`INSERT INTO task_types (key,kind,label,emoji,input_schema,is_builtin,sort) VALUES (?,?,?,?,?,0,0)`)
-    .run('standup', 'meeting', 'Standup', '📣', '[]')
-  db.db
-    .prepare(`INSERT INTO task_preprocess (task_id,kind,updated_at) VALUES (?,?,?)`)
-    .run('t2', 'meeting', now)
+  // task_preprocess keeps the retired values as history — the CHECK is gone,
+  // nothing new writes the table (D4).
+  db.db.prepare(`INSERT INTO task_preprocess (task_id,kind,updated_at) VALUES (?,?,?)`).run('t2', 'meeting', now)
   assert.equal((db.db.prepare("SELECT kind FROM task_preprocess WHERE task_id='t2'").get() as any).kind, 'meeting')
-  assert.throws(() =>
-    db.db.prepare(`INSERT INTO task_types (key,kind,label,emoji,input_schema,is_builtin,sort) VALUES (?,?,?,?,?,0,0)`).run('bad', 'webinar', 'Bad', '❓', '[]')
-  )
   db.close()
 })
 
-test('v5 is idempotent: re-running migrate changes nothing', () => {
+test('the ladder is idempotent: re-running migrate changes nothing', () => {
   const dir = legacyV4DB()
   const db = openDB(dir)
   migrate(db.db)
-  const before = db.db.prepare('SELECT key, kind, finish_behaviour, destination_json FROM task_types ORDER BY key').all()
+  const before = db.db.prepare('SELECT key, family, finish_behaviour, destination_json FROM task_types ORDER BY key').all()
   const tasksBefore = listTasks(db.db).length
   migrate(db.db)
   migrate(db.db)
-  const after = db.db.prepare('SELECT key, kind, finish_behaviour, destination_json FROM task_types ORDER BY key').all()
+  const after = db.db.prepare('SELECT key, family, finish_behaviour, destination_json FROM task_types ORDER BY key').all()
   assert.deepEqual(after, before)
   assert.equal(listTasks(db.db).length, tasksBefore)
-  assert.equal((db.db.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 5').get() as any).n, 1)
+  assert.equal((db.db.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 13').get() as any).n, 1)
   db.close()
 })
 
-test('a fresh database gets the widened schema and the four built-ins directly', () => {
+test('a fresh database gets the family schema and the two built-ins directly', () => {
   const { db } = freshDB()
-  const learning = getTypeDefFor(db, 'learning')
-  assert.equal(learning.finishBehaviour, 'deposit-then-curate')
-  assert.deepEqual(learning.destination, { store: 'wiki', rootPath: null, subdir: 'learning-notes' })
-  assert.equal(getTypeDefFor(db, 'meeting').finishBehaviour, 'polish-then-file')
-  assert.equal(getTypeDefFor(db, 'plain').finishBehaviour, 'complete-only')
-  assert.deepEqual(getTypeDefFor(db, 'jira').grants, { skills: [], toolServers: [] })
+  const document = getTypeDefFor(db, 'document')
+  assert.equal(document.family, 'document')
+  assert.equal(document.finishBehaviour, 'polish-then-file')
+  assert.deepEqual(document.destination, { store: 'folder', rootPath: '', subdir: '' })
+  const plain = getTypeDefFor(db, 'plain')
+  assert.equal(plain.family, null)
+  assert.equal(plain.finishBehaviour, 'complete-only')
+  // The grants column persists with the empty default — storage-only (D9).
+  const grants = db.db.prepare("SELECT grants_json FROM task_types WHERE key='document'").get() as any
+  assert.deepEqual(JSON.parse(grants.grants_json), { skills: [], toolServers: [] })
   db.close()
 })
 
@@ -420,7 +439,7 @@ function getTypeDefFor(db: DB, key: string): TaskTypeDef {
   const r = db.db.prepare('SELECT * FROM task_types WHERE key = ?').get(key) as any
   return {
     key: r.key,
-    kind: r.kind,
+    family: r.family ?? null,
     label: r.label,
     emoji: r.emoji,
     description: r.description ?? undefined,
@@ -429,8 +448,7 @@ function getTypeDefFor(db: DB, key: string): TaskTypeDef {
     aiGuidance: r.ai_guidance ?? undefined,
     isBuiltin: !!r.is_builtin,
     finishBehaviour: r.finish_behaviour,
-    destination: r.destination_json ? JSON.parse(r.destination_json) : undefined,
-    grants: JSON.parse(r.grants_json)
+    destination: r.destination_json ? JSON.parse(r.destination_json) : undefined
   }
 }
 
@@ -438,32 +456,54 @@ function getTypeDefFor(db: DB, key: string): TaskTypeDef {
 
 test('a narrowed type schema clears the now-undeclared inputs from its tasks', () => {
   const { db } = freshDB()
+  createTypeDef(db.db, {
+    key: 'study',
+    family: 'document',
+    label: 'Study',
+    emoji: '📖',
+    inputSchema: [
+      { key: 'target', label: 'Target', type: 'text' },
+      { key: 'purpose', label: 'Prompt', type: 'textarea' }
+    ],
+    isBuiltin: false,
+    finishBehaviour: 'complete-only'
+  })
   const l = createList(db.db, 'L')
   const t = createTask(db.db, {
     listId: l.id,
     title: 'keep me',
-    type: 'learning',
+    type: 'plain',
+    customTypeKey: 'study',
     inputs: { target: 'eigenvalues', purpose: 'notes', obsolete: 'stale value' }
   })
   // `obsolete` is stored, but not declared — exactly the state a removed field
   // leaves behind, and `validateInputs` rejects an undeclared key on every
   // write, so the task could not be edited or finished.
-  const learning = getTypeDef(db.db, 'learning')!
-  assert.equal(validateInputs(learning, t.inputs).ok, false)
+  const study = getTypeDef(db.db, 'study')!
+  assert.equal(validateInputs(study, t.inputs).ok, false)
 
-  updateTypeDef(db.db, { ...learning, label: 'Learning' })
+  updateTypeDef(db.db, { ...study, label: 'Study' })
 
   const after = getTask(db.db, t.id)!
   assert.deepEqual(after.inputs, { target: 'eigenvalues', purpose: 'notes' }, 'the declared inputs survived')
-  assert.equal(validateInputs(learning, after.inputs).ok, true, 'and the task is writable again')
+  assert.equal(validateInputs(study, after.inputs).ok, true, 'and the task is writable again')
   assert.equal(after.title, 'keep me')
   db.close()
 })
 
 test('v6 reconciles a database that was already narrowed before the step existed', () => {
   const { db } = freshDB()
+  createTypeDef(db.db, {
+    key: 'study',
+    family: 'document',
+    label: 'Study',
+    emoji: '📖',
+    inputSchema: [{ key: 'target', label: 'Target', type: 'text' }],
+    isBuiltin: false,
+    finishBehaviour: 'complete-only'
+  })
   const l = createList(db.db, 'L')
-  const t = createTask(db.db, { listId: l.id, title: 't', type: 'learning', inputs: { target: 'x' } })
+  const t = createTask(db.db, { listId: l.id, title: 't', type: 'plain', customTypeKey: 'study', inputs: { target: 'x' } })
   // Simulate the pre-v6 state: a stale key in a task's inputs.
   db.db.prepare('UPDATE tasks SET inputs = ? WHERE id = ?').run(JSON.stringify({ target: 'x', removed_field: 'gone' }), t.id)
   db.db.prepare('DELETE FROM schema_migrations WHERE version = 6').run()
@@ -482,18 +522,17 @@ test('reconciliation respects the effective type of a task using a custom type',
   const { db } = freshDB()
   createTypeDef(db.db, {
     key: 'retro',
-    kind: 'meeting',
+    family: 'document',
     label: 'Retro',
     emoji: '🔁',
     inputSchema: [{ key: 'target', label: 'Focus', type: 'text' }],
     isBuiltin: false,
-    finishBehaviour: 'complete-only',
-    grants: { skills: [], toolServers: [] }
+    finishBehaviour: 'complete-only'
   })
   const l = createList(db.db, 'L')
-  const t = createTask(db.db, { listId: l.id, title: 'r', type: 'meeting', customTypeKey: 'retro', inputs: { target: 'x', stray: 'y' } })
+  const t = createTask(db.db, { listId: l.id, title: 'r', type: 'plain', customTypeKey: 'retro', inputs: { target: 'x', stray: 'y' } })
   // A task resolving through the custom type is checked against THAT schema,
-  // not against the built-in meeting type's.
+  // not against the built-in type's.
   reconcileInputsForType(db.db, 'retro')
   assert.deepEqual(getTask(db.db, t.id)!.inputs, { target: 'x' })
   db.close()
@@ -505,17 +544,32 @@ test('v7 strips the retired placeholder inputs from schemas and from tasks', () 
   const { db } = freshDB()
   const l = createList(db.db, 'L')
 
-  // Recreate the pre-v7 state: a task holding values for the retired fields.
-  const t = createTask(db.db, { listId: l.id, title: 'x', type: 'learning', inputs: { target: 'eigenvalues' } })
+  // A custom type still declaring the retired placeholders, as schemas
+  // copied from the old built-ins used to.
+  createTypeDef(db.db, {
+    key: 'study',
+    family: 'document',
+    label: 'Study',
+    emoji: '📖',
+    inputSchema: [
+      { key: 'target', label: 'Target', type: 'text' },
+      { key: 'skill', label: 'Skill', type: 'text', inert: true }
+    ],
+    isBuiltin: false,
+    finishBehaviour: 'complete-only'
+  })
+
+  // Recreate the pre-v7 state: tasks holding values for the retired fields.
+  const t = createTask(db.db, { listId: l.id, title: 'x', type: 'plain', customTypeKey: 'study', inputs: { target: 'eigenvalues' } })
   db.db
     .prepare('UPDATE tasks SET inputs = ? WHERE id = ?')
     .run(JSON.stringify({ target: 'eigenvalues', skill: 'summarize', mcp: 'jira-server' }), t.id)
 
-  // A custom type that copied the built-in schema, as creation used to do.
+  // A second type that copied the same schema, as creation used to do.
   db.db
     .prepare(
-      `INSERT INTO task_types (key, kind, label, emoji, input_schema, is_builtin, sort, finish_behaviour, grants_json)
-       VALUES ('copied', 'learning', 'Copied', '🎓', ?, 0, 0, 'complete-only', '{"skills":[],"toolServers":[]}')`
+      `INSERT INTO task_types (key, family, label, emoji, input_schema, is_builtin, sort, finish_behaviour, grants_json)
+       VALUES ('copied', 'document', 'Copied', '📖', ?, 0, 0, 'complete-only', '{"skills":[],"toolServers":[]}')`
     )
     .run(
       JSON.stringify([
@@ -531,8 +585,8 @@ test('v7 strips the retired placeholder inputs from schemas and from tasks', () 
   migrate(db.db)
 
   // The schemas no longer declare them...
-  const builtinSchema = JSON.parse((db.db.prepare("SELECT input_schema FROM task_types WHERE key='learning'").get() as any).input_schema)
-  assert.ok(!builtinSchema.some((f: any) => f.key === 'skill' || f.key === 'mcp'), 'built-in schema stripped')
+  const studySchema = JSON.parse((db.db.prepare("SELECT input_schema FROM task_types WHERE key='study'").get() as any).input_schema)
+  assert.ok(!studySchema.some((f: any) => f.key === 'skill' || f.key === 'mcp'), 'declared schema stripped')
   const customSchema = JSON.parse((db.db.prepare("SELECT input_schema FROM task_types WHERE key='copied'").get() as any).input_schema)
   assert.ok(!customSchema.some((f: any) => f.key === 'skill'), 'a copied custom schema is stripped too')
 
@@ -559,52 +613,64 @@ test('v7 strips the retired placeholder inputs from schemas and from tasks', () 
 
 test('v8 copies a configured wikiPath into every wiki-destined type and drops the setting', () => {
   const { db } = freshDB()
-  // Recreate the pre-v8 state: a user who HAD pointed the app at a wiki. The
-  // seeded wiki destinations carry no root because they used to resolve the
-  // global setting lazily, at write time.
+  // Recreate the pre-v8 state: a user who HAD pointed the app at a wiki, and
+  // a wiki-destined type with no root of its own (it used to resolve the
+  // global setting lazily, at write time). Raw SQL because the current
+  // save-time validation refuses an empty root on a user type (FR-013) —
+  // this row is history, not something a user can create today.
+  db.db
+    .prepare(
+      `INSERT INTO task_types (key, family, label, emoji, input_schema, is_builtin, sort, finish_behaviour, destination_json, grants_json)
+       VALUES ('kb', 'document', 'KB', '📚', '[]', 0, 0, 'deposit-then-curate', ?, '{"skills":[],"toolServers":[]}')`
+    )
+    .run(JSON.stringify({ store: 'wiki', rootPath: null, subdir: 'learning-notes' }))
   db.db
     .prepare("INSERT INTO settings (key, value) VALUES ('wikiPath', '/home/u/old-wiki') ON CONFLICT(key) DO UPDATE SET value = excluded.value")
     .run()
   db.db.prepare('DELETE FROM schema_migrations WHERE version = 8').run()
   migrate(db.db)
 
-  const learning = JSON.parse((db.db.prepare("SELECT destination_json FROM task_types WHERE key='learning'").get() as any).destination_json)
-  assert.deepEqual(learning, { store: 'wiki', rootPath: '/home/u/old-wiki', subdir: 'learning-notes' }, 'the configured wiki moved onto the type')
+  const kb = JSON.parse((db.db.prepare("SELECT destination_json FROM task_types WHERE key='kb'").get() as any).destination_json)
+  assert.deepEqual(kb, { store: 'wiki', rootPath: '/home/u/old-wiki', subdir: 'learning-notes' }, 'the configured wiki moved onto the type')
   assert.equal(db.db.prepare("SELECT 1 FROM settings WHERE key = 'wikiPath'").get(), undefined, 'the global setting is gone')
 
   // Idempotent — a second pass changes nothing.
   migrate(db.db)
   assert.deepEqual(
-    JSON.parse((db.db.prepare("SELECT destination_json FROM task_types WHERE key='learning'").get() as any).destination_json),
-    learning
+    JSON.parse((db.db.prepare("SELECT destination_json FROM task_types WHERE key='kb'").get() as any).destination_json),
+    kb
   )
   db.close()
 })
 
 test('v8 never materializes the removed default in a database that had not set one', () => {
   const { db } = freshDB()
+  db.db
+    .prepare(
+      `INSERT INTO task_types (key, family, label, emoji, input_schema, is_builtin, sort, finish_behaviour, destination_json, grants_json)
+       VALUES ('kb', 'document', 'KB', '📚', '[]', 0, 0, 'deposit-then-curate', ?, '{"skills":[],"toolServers":[]}')`
+    )
+    .run(JSON.stringify({ store: 'wiki', rootPath: null, subdir: 'learning-notes' }))
   db.db.prepare('DELETE FROM schema_migrations WHERE version = 8').run()
   migrate(db.db)
   // A database that had been riding on the default is left UNCONFIGURED on
   // purpose: writing ~/Documents/WorkBoard-Wiki into the row would re-create
-  // the hidden fallback the migration exists to remove. Finish refuses with
-  // `wiki.notConfigured` until the type names a directory.
-  const learning = JSON.parse((db.db.prepare("SELECT destination_json FROM task_types WHERE key='learning'").get() as any).destination_json)
-  assert.equal(learning.rootPath, null)
-  assert.ok(!JSON.stringify(learning).includes('WorkBoard-Wiki'), 'the old default is not resurrected into user data')
+  // the hidden fallback the migration exists to remove. Finish refuses with a
+  // localized code until the type names a directory.
+  const kb = JSON.parse((db.db.prepare("SELECT destination_json FROM task_types WHERE key='kb'").get() as any).destination_json)
+  assert.equal(kb.rootPath, null)
+  assert.ok(!JSON.stringify(kb).includes('WorkBoard-Wiki'), 'the old default is not resurrected into user data')
   db.close()
 })
 
 test('a fresh database ships no inert placeholder inputs at all', () => {
   const { db } = freshDB()
-  for (const key of ['learning', 'jira', 'meeting', 'plain']) {
+  for (const key of ['document', 'plain']) {
     const def = getTypeDef(db.db, key)!
     assert.ok(
       !def.inputSchema.some((f) => f.key === 'skill' || f.key === 'mcp'),
       `"${key}" still declares a per-task skill/MCP placeholder`
     )
-    // Nothing shipped is inert either: grants are per type, and the mechanism
-    // is retained without a user (see src/shared/types.ts).
     assert.ok(!def.inputSchema.some((f) => f.inert), `"${key}" declares an inert field`)
   }
   db.close()
@@ -700,5 +766,278 @@ test('v12 creates the attachment table; rows round-trip and survive an idempoten
   db.db.prepare('DELETE FROM schema_migrations WHERE version = 12').run()
   migrate(db.db)
   assert.ok(getAttachment(db.db, a.id), 'the row survives an idempotent re-run')
+  db.close()
+})
+
+// ---- feature 002: the migration ladder v13–v15 (T008, research D11) ----
+
+// A v12-era database: the pre-002 shape at the end of feature 001. Built by
+// hand so it stays a fixed reference as the code moves on: `kind` vocabulary,
+// the four built-ins, user types of each kind, tasks with real content, and
+// history rows in the retired engines' tables.
+function legacyV12DB() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-v13-'))
+  const legacy = new DatabaseSync(path.join(dir, 'app.db'))
+  legacy.exec(`
+    CREATE TABLE lists (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT);
+    CREATE TABLE tasks (
+      id TEXT PRIMARY KEY,
+      list_id TEXT REFERENCES lists(id),
+      title TEXT NOT NULL,
+      background TEXT NOT NULL DEFAULT '',
+      target TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      type TEXT NOT NULL DEFAULT 'plain' CHECK (type IN ('plain','learning','jira','meeting')),
+      custom_type_key TEXT,
+      inputs TEXT NOT NULL DEFAULT '{}',
+      completed INTEGER NOT NULL DEFAULT 0,
+      completed_at TEXT,
+      in_my_day INTEGER NOT NULL DEFAULT 0,
+      my_day_added_at TEXT,
+      preprocess_status TEXT NOT NULL DEFAULT 'none' CHECK (preprocess_status IN ('none','queued','running','ready','failed')),
+      preprocess_error TEXT,
+      alarm_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+    CREATE TABLE task_types (
+      key TEXT PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('plain','learning','jira','meeting')),
+      label TEXT NOT NULL,
+      emoji TEXT NOT NULL,
+      description TEXT,
+      color TEXT,
+      input_schema TEXT NOT NULL DEFAULT '[]',
+      ai_guidance TEXT,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      sort INTEGER NOT NULL DEFAULT 0,
+      finish_behaviour TEXT NOT NULL DEFAULT 'complete-only' CHECK (finish_behaviour IN ('complete-only','file-as-is','polish-then-file','deposit-then-curate')),
+      destination_json TEXT,
+      grants_json TEXT NOT NULL DEFAULT '{"skills":[],"toolServers":[]}'
+    );
+    CREATE TABLE enrichment_jobs (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('preprocess','suggestion','ingest')),
+      task_id TEXT,
+      state TEXT NOT NULL CHECK (state IN ('queued','running','done','failed')),
+      step_label TEXT, progress TEXT, error TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT
+    );
+    CREATE TABLE task_preprocess (
+      task_id TEXT PRIMARY KEY REFERENCES tasks(id),
+      kind TEXT NOT NULL CHECK (kind IN ('plain','learning','jira','meeting')),
+      summary TEXT NOT NULL DEFAULT '',
+      analysis TEXT NOT NULL DEFAULT '',
+      suggestions_json TEXT NOT NULL DEFAULT '[]',
+      generated_prompt TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'none',
+      inputs_hash TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE task_notes (task_id TEXT PRIMARY KEY REFERENCES tasks(id), note_path TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL);
+    CREATE TABLE suggestions (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), text TEXT NOT NULL, dismissed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+    CREATE TABLE ingest_ledger (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id),
+      state TEXT NOT NULL CHECK (state IN ('queued','running','done','failed')),
+      deposit_files TEXT NOT NULL DEFAULT '[]',
+      touched_files TEXT NOT NULL DEFAULT '[]',
+      error TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT
+    );
+    CREATE TABLE task_attachments (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), name TEXT NOT NULL, mime TEXT, path TEXT NOT NULL, size INTEGER NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+  `)
+  const now = new Date().toISOString()
+  for (const v of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
+    legacy.prepare('INSERT INTO schema_migrations VALUES (?, ?)').run(v, now)
+  }
+  legacy.prepare('INSERT INTO lists VALUES (?,?,?,?,?)').run('l1', 'Work', now, now, null)
+  // The four built-ins, as v5+ shipped them.
+  const insBuiltin = legacy.prepare(
+    `INSERT INTO task_types (key, kind, label, emoji, input_schema, is_builtin, sort, finish_behaviour, destination_json)
+     VALUES (?, ?, ?, ?, '[]', 1, ?, ?, ?)`
+  )
+  insBuiltin.run('plain', 'plain', 'Plain task', '📝', 0, 'complete-only', null)
+  insBuiltin.run('learning', 'learning', 'Learning', '🎓', 1, 'deposit-then-curate', JSON.stringify({ store: 'wiki', rootPath: '/home/u/wiki', subdir: 'learning-notes' }))
+  insBuiltin.run('jira', 'jira', 'JIRA', '🎫', 2, 'complete-only', null)
+  insBuiltin.run('meeting', 'meeting', 'Meeting', '🗓', 3, 'polish-then-file', JSON.stringify({ store: 'folder', rootPath: '/home/u/minutes', subdir: '' }))
+  // User-defined types, one per kind — each keeps a declaration v13 must carry.
+  const insCustom = legacy.prepare(
+    `INSERT INTO task_types (key, kind, label, emoji, input_schema, ai_guidance, is_builtin, sort, finish_behaviour, destination_json)
+     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+  )
+  insCustom.run('study', 'learning', 'Study', '📖', JSON.stringify([{ key: 'target', label: 'Target', type: 'text' }]), 'Focus.', 10, 'deposit-then-curate', JSON.stringify({ store: 'wiki', rootPath: '/home/u/study-wiki', subdir: 'notes' }))
+  insCustom.run('triage', 'jira', 'Triage', '🧭', '[]', null, 11, 'complete-only', null)
+  insCustom.run('standup', 'meeting', 'Standup', '📣', '[]', null, 12, 'polish-then-file', JSON.stringify({ store: 'folder', rootPath: '/home/u/standups', subdir: '' }))
+  insCustom.run('plainish', 'plain', 'Plainish', '🗒', '[]', null, 13, 'complete-only', null)
+  // Tasks of every shape, with real content that must survive byte-identical.
+  const insTask = legacy.prepare(
+    `INSERT INTO tasks (id, list_id, title, background, target, notes, type, custom_type_key, inputs, in_my_day, preprocess_status, created_at, updated_at)
+     VALUES (?, 'l1', ?, ?, ?, ?, ?, ?, ?, 1, 'ready', ?, ?)`
+  )
+  insTask.run('t-learn', 'Old learning task', 'why it matters', 'the target text', '# my learning note', 'learning', null, JSON.stringify({ target: 'eigenvalues' }), now, now)
+  insTask.run('t-jira', 'Old jira task', 'jira bg', 'jira target', 'pasted minutes', 'jira', null, '{}', now, now)
+  insTask.run('t-meet', 'Old meeting task', 'meet bg', 'meet target', '## Minutes', 'meeting', null, '{}', now, now)
+  insTask.run('t-study', 'Custom study task', 'study bg', 'study target', 'study notes', 'plain', 'study', JSON.stringify({ target: 'x' }), now, now)
+  // History rows in the retired engines' tables (D4: they stay).
+  legacy.prepare('INSERT INTO task_preprocess (task_id, kind, summary, analysis, suggestions_json, status, inputs_hash, updated_at) VALUES (?,?,?,?,?,?,?,?)').run(
+    't-learn', 'learning', 'a summary', 'an analysis', '["chip"]', 'ready', 'hash1', now
+  )
+  legacy.prepare('INSERT INTO suggestions (id, task_id, text, dismissed, created_at) VALUES (?,?,?,?,?)').run('s1', 't-learn', 'read section 2', 0, now)
+  legacy.prepare('INSERT INTO enrichment_jobs (id, kind, task_id, state, attempts, created_at) VALUES (?,?,?,?,?,?)').run('j-pre', 'preprocess', 't-learn', 'running', 1, now)
+  legacy.prepare('INSERT INTO enrichment_jobs (id, kind, task_id, state, attempts, created_at) VALUES (?,?,?,?,?,?)').run('j-sug', 'suggestion', 't-jira', 'queued', 0, now)
+  legacy.prepare('INSERT INTO enrichment_jobs (id, kind, task_id, state, attempts, created_at) VALUES (?,?,?,?,?,?)').run('j-ing', 'ingest', 't-learn', 'done', 1, now)
+  legacy.prepare('INSERT INTO ingest_ledger (id, task_id, state, deposit_files, touched_files, attempts, created_at) VALUES (?,?,?,?,?,?,?)').run('i1', 't-learn', 'done', '["note.md"]', '["index.md"]', 1, now)
+  legacy.prepare('INSERT INTO task_notes (task_id, note_path, content, updated_at) VALUES (?,?,?,?)').run('t-learn', 'notes/t-learn.md', '# my learning note', now)
+  legacy.close()
+  return dir
+}
+
+test('v13 rebuilds the vocabulary: kind→family per D11, built-ins retired, tasks re-homed, content byte-identical', () => {
+  const dir = legacyV12DB()
+  const db = openDB(dir)
+  migrate(db.db)
+
+  // The family column replaced kind, and the gate fired on the old shape.
+  const cols = (db.db.prepare('PRAGMA table_info(task_types)').all() as { name: string }[]).map((c) => c.name)
+  assert.ok(cols.includes('family'), 'task_types gained family')
+  assert.ok(!cols.includes('kind'), 'kind is gone')
+
+  // Deleted built-ins are gone; the seeded set is plain + document.
+  const keys = (db.db.prepare('SELECT key FROM task_types ORDER BY key').all() as { key: string }[]).map((r) => r.key)
+  assert.deepEqual(keys, ['document', 'plain', 'plainish', 'standup', 'study', 'triage'])
+
+  // User types mapped by the D11 rule verbatim, declarations kept.
+  const study = db.db.prepare("SELECT * FROM task_types WHERE key='study'").get() as any
+  assert.equal(study.family, 'document', 'learning → document')
+  assert.equal(study.finish_behaviour, 'deposit-then-curate', 'the declared behaviour survives the map')
+  assert.deepEqual(JSON.parse(study.destination_json), { store: 'wiki', rootPath: '/home/u/study-wiki', subdir: 'notes' })
+  assert.equal(study.ai_guidance, 'Focus.')
+  assert.deepEqual(JSON.parse(study.input_schema), [{ key: 'target', label: 'Target', type: 'text' }])
+  assert.equal((db.db.prepare("SELECT family FROM task_types WHERE key='triage'").get() as any).family, 'working-system', 'jira → working-system')
+  assert.equal((db.db.prepare("SELECT family FROM task_types WHERE key='standup'").get() as any).family, 'document', 'meeting → document')
+  assert.equal((db.db.prepare("SELECT family FROM task_types WHERE key='plainish'").get() as any).family, null, 'plain-kind user type stays family-less')
+
+  // Tasks of deleted built-ins re-home to plain, content byte-identical (FR-017).
+  const learn = getTask(db.db, 't-learn')!
+  assert.equal(learn.type, 'plain')
+  assert.equal(learn.background, 'why it matters')
+  assert.equal(learn.target, 'the target text')
+  assert.equal(learn.notes, '# my learning note')
+  assert.deepEqual(learn.inputs, { target: 'eigenvalues' })
+  assert.equal(getTask(db.db, 't-jira')!.type, 'plain')
+  assert.equal(getTask(db.db, 't-meet')!.type, 'plain')
+  // A task resolving through a USER type keeps its reference.
+  const studyTask = getTask(db.db, 't-study')!
+  assert.equal(studyTask.customTypeKey, 'study')
+  assert.equal(studyTask.notes, 'study notes')
+
+  // The seeded document built-in: family document, organize behaviour, and it
+  // ships WITHOUT a location (Q1).
+  const doc = db.db.prepare("SELECT * FROM task_types WHERE key='document'").get() as any
+  assert.equal(doc.family, 'document')
+  assert.equal(doc.is_builtin, 1)
+  assert.equal(doc.finish_behaviour, 'polish-then-file')
+  assert.deepEqual(JSON.parse(doc.destination_json), { store: 'folder', rootPath: '', subdir: '' })
+
+  // The tasks.type CHECK is gone: a user-defined key is assignable (the
+  // research.md reconciliation point, settled — T030's guard re-runs it).
+  const now = new Date().toISOString()
+  db.db.prepare('INSERT INTO tasks (id,list_id,title,type,created_at,updated_at) VALUES (?,?,?,?,?,?)').run('t-custom', 'l1', 'custom key', 'study', now, now)
+  assert.equal(getTask(db.db, 't-custom')!.type, 'study')
+
+  // Idempotent: re-running changes nothing.
+  const before = db.db.prepare('SELECT key, family, finish_behaviour, destination_json FROM task_types ORDER BY key').all()
+  migrate(db.db)
+  assert.deepEqual(db.db.prepare('SELECT key, family, finish_behaviour, destination_json FROM task_types ORDER BY key').all(), before)
+  db.close()
+})
+
+test('v13 does not fire on the new shape: a fresh database keeps its family table', () => {
+  const { db } = freshDB()
+  const ddl = (db.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='task_types'").get() as any).sql as string
+  assert.ok(ddl.includes('family TEXT'), 'fresh schema is family-shaped from the start')
+  assert.ok(!ddl.includes('kind TEXT'))
+  db.close()
+})
+
+test('v14 creates the conversation tables; rows round-trip and cascade with the task', () => {
+  const dir = legacyV12DB()
+  const db = openDB(dir)
+  migrate(db.db)
+  const now = new Date().toISOString()
+
+  // Insert/read round-trip, in insertion order.
+  db.db.prepare('INSERT INTO task_conversations (id, task_id, created_at) VALUES (?,?,?)').run('c1', 't-learn', now)
+  db.db.prepare("INSERT INTO conversation_messages (id, conversation_id, role, content, usage_json, created_at) VALUES (?,?,?,?,?,?)").run('m1', 'c1', 'user', 'what is missing?', null, now)
+  db.db.prepare("INSERT INTO conversation_messages (id, conversation_id, role, content, usage_json, created_at) VALUES (?,?,?,?,?,?)").run('m2', 'c1', 'assistant', 'the rollback section', JSON.stringify({ input: 12, output: 7 }), now)
+  const msgs = db.db.prepare('SELECT * FROM conversation_messages WHERE conversation_id = ? ORDER BY rowid').all('c1') as any[]
+  assert.deepEqual(msgs.map((m) => m.id), ['m1', 'm2'], 'order is insertion order')
+  assert.equal(msgs[1].usage_json, JSON.stringify({ input: 12, output: 7 }), 'the assistant message stores its usage metadata')
+  // The role CHECK.
+  assert.throws(() =>
+    db.db.prepare("INSERT INTO conversation_messages (id, conversation_id, role, content, created_at) VALUES ('m3','c1','tool','x',?)").run(now)
+  )
+  // The cascade is the storage rule, and deletion is final (001 FR-004). A
+  // task of its own: the legacy tables reference tasks WITHOUT cascade, so
+  // deleting t-learn (which has history children) would be an FK violation —
+  // correct behaviour for the old rows, and not what this asserts.
+  db.db.prepare('INSERT INTO tasks (id,list_id,title,type,created_at,updated_at) VALUES (?,?,?,?,?,?)').run('t-conv', 'l1', 'conversed', 'plain', now, now)
+  db.db.prepare('INSERT INTO task_conversations (id, task_id, created_at) VALUES (?,?,?)').run('c2', 't-conv', now)
+  db.db.prepare("INSERT INTO conversation_messages (id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)").run('m3', 'c2', 'user', 'hello?', now)
+  db.db.prepare('PRAGMA foreign_keys = ON').run()
+  db.db.prepare("DELETE FROM tasks WHERE id = 't-conv'").run()
+  assert.equal((db.db.prepare("SELECT COUNT(*) AS n FROM task_conversations WHERE task_id='t-conv'").get() as any).n, 0, 'deleting the task deletes its conversations')
+  assert.equal((db.db.prepare("SELECT COUNT(*) AS n FROM conversation_messages WHERE conversation_id='c2'").get() as any).n, 0, 'and their messages')
+  // The earlier conversation on t-learn still stands (nothing else removed it).
+  assert.equal((db.db.prepare("SELECT COUNT(*) AS n FROM conversation_messages WHERE conversation_id='c1'").get() as any).n, 2)
+  db.close()
+})
+
+test('v15 adds the undo columns, widens the ledger state, and preserves every history row', () => {
+  const dir = legacyV12DB()
+  const db = openDB(dir)
+  migrate(db.db)
+
+  // The ledger gained the undo columns; a done run can move to undone.
+  const cols = (db.db.prepare('PRAGMA table_info(ingest_ledger)').all() as { name: string }[]).map((c) => c.name)
+  assert.ok(cols.includes('undone_at'))
+  assert.ok(cols.includes('snapshot_dir'))
+  db.db.prepare("UPDATE ingest_ledger SET state='undone', undone_at=? WHERE id='i1'").run(new Date().toISOString())
+  assert.equal((db.db.prepare("SELECT state FROM ingest_ledger WHERE id='i1'").get() as any).state, 'undone')
+  // The pre-existing row survived the rebuild with its data.
+  const rec = db.db.prepare("SELECT * FROM ingest_ledger WHERE id='i1'").get() as any
+  assert.deepEqual(JSON.parse(rec.deposit_files), ['note.md'])
+  assert.deepEqual(JSON.parse(rec.touched_files), ['index.md'])
+
+  // The retired category CHECK on task_preprocess is DROPPED, not restated:
+  // the history row keeps its retired kind value.
+  const pp = db.db.prepare("SELECT * FROM task_preprocess WHERE task_id='t-learn'").get() as any
+  assert.equal(pp.kind, 'learning', 'the history row keeps the retired value')
+  assert.equal(pp.summary, 'a summary')
+  const ppDdl = (db.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='task_preprocess'").get() as any).sql as string
+  assert.ok(!ppDdl.includes('CHECK (kind IN'), 'no category CHECK survives on task_preprocess')
+
+  // The suggestions rows stay (D4).
+  assert.ok(db.db.prepare("SELECT 1 FROM suggestions WHERE id='s1'").get())
+
+  // The retired job kinds survive as history — including one stuck in
+  // 'running', which nothing may rewrite (T007; test/ai.test.ts pins that
+  // requeueInterrupted leaves it alone).
+  const jobs = db.db.prepare('SELECT id, kind, state FROM enrichment_jobs ORDER BY id').all() as any[]
+  assert.deepEqual(jobs.map((j) => [j.id, j.kind, j.state]), [
+    ['j-ing', 'ingest', 'done'],
+    ['j-pre', 'preprocess', 'running'],
+    ['j-sug', 'suggestion', 'queued']
+  ])
+
+  // Idempotent.
+  const before = db.db.prepare('SELECT * FROM ingest_ledger').all()
+  migrate(db.db)
+  assert.deepEqual(db.db.prepare('SELECT * FROM ingest_ledger').all(), before)
   db.close()
 })

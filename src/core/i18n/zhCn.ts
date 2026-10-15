@@ -66,10 +66,9 @@ export const zhCN: Catalog = {
   'task.capture.ariaLabel': '快速添加任务',
 
   // ---- task status (the dot-chip) ----
+  // ready/failed/queued 随预处理流水线一并退役（D4）：唯一还在的状态是用户
+  // 亲自启动的任务正在进行。
   'task.status.working': '处理中',
-  'task.status.ready': '就绪',
-  'task.status.failed': '失败',
-  'task.status.queued': '排队中',
 
   // ---- one task: the board row and the AI band ----
   'task.title.edit': '编辑标题',
@@ -101,22 +100,7 @@ export const zhCN: Catalog = {
   'alarm.overdue.title': '过期提醒',
   'alarm.overdue.body': '{title} —— 原定时间为 {when}',
 
-  // ---- the pre-process section of the band ----
-  'task.preprocess.title': '预处理',
-  'task.preprocess.runNow': '立即运行',
-  'task.preprocess.rerun': '重新运行',
-  'task.preprocess.failed': '预处理失败',
-  'task.preprocess.failedWith': '预处理失败：{error}',
-  'task.preprocess.unknownError': '未知错误',
-  'task.preprocess.aiNotConfigured': 'AI 未配置 — 请在设置中开启预处理',
-  'task.preprocess.emptyHint': '尚未预处理。把任务加入 My Day 即可生成 {kind} 摘要与活动建议，或点击「立即运行」。',
-  'task.preprocess.emptyHintNoAi': '尚未预处理。AI 未配置 — 请先在设置中配置模型服务商。',
-  'task.preprocess.queued': '排队中…',
-  'task.preprocess.summary': '摘要',
-  'task.preprocess.analysis': '分析',
-  'task.preprocess.suggestions': '建议',
-  'task.suggestions.dismiss': '忽略这条建议',
-  'task.suggestions.allDismissed': '所有建议都已忽略。',
+  // 预处理区块与建议 chips 随引擎一并退役（D4）：没有任何界面再读它们。
 
   // ---- the task column ----
   'nav.search': '搜索（{count}）',
@@ -182,15 +166,6 @@ export const zhCN: Catalog = {
   'finish.step.snapshottingDetail': '改动前先备份文件',
   'finish.step.curating': '整理中',
   'finish.step.curatingDetail': '助手正在撰写正式笔记',
-  'preprocess.step.running': '预处理中',
-  'preprocess.step.learning': '正在生成学习摘要',
-  'preprocess.step.jira': '正在总结粘贴的内容',
-  'preprocess.step.meeting': '正在拟定议程',
-  'preprocess.done': '预处理完成',
-  'suggest.step.running': '生成建议中',
-  'suggest.step.detail': '正在生成建议',
-  'suggest.done.one': '已生成 {count} 条建议',
-  'suggest.done.other': '已生成 {count} 条建议',
   'ingest.done': 'Wiki 沉淀完成',
 
   // ---- toasts the domain raises ----
@@ -204,22 +179,21 @@ export const zhCN: Catalog = {
   'validation.inputNotAnOption': '输入项“{input}”必须是以下之一：{options}',
   'validation.inputImmutable': '输入项“{input}”创建后不可更改',
   'validation.keyFormat': '标识必须由小写字母、数字与下划线组成，长度 2–32 位',
-  'validation.kindUnknown': '行为类型必须是以下之一：{kinds}',
+  'validation.familyUnknown': '家族必须是以下之一：{families} —— 或者留空表示该类型不需要协助',
   'validation.labelRequired': '名称不能为空',
   'validation.emojiRequired': '表情不能为空',
   'validation.inputSchemaNotArray': 'inputSchema 必须是数组',
   'validation.fieldKeyInvalid': '输入字段标识重复或为空：“{key}”',
   'validation.fieldNeedsLabel': '输入项“{key}”需要一个名称',
-  'validation.mustDeclareBehaviour': '“{kind}”类型必须声明 finishBehaviour',
+  'validation.mustDeclareBehaviour': '类型“{type}”必须声明 finishBehaviour',
   'validation.behaviourUnknown': 'finishBehaviour 必须是以下之一：{behaviours}',
   'validation.completeOnlyNoDestination': 'complete-only 类型不能声明输出位置',
   'validation.needsDestination': '“{behaviour}”类型必须声明一个输出位置',
-  'validation.grantsNotArrays': '授权项必须是名称数组',
-  'validation.grantNamesEmpty': '授权名称必须是非空字符串',
+  'validation.destinationNeedsRoot': '该行为会归档你的成果，输出位置必须有一个地点 —— 请选择它写入的文件夹或知识库',
   'validation.keyIsBuiltin': '“{key}”是内置类型的标识',
   'validation.keyExists': '已存在标识为“{key}”的类型',
   'validation.typeNotFound': '找不到类型“{key}”',
-  'validation.builtinKindFixed': '内置类型不能更改行为类型',
+  'validation.builtinFamilyFixed': '内置类型不能更改家族',
   'validation.builtinBehaviourFixed': '内置类型不能更改 finishBehaviour',
 
   'destination.storeUnknown': '输出存储必须是以下之一：{stores}',
@@ -259,7 +233,19 @@ export const zhCN: Catalog = {
   'wiki.notConfigured': '该类型未配置 Wiki 目录 —— 请在「设置 → 类型」中编辑该类型并设置其输出位置',
   'ingest.typeNotDestined': '类型“{type}”并不归档到 Wiki',
   'ingest.notePathOutside': '笔记路径“{path}”不在当前 Wiki 内 — 请在任务输入中重新指定',
-  'preprocess.noPreprocess': '该任务类型没有预处理',
+
+  // ---- feature 002 拒绝码（contracts/document-assist-ipc.md）----
+  'destination.notConfigured':
+    '该类型还没有输出位置 —— 请在「设置 → 类型」中为它选择归档的文件夹（或知识库），然后重新完成',
+  'destination.unreachable': '输出位置已不存在（{path}）—— 请恢复它，或在「设置 → 类型」中为该类型另选位置',
+  'document.empty': '还没有写任何内容 —— 请先在工作区写下你的内容，再完成任务',
+  'conversation.emptyMessage': '消息是空的 —— 请先写下你的问题',
+  'conversation.unavailable.off': '助手运行时已关闭 —— 请在设置中开启后再对话',
+  'conversation.unavailable.notConfigured': '尚未配置模型服务 —— 请在设置中添加服务商与密钥后再对话',
+  'undo.notDone': '只有已完成的整理才能撤销 —— 这次运行的状态是“{state}”',
+  'undo.snapshotMissing': '这次整理保留的状态已丢失（{snapshot}）—— 无法恢复；没有改动任何文件',
+  'undo.destinationUnresolved': '知识库位置已无法在类型声明的输出位置下解析 —— 请先恢复它再撤销，以免恢复到错误的地方',
+
   'finish.noTypeDefinition': '任务“{title}”没有可解析的类型定义',
   'finish.missingInputs': '无法完成：缺少必填输入：{fields}',
   'finish.outsideDestination': '拒绝完成：产物会被写到输出位置之外（{root}）— 请在设置中重新指定',
@@ -271,6 +257,7 @@ export const zhCN: Catalog = {
   // ---- errors the renderer raises itself ----
   'error.mainUnreachable': '无法连接到主进程',
   'error.aiNotConfigured': 'AI 未配置：请在设置中配置服务商、模型与 API 密钥',
+  'error.unknown': '未知错误',
 
   // ---- the chat ----
   'chat.title': '对话',
@@ -380,7 +367,15 @@ export const zhCN: Catalog = {
   // 内置类型的初始展示。db.ts 用这些字符串写入数据库，渲染层则靠比对它们
   // 判断某个类型是否仍未被用户改名 — 所以这里的文本是契约，而不只是展示。
   'type.plain.label': '普通任务',
-  'type.plain.description': '普通任务 — 只有笔记与建议，没有 AI 预处理',
+  // 002：描述不再提及已退役的引擎；v13 迁移会按旧文本改写内置行，
+  // 保证「仍为默认」的比对继续成立。
+  'type.plain.description': '普通任务 — 不声明任何协助，只有笔记',
+  'type.document.label': '文档',
+  'type.document.description': '在工作区写作；完成时归档到类型声明的位置 —— 按你的指令整理，或原样归档',
+  // type.learning.* 是迁移时代的键（v3/v4 仍在读字段名）；label/description
+  // 保留的原因相同 —— 那个时代写入的行仍靠与目录比对来识别「是否仍为默认」。
+  // learning/jira/meeting 内置类型已由 v13 删除；jira/meeting 的键随种子与
+  // schema 一并清理。
   'type.learning.label': '学习',
   'type.learning.description': '学习一个概念：AI 提示 + 摘要，Markdown 笔记，完成时沉淀进 Wiki',
   'type.learning.field.target.label': '学习目标',
@@ -391,27 +386,6 @@ export const zhCN: Catalog = {
   'type.learning.field.purpose.placeholder': '你希望学习笔记覆盖的内容（会注入学习提示词）',
   'type.learning.field.learningNotePath.label': '笔记路径',
   'type.learning.field.learningNotePath.placeholder': '默认位于 Wiki 内部',
-  'type.jira.label': 'JIRA / Confluence',
-  'type.jira.description': '基于粘贴的内容处理工单或页面：摘要、对话、评论草稿',
-  'type.jira.field.sourceKind.label': '来源类型',
-  'type.jira.field.sourceKind.option.issue': 'JIRA 工单',
-  'type.jira.field.sourceKind.option.page': 'Confluence 页面',
-  'type.jira.field.sourceLink.label': '链接',
-  'type.jira.field.sourceLink.placeholder': '工单/页面 URL（v0.8 仅作参考）',
-  'type.jira.field.sourceText.label': '来源内容',
-  'type.jira.field.sourceText.placeholder': '粘贴工单或页面的内容',
-  'type.jira.field.target.label': '目标 / 用途',
-  'type.jira.field.target.placeholder': '你希望用它做什么',
-  'type.jira.field.comments.label': '评论草稿',
-  'type.jira.field.comments.placeholder': '为工单/页面起草的评论（仅保存在本地）',
-  'type.meeting.label': '会议',
-  'type.meeting.description': '为会议做准备：AI 议程 + 核心议题，在工作区写纪要，润色后归档到你自己的文件夹',
-  'type.meeting.field.target.label': '会议目标',
-  'type.meeting.field.target.placeholder': '会议要讨论什么、要达成什么',
-  'type.meeting.field.filePath.label': '附件',
-  'type.meeting.field.filePath.placeholder': '可选的 Markdown（.md）附件',
-  'type.meeting.field.purpose.label': '提示词',
-  'type.meeting.field.purpose.placeholder': '议程与核心议题应重点关注什么',
 
   // ---- settings ----
   'settings.sections': '设置分区',
@@ -482,8 +456,9 @@ export const zhCN: Catalog = {
   // ---- what each finish behaviour does (FR-014) ----
   'finishBehaviour.completeOnly': '仅完成 — 不写入任何内容',
   'finishBehaviour.fileAsIs': '原样归档 — 原封不动保存你的内容',
-  'finishBehaviour.polishThenFile': '先润色再归档 — 助手改写后保存',
-  'finishBehaviour.depositThenCurate': '先沉淀再整理 — 先保全原始素材，再由助手撰写正式文档',
+  // 重新论证为通用整理步骤（research D2）：不再带会议框架。
+  'finishBehaviour.polishThenFile': '先整理再归档 — 助手按你的指令整理草稿，然后归档',
+  'finishBehaviour.depositThenCurate': '先沉淀再整理 — 先把你的素材保全进知识库，再由助手整理合集',
 
   // ---- the workflow-type editor ----
   'typeEditor.newTag': '新建',
@@ -498,15 +473,29 @@ export const zhCN: Catalog = {
   'typeEditor.labelPlaceholder': '例如 代码评审',
   'typeEditor.description': '描述',
   'typeEditor.descriptionPlaceholder': '这个类型用来做什么',
-  'typeEditor.kind': '行为类型',
-  'typeEditor.kind.plain': 'plain — 只有笔记与建议标签',
-  'typeEditor.kind.learning': 'learning — 提示/摘要、笔记编辑器，完成时入库整理',
-  'typeEditor.kind.jira': 'jira — 粘贴的来源、对话、评论草稿',
-  'typeEditor.kind.meeting': 'meeting — 议程/核心议题、纪要编辑器',
-  'typeEditor.fields': '输入字段（来自该行为类型）',
-  'typeEditor.aiGuidance': 'AI 指导',
-  'typeEditor.aiGuidanceHint': '（可选 — 会追加到该类型的预处理提示词）',
-  'typeEditor.aiGuidancePlaceholder': '例如：重点关注安全评审角度。',
+  'typeEditor.family': '家族',
+  'typeEditor.family.none': '无家族 — 不需要协助的类型',
+  'typeEditor.family.document': 'document — 在工作区写作，完成时整理并归档',
+  'typeEditor.family.workingSystem': 'working-system — 外部工作系统（尚未启用）',
+  'typeEditor.family.coding': 'coding — 以代码为中心的协助（尚未启用）',
+  'typeEditor.family.noneHint': '没有家族的类型不会有助手步骤：完成时只按声明执行或归档。',
+  'typeEditor.family.documentHint': '文档类型在工作区写作；完成时可选「整理并归档」或「原样归档」。',
+  'typeEditor.family.notLiveHint': '该家族还没有启用的协助 — 类型可以保存，但在其对应功能落地前按无家族方式工作。',
+  'typeEditor.fields': '声明的输入项',
+  'typeEditor.fieldsHint': '该类型任务需要填写的字段。留空表示任务只带标题、背景、目标与工作区。',
+  'typeEditor.fieldKeyPlaceholder': '标识',
+  'typeEditor.fieldLabelPlaceholder': '任务上显示的名称',
+  'typeEditor.fieldType.text': '单行文本',
+  'typeEditor.fieldType.textarea': '多行文本',
+  'typeEditor.fieldType.url': '链接',
+  'typeEditor.fieldType.file': '文件',
+  'typeEditor.fieldRequired': '必填',
+  'typeEditor.fieldRemove': '删除这个字段',
+  'typeEditor.fieldAdd': '添加字段',
+  'typeEditor.fieldDuplicate': '输入字段标识重复：“{key}”',
+  'typeEditor.aiGuidance': '助手指令',
+  'typeEditor.aiGuidanceHint': '（可选 — 整理步骤会遵循这条指令）',
+  'typeEditor.aiGuidancePlaceholder': '例如：把我的日记按日期前缀归档，保留心情小节。',
   'typeEditor.finishBehaviour': '完成行为',
   'typeEditor.finishFixed': '内置类型固定不可改',
   'typeEditor.finishHint': '按下该类型任务的「完成」时，你的内容会如何处理。',
@@ -517,15 +506,8 @@ export const zhCN: Catalog = {
   'typeEditor.subfolderHint': '（可选，相对路径）',
   'typeEditor.folderHint': '纯 Markdown 文件会写到这里；不会写入其他内容，也不会覆盖已有文件。',
   'typeEditor.wikiResolved': '解析为 {dest} — 首次使用时会在该目录创建 Wiki 所需结构；你已有的文件不会被覆盖。',
-  'typeEditor.capabilities': '助手能力',
-  'typeEditor.capabilitiesHint':
-    '技能与工具服务器让助手在这类任务上能做更多事。授予外部访问意味着助手可以在那个系统上操作 — 同时该类型的会话将不再看到你的笔记与纪要。',
-  'typeEditor.skillsLabel': '技能 — 助手可以加载的能力：',
-  'typeEditor.serversLabel': '工具服务器 — 助手可以读取并操作的外部系统：',
-  'typeEditor.noneImported': '还没有导入',
-  'typeEditor.noneRegistered': '还没有注册',
-  'typeEditor.grantReach': '— 授予外部访问',
-  'typeEditor.grantHint': '这里的改动会在下一次会话生效；已有任务无需重建。',
+  // 授权/能力相关键随授权区块一并删除（D9）：一个什么都不改变的控件，
+  // 会让用户对自己的控制力产生错误认知。
   'typeEditor.keyRequired': '标识不能为空',
   'typeEditor.keyFormat': '标识只能用小写字母、数字与下划线（2–32 个字符）',
   'typeEditor.keyTaken': '标识「{key}」已被使用',

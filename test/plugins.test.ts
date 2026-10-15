@@ -165,12 +165,11 @@ test('7.3 (add-mcp-support) grants are read at exactly one seam, never on a conf
     'src/main/ai/session-factory.ts', // resolves the grant, builds the session
     'src/main/adapters/agent/mcpAdapter.ts' // receives the already-resolved grant
   ]
+  // The preprocess/suggestion/triggers paths are deleted with their engines
+  // (D4); what remains of the confined agent path is this list.
   const confined = [
     'src/main/ai/agent-runtime.ts',
     'src/main/ai/chat.ts',
-    'src/main/ai/triggers.ts',
-    'src/main/preprocess.ts',
-    'src/main/suggestions.ts',
     'src/main/wiki/ingest.ts',
     'src/main/wiki/wiki.ts',
     'src/main/job-queue.ts'

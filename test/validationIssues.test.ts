@@ -16,7 +16,7 @@ import type { Destination, Settings, TaskTypeDef } from '../src/shared/types'
 
 const typeDef = (over: Partial<TaskTypeDef> = {}): TaskTypeDef => ({
   key: 'learning',
-  kind: 'learning',
+  family: 'document',
   label: 'Learning',
   emoji: '🎓',
   inputSchema: [],
@@ -25,7 +25,7 @@ const typeDef = (over: Partial<TaskTypeDef> = {}): TaskTypeDef => ({
   // A wiki-destined type declares its own directory now; a valid fixture
   // carries an absolute root like any other destination.
   destination: { store: 'wiki', rootPath: '/home/u/knowledge/wiki', subdir: 'learning-notes' },
-  grants: { skills: [], toolServers: [] },
+  // No grants field (D9): it does not exist on the shape.
   ...over
 })
 
@@ -53,13 +53,15 @@ test('a non-string value is refused as such', () => {
 test('type-definition refusals name what is wrong, not how to say it', () => {
   const cases: [Partial<TaskTypeDef>, string][] = [
     [{ key: 'BAD KEY' }, 'validation.keyFormat'],
-    [{ kind: 'nonsense' as never }, 'validation.kindUnknown'],
+    [{ family: 'nonsense' as never }, 'validation.familyUnknown'],
     [{ label: '' }, 'validation.labelRequired'],
     [{ emoji: '' }, 'validation.emojiRequired'],
     [{ finishBehaviour: 'nonsense' as never }, 'validation.behaviourUnknown'],
+    [{ finishBehaviour: '' as never }, 'validation.mustDeclareBehaviour'],
     [{ finishBehaviour: 'complete-only' }, 'validation.completeOnlyNoDestination'],
-    [{ finishBehaviour: 'file-as-is', destination: undefined }, 'validation.needsDestination'],
-    [{ grants: { skills: [''] as never, toolServers: [] } }, 'validation.grantNamesEmpty']
+    [{ finishBehaviour: 'file-as-is', destination: undefined }, 'validation.needsDestination']
+    // No grants cases (D9): the field does not exist, so there is nothing a
+    // payload could smuggle in and nothing to refuse.
   ]
   for (const [over, expected] of cases) {
     const errors = validateTypeDefinition(typeDef(over), { paths: nodePathPort, existing: null, mode: 'create' }).errors
@@ -76,18 +78,26 @@ test('the create/update identity rules carry the key they are about', () => {
   const missing = validateTypeDefinition(typeDef({ key: 'gone' }), { paths: nodePathPort, existing: null, mode: 'update' }).errors
   assert.deepEqual(keysOf(missing), ['validation.typeNotFound'])
 
-  const changedKind = validateTypeDefinition(typeDef({ kind: 'jira' }), { paths: nodePathPort, existing, mode: 'update' }).errors
-  assert.ok(keysOf(changedKind).includes('validation.builtinKindFixed'))
+  const changedFamily = validateTypeDefinition(typeDef({ family: 'coding' }), { paths: nodePathPort, existing, mode: 'update' }).errors
+  assert.ok(keysOf(changedFamily).includes('validation.builtinFamilyFixed'))
 })
 
 test('destination refusals cover each rule once', () => {
   const wiki: Destination = { store: 'wiki', rootPath: '/home/u/knowledge', subdir: '' }
   assert.deepEqual(validateDestination(nodePathPort, wiki), [])
-  // A blank wiki root is an incomplete config (refused at Finish), a named
-  // but relative one is the save-time error.
-  assert.deepEqual(validateDestination(nodePathPort, { ...wiki, rootPath: null }), [])
+  // Feature 002 (FR-013): a blank root is a SAVE-time refusal on a user Type,
+  // for either store; only the seeded built-in may ship without a location
+  // (its Finish is then the guided refusal). A named-but-relative root keeps
+  // its per-store save-time error.
+  assert.deepEqual(keysOf(validateDestination(nodePathPort, { ...wiki, rootPath: null })), [
+    'validation.destinationNeedsRoot'
+  ])
+  assert.deepEqual(validateDestination(nodePathPort, { ...wiki, rootPath: null }, { seededBuiltin: true }), [])
   assert.deepEqual(keysOf(validateDestination(nodePathPort, { ...wiki, rootPath: 'relative' })), ['destination.wikiNeedsRoot'])
   assert.deepEqual(keysOf(validateDestination(nodePathPort, { store: 'folder', rootPath: '', subdir: '' })), [
+    'validation.destinationNeedsRoot'
+  ])
+  assert.deepEqual(keysOf(validateDestination(nodePathPort, { store: 'folder', rootPath: 'rel', subdir: '' })), [
     'destination.folderNeedsAbsoluteRoot'
   ])
   assert.deepEqual(keysOf(validateDestination(nodePathPort, { ...wiki, subdir: '../up' })), ['destination.subdirTraversal'])

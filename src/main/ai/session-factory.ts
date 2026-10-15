@@ -89,7 +89,7 @@ export async function createJobSession(opts: CreateJobSessionOptions): Promise<J
 
   // Grant resolution, at the seam. `purpose` defaults to 'confined' so a caller
   // that says nothing gets the safe answer: no external reach.
-  const grant = resolveGrant({ purpose: opts.purpose ?? 'confined', typeDef: opts.typeDef ?? null })
+  const grant = resolveGrant({ purpose: opts.purpose ?? 'confined', grants: opts.grant ?? null })
   // FR-013: a disabled skill is inert even when a type grants it — the
   // enabled-names filter reads the user's configuration at this seam.
   const grantedSkillPaths = grantedSkillDirs(grant, skillsDir(), enabledSkillNames(settings.skills ?? []))

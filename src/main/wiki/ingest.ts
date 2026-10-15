@@ -1,5 +1,5 @@
 import type { JobContext } from '../job-queue'
-import type { IngestRecord, TaskPreprocess } from '../../shared/types'
+import type { IngestRecord } from '../../shared/types'
 import { getTask, listTypes, updateIngest } from '../db'
 import { loadRuntimeSettings } from '../runtimeSettings'
 import { message } from '../../core/i18n'
@@ -48,7 +48,6 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   const storage = createSqliteStorage(db)
   const target = resolveArtifact(nodePathPort, dest, task.title, task.id)
   const session = createAgentSessionAdapter(() => loadRuntimeSettings(db))
-  const preprocess = storage.getPreprocess(taskId)
 
   const record = (patch: Parameters<typeof updateIngest>[2]): void => updateIngest(db, job.id, patch)
 
@@ -83,7 +82,8 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
       if (detail.depositFiles) record({ depositFiles: detail.depositFiles })
       if (detail.protectedFiles) record({ touchedFiles: detail.protectedFiles })
     },
-    summary: renderSummary(taskId, preprocess),
+    // No preprocess summary (D4): the retired engine's rows are history no
+    // live path reads; the deposit carries the user's own material.
     attachmentPath: typeof task.inputs.filePath === 'string' ? task.inputs.filePath : undefined,
     noteTargetRel: noteTargetRel || undefined
   })
@@ -91,21 +91,6 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   // What the agent actually created or modified.
   record({ touchedFiles: result.touchedFiles })
   ctx.setStep(message(settings.uiLanguage, 'job.step.complete'), message(settings.uiLanguage, 'ingest.done'))
-}
-
-function renderSummary(taskId: string, p: TaskPreprocess | null): string | undefined {
-  if (!p) return undefined
-  return `# AI Pre-process Summary — ${taskId}
-
-## Summary
-${p.summary || '(none)'}
-
-## Analysis
-${p.analysis || '(none)'}
-
-## Activity suggestions
-${p.suggestions.map((s) => `- ${s}`).join('\n') || '(none)'}
-`
 }
 
 // Re-exported for callers and tests that already import it from here.

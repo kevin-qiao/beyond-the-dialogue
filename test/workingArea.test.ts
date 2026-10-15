@@ -1,49 +1,59 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { WORKING_AREAS, emptyContentWarning, finishActionLabel, workingAreaFor } from '../src/core/domain/workingArea'
-import { CATEGORIES, FINISH_BEHAVIOURS } from '../src/core/domain/categories'
+import { FAMILIES } from '../src/core/domain/family'
+import { FINISH_BEHAVIOURS } from '../src/core/domain/finish'
 import type { TaskTypeDef } from '../src/shared/types'
 
-// The category → surface mapping and the Finish affordance wording.
+// The family → surface mapping and the Finish affordance wording.
 //
-// `finishActionLabel` and `emptyContentWarning` were entirely untested, and
-// `workingAreaFor` only exercised indirectly — so a wrong branch would have
-// surfaced as a UI oddity rather than a failure. Constitution IV.
+// Feature 002 re-keyed the surface onto the Family (research D1/D3): a
+// document-family Type's note IS the working area — the draft — while every
+// other Type keeps the ordinary notes field. The source-panel surface died
+// with the Jira engine (FR-016).
 
 const defWith = (finishBehaviour: TaskTypeDef['finishBehaviour']): TaskTypeDef => ({
   key: 'x',
-  kind: 'meeting',
+  family: 'document',
   label: 'X',
-  emoji: '🗓',
+  emoji: '📄',
   inputSchema: [],
   isBuiltin: false,
-  finishBehaviour,
-  grants: { skills: [], toolServers: [] }
+  finishBehaviour
 })
 
-test('every category maps to a declared working area', () => {
-  for (const category of CATEGORIES) {
-    const area = workingAreaFor(category)
-    assert.ok(WORKING_AREAS.includes(area), `${category} -> ${area} is not a declared working area`)
+test('every family value maps to a declared working area', () => {
+  for (const family of [...FAMILIES, null, undefined]) {
+    const area = workingAreaFor(family)
+    assert.ok(WORKING_AREAS.includes(area), `${family} -> ${area} is not a declared working area`)
   }
 })
 
-test('the category → surface mapping is the one the feature specifies', () => {
-  assert.equal(workingAreaFor('plain'), 'notes')
-  assert.equal(workingAreaFor('learning'), 'markdown')
-  assert.equal(workingAreaFor('jira'), 'source-panel')
-  // The Meeting type reuses the existing markdown editor; per-type working-area
-  // declaration is out of scope, so the category still selects the surface.
-  assert.equal(workingAreaFor('meeting'), 'markdown')
+test('the family → surface mapping is the one the feature specifies', () => {
+  // The document family is the writing surface (D3): the task's note is the
+  // draft the finish loop reads.
+  assert.equal(workingAreaFor('document'), 'markdown')
+  // A family-less Type keeps the ordinary notes field.
+  assert.equal(workingAreaFor(null), 'notes')
+  assert.equal(workingAreaFor(undefined), 'notes')
+  // The not-yet-live families get the family-less treatment until their own
+  // features land (T033's honest affordance) — never a surface that pretends.
+  assert.equal(workingAreaFor('working-system'), 'notes')
+  assert.equal(workingAreaFor('coding'), 'notes')
+})
+
+test('the retired source-panel surface is gone', () => {
+  assert.ok(!(WORKING_AREAS as readonly string[]).includes('source-panel'))
 })
 
 test('the Finish label describes the declared behaviour, for every behaviour', () => {
   const labels = FINISH_BEHAVIOURS.map((b) => finishActionLabel(defWith(b)))
   for (const label of labels) assert.ok(label.trim().length > 0, 'every behaviour needs a label')
   // The label must be true of the behaviour: "ingest to wiki" is only correct
-  // for one of the four, and saying it for a meeting would be a lie.
+  // for one of the four, and "organize" only for the organize step (D2's
+  // re-argument — no meeting framing survives).
   assert.match(finishActionLabel(defWith('deposit-then-curate')), /wiki/)
-  assert.match(finishActionLabel(defWith('polish-then-file')), /polish/)
+  assert.match(finishActionLabel(defWith('polish-then-file')), /organize/)
   assert.match(finishActionLabel(defWith('file-as-is')), /as written/)
   assert.equal(finishActionLabel(defWith('complete-only')), 'Finish')
   // Labels are distinct, so the button cannot silently mean two things.
@@ -66,9 +76,10 @@ test('the empty-content warning is offered only where finishing would write some
   assert.match(emptyContentWarning(defWith('file-as-is'))!, /empty/)
 })
 
-test('an undeclared behaviour falls back to the category it came from', () => {
-  // A type with no behaviour declared resolves through the category's history,
-  // so the label is that behaviour's label rather than the neutral one.
-  const legacyLearning: TaskTypeDef = { ...defWith(undefined as never), kind: 'learning', finishBehaviour: undefined as never }
-  assert.match(finishActionLabel(legacyLearning), /wiki/)
+test('an undeclared behaviour gets the neutral label — no history to fall back to', () => {
+  // Feature 002 deleted the legacy-workflow fallback with the categories
+  // (research D1): a behaviour is declared or the finish path refuses with a
+  // code — nothing is inferred, so the label is the neutral one.
+  const undeclared: TaskTypeDef = { ...defWith(undefined as never), finishBehaviour: undefined as never }
+  assert.equal(finishActionLabel(undeclared), 'Finish')
 })

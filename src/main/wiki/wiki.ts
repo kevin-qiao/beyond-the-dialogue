@@ -1,12 +1,11 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { getTask, getPreprocess, getNotes, listTypes } from '../db'
+import { getTask, getNotes, listTypes } from '../db'
 import { depositInto } from '../adapters/artifacts/deposit'
 import { slugify } from '../../core/domain/slug'
 import { declaredWorkflow, effectiveType } from '../../core/domain/taskType'
 import { LocalizedError } from '../../core/i18n/issues'
-import type { TaskPreprocess } from '../../shared/types'
 
 // LLM-WiKi integration: scaffolding, deposit-first safety net, .history
 // snapshots, and the confined ingestion agent (design D5/D7).
@@ -150,30 +149,17 @@ export function depositTask(db: DatabaseSync, taskId: string): DepositResult {
   const rawDir = path.join(wikiPath, 'raw', taskId)
 
   const note = getNotes(db, taskId)
-  const preprocess = getPreprocess(db, taskId)
   const filePath = typeof task.inputs.filePath === 'string' ? task.inputs.filePath : ''
+  // No AI summary (D4): the preprocess engine is deleted and its rows are
+  // history no live path reads. The deposit carries the user's own material —
+  // the working-area content and the optional attachment — and nothing else.
   const result = depositInto(rawDir, {
     taskId,
     title: task.title,
     content: note?.content ?? '',
-    summary: preprocess ? renderPreprocessSummary(task.title, preprocess) : undefined,
     attachmentPath: filePath || undefined
   })
   return { rawDir: result.dir, files: result.files }
-}
-
-function renderPreprocessSummary(title: string, p: TaskPreprocess): string {
-  return `# AI Pre-process Summary — ${title}
-
-## Summary
-${p.summary || '(none)'}
-
-## Analysis
-${p.analysis || '(none)'}
-
-## Activity suggestions
-${p.suggestions.map((s) => `- ${s}`).join('\n') || '(none)'}
-`
 }
 
 // Which directories the audit walk covers.

@@ -59,7 +59,13 @@ test('core layer contains no bare node builtin imports', () => {
 test('core layer contains no DOM globals', () => {
   // The mirror image of the previous rule: core is also compiled into the
   // main target, which has no DOM.
-  const DOM = /\b(document|window|navigator|localStorage|sessionStorage|indexedDB|HTMLElement|XMLHttpRequest)\s*[.([]/
+  //
+  // The leading lookbehind skips identifiers inside string literals and
+  // member chains: the i18n catalogs hold MESSAGE KEYS like 'document.empty'
+  // (a refusal code, not the DOM global), and data is harmless in both
+  // targets. A bare `document.createElement(...)` in code still fails here —
+  // verified by the drill: adding one to any core file turns this test red.
+  const DOM = /(?<!['"\w.])(document|window|navigator|localStorage|sessionStorage|indexedDB|HTMLElement|XMLHttpRequest)\s*[.([]/
   const offenders: string[] = []
   for (const f of coreFiles()) {
     const code = stripComments(fs.readFileSync(f, 'utf-8'))

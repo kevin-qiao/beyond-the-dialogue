@@ -2,12 +2,35 @@ import type { Destination, Task, TaskTypeDef } from '../../shared/types'
 import type { ArtifactStorePort } from '../ports/artifactStore'
 import type { AgentSessionPort } from '../ports/agent'
 import type { ClockPort } from '../ports/clock'
-import type { FinishBehaviour } from './categories'
 import { message, type Language } from '../i18n'
 
 // The four finish behaviours (contracts/finish-behaviours.md). Exactly four
 // exist; adding a fifth is meant to be a deliberate act with a known shape
 // rather than an edit to a conditional.
+//
+// This is the module that DISPATCHES on the set (FINISH_STRATEGIES below), so
+// feature 002's retirement of `categories.ts` moved the declaration here —
+// "the finish-behaviour set and the destination-store set move to the modules
+// that dispatch on them" (research D1). A SQL `CHECK` restatement in
+// src/main/db.ts mirrors these four literals; it names THIS file as its source.
+export const FINISH_BEHAVIOURS = [
+  'complete-only',
+  'file-as-is',
+  'polish-then-file',
+  'deposit-then-curate'
+] as const
+export type FinishBehaviour = (typeof FINISH_BEHAVIOURS)[number]
+
+export function isFinishBehaviour(value: unknown): value is FinishBehaviour {
+  return typeof value === 'string' && (FINISH_BEHAVIOURS as readonly string[]).includes(value)
+}
+
+export function writesArtifact(behaviour: FinishBehaviour): boolean {
+  return behaviour !== 'complete-only'
+}
+
+// The four behaviours are the closed set (FR-014): users select among these,
+// they cannot define new ones.
 //
 // Every behaviour shares the same invariants:
 //   - a finish never fails solely because AI is unconfigured (FR-025)

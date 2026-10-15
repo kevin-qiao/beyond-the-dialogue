@@ -70,10 +70,9 @@ export const en = {
   'task.capture.ariaLabel': 'Quick add task',
 
   // ---- task status (the dot-chip) ----
+  // The ready/failed/queued states retired with the pre-process pipeline (D4):
+  // the only live dot is a user-started job in flight.
   'task.status.working': 'working',
-  'task.status.ready': 'ready',
-  'task.status.failed': 'failed',
-  'task.status.queued': 'queued',
 
   // ---- one task: the board row and the AI band ----
   'task.title.edit': 'Edit title',
@@ -106,23 +105,8 @@ export const en = {
   'alarm.overdue.title': 'Overdue reminder',
   'alarm.overdue.body': '{title} — was due {when}',
 
-  // ---- the pre-process section of the band ----
-  'task.preprocess.title': 'Pre-process',
-  'task.preprocess.runNow': 'Run now',
-  'task.preprocess.rerun': 'Re-run',
-  'task.preprocess.failed': 'Pre-process failed',
-  'task.preprocess.failedWith': 'Pre-process failed: {error}',
-  'task.preprocess.unknownError': 'unknown error',
-  'task.preprocess.aiNotConfigured': 'AI not configured — open Settings to enable pre-processing',
-  'task.preprocess.emptyHint':
-    'No pre-process yet. Add this task to My Day to generate the {kind} summary and suggestions, or click Run now.',
-  'task.preprocess.emptyHintNoAi': 'No pre-process yet. AI is not configured — set up a provider in Settings first.',
-  'task.preprocess.queued': 'queued…',
-  'task.preprocess.summary': 'Summary',
-  'task.preprocess.analysis': 'Analysis',
-  'task.preprocess.suggestions': 'Suggestions',
-  'task.suggestions.dismiss': 'Dismiss this suggestion',
-  'task.suggestions.allDismissed': 'All suggestions dismissed.',
+  // The pre-process section and the suggestion chips retired with the engines
+  // (D4): no key of theirs survives, because no surface reads them.
 
   // ---- the task column ----
   'nav.search': 'Search ({count})',
@@ -192,15 +176,6 @@ export const en = {
   'finish.step.snapshottingDetail': 'Backing up files before changes',
   'finish.step.curating': 'Curating',
   'finish.step.curatingDetail': 'The assistant is writing the finished note',
-  'preprocess.step.running': 'Pre-processing',
-  'preprocess.step.learning': 'Generating learning summary',
-  'preprocess.step.jira': 'Summarizing pasted content',
-  'preprocess.step.meeting': 'Proposing an agenda',
-  'preprocess.done': 'Pre-process complete',
-  'suggest.step.running': 'Suggesting',
-  'suggest.step.detail': 'Generating suggestions',
-  'suggest.done.one': '{count} suggestion generated',
-  'suggest.done.other': '{count} suggestions generated',
   'ingest.done': 'Wiki ingestion complete',
 
   // ---- toasts the domain raises ----
@@ -217,22 +192,22 @@ export const en = {
   'validation.inputNotAnOption': 'input "{input}" must be one of: {options}',
   'validation.inputImmutable': 'input "{input}" cannot be changed after creation',
   'validation.keyFormat': 'key must be 2–32 chars of lowercase letters, digits, underscore',
-  'validation.kindUnknown': 'kind must be one of: {kinds}',
+  'validation.familyUnknown': 'family must be one of: {families} — or empty for a type that needs no assistance',
   'validation.labelRequired': 'label is required',
   'validation.emojiRequired': 'emoji is required',
   'validation.inputSchemaNotArray': 'inputSchema must be an array',
   'validation.fieldKeyInvalid': 'duplicate or empty input field key "{key}"',
   'validation.fieldNeedsLabel': 'input "{key}" needs a label',
-  'validation.mustDeclareBehaviour': 'a "{kind}" type must declare a finishBehaviour',
+  'validation.mustDeclareBehaviour': 'type "{type}" must declare a finishBehaviour',
   'validation.behaviourUnknown': 'finishBehaviour must be one of: {behaviours}',
   'validation.completeOnlyNoDestination': 'a complete-only type must not declare a destination',
   'validation.needsDestination': 'a "{behaviour}" type must declare a destination',
-  'validation.grantsNotArrays': 'grant entries must be arrays of names',
-  'validation.grantNamesEmpty': 'grant names must be non-empty strings',
+  'validation.destinationNeedsRoot':
+    'this behaviour files your work, so the destination needs a location — choose the folder or knowledge base it writes to',
   'validation.keyIsBuiltin': '"{key}" is a built-in type key',
   'validation.keyExists': 'a type with key "{key}" already exists',
   'validation.typeNotFound': 'type "{key}" not found',
-  'validation.builtinKindFixed': 'built-in types cannot change kind',
+  'validation.builtinFamilyFixed': 'built-in types cannot change family',
   'validation.builtinBehaviourFixed': 'built-in types cannot change finishBehaviour',
 
   'destination.storeUnknown': 'destination store must be one of: {stores}',
@@ -273,7 +248,29 @@ export const en = {
   'wiki.notConfigured': 'no wiki directory is configured for this type — edit the type in Settings (Types) and set its destination',
   'ingest.typeNotDestined': 'type "{type}" is not destined for the wiki',
   'ingest.notePathOutside': 'learning-note path "{path}" is outside the current wiki — re-point it in the task inputs',
-  'preprocess.noPreprocess': 'this task type has no pre-process',
+
+  // ---- feature 002 refusals (contracts/document-assist-ipc.md) ----
+  // The domain refuses in these codes; handleCommand phrases them before the
+  // throw. `destination.notConfigured` phrases the contract's
+  // `destination.not_configured` refusal (the key convention is dotted
+  // lowerCamelCase — test/i18n.test.ts): the fresh-install guided refusal
+  // (Q1/FR-007) — the seeded Document Type ships with no location, and no
+  // default ever takes its place.
+  'destination.notConfigured':
+    'this Type has no destination location yet — choose the folder (or knowledge base) it files to in Settings → Types, then finish again',
+  'destination.unreachable':
+    'the destination location no longer exists ({path}) — restore it or point the Type somewhere else in Settings → Types',
+  'document.empty': 'nothing is written yet — write your content in the working area before finishing',
+  'conversation.emptyMessage': 'the message is empty — write a question first',
+  'conversation.unavailable.off':
+    'the assistant is switched off — turn on the assistant runtime in Settings to converse',
+  'conversation.unavailable.notConfigured':
+    'no model service is configured — add a provider and key in Settings to converse',
+  'undo.notDone': 'only a completed curation can be undone — this run is "{state}"',
+  'undo.snapshotMissing': 'the retained state for this curation is missing ({snapshot}) — it cannot be restored; nothing was changed',
+  'undo.destinationUnresolved':
+    'the knowledge base location no longer resolves under the Type destination — restore it before undoing, so nothing is mis-restored',
+
   'finish.noTypeDefinition': 'no type definition resolves for task "{title}"',
   'finish.missingInputs': 'cannot finish: missing required input(s): {fields}',
   'finish.outsideDestination': 'refusing to finish: the artifact would be written outside the destination root ({root}) — re-point the destination in Settings',
@@ -285,6 +282,7 @@ export const en = {
   // ---- errors the renderer raises itself ----
   'error.mainUnreachable': 'Could not reach the main process',
   'error.aiNotConfigured': 'AI not configured: open Settings to configure a provider, model and API key',
+  'error.unknown': 'unknown error',
 
   // ---- the chat ----
   'chat.title': 'Chat',
@@ -403,7 +401,21 @@ export const en = {
   // "untouched", and a type already renamed by the user stays theirs in every
   // language either way.
   'type.plain.label': 'Plain task',
-  'type.plain.description': 'A plain task — notes and suggestions only, no AI pre-process',
+  // Feature 002: the description no longer names the retired engines. The v13
+  // migration rewrites the stored built-in row from the OLD literal, so the
+  // default-detection comparison (stored === en[key]) keeps working.
+  'type.plain.description': 'A plain task — no assistance declared; notes only',
+  'type.document.label': 'Document',
+  'type.document.description':
+    'Write it in the working area; Finish files it at the Type destination — organized as your instruction describes, or as written',
+  // The type.learning.* keys are MIGRATION ERA, not a live type: the v3 step
+  // imports legacy settings-blob custom types with LEARNING_INPUT_SCHEMA and
+  // v4 refreshes historical rows, and both read the field labels. The
+  // label/description keys stay for the same reason the field keys do — a
+  // stored row from that era (or a user type that happens to take the key) is
+  // still recognised as default-or-not by comparison against the catalog. The
+  // learning/jira/meeting BUILT-INS are deleted by v13 (research D11); the
+  // jira/meeting keys died with their seeds and schemas and are pruned.
   'type.learning.label': 'Learning',
   'type.learning.description': 'Learn a concept: AI prompt + summary, markdown note, Finish ingests to the wiki',
   'type.learning.field.target.label': 'Target',
@@ -415,28 +427,6 @@ export const en = {
     'What you want the learning note to cover (injected into the learning prompt)',
   'type.learning.field.learningNotePath.label': 'Learning-note path',
   'type.learning.field.learningNotePath.placeholder': 'Defaults inside the wiki',
-  'type.jira.label': 'JIRA / Confluence',
-  'type.jira.description': 'Work an issue or page from pasted content: summaries, chat, comment drafts',
-  'type.jira.field.sourceKind.label': 'Source kind',
-  'type.jira.field.sourceKind.option.issue': 'JIRA issue',
-  'type.jira.field.sourceKind.option.page': 'Confluence page',
-  'type.jira.field.sourceLink.label': 'Link',
-  'type.jira.field.sourceLink.placeholder': 'Ticket/page URL (reference only in v0.8)',
-  'type.jira.field.sourceText.label': 'Source content',
-  'type.jira.field.sourceText.placeholder': 'Paste the issue/page content',
-  'type.jira.field.target.label': 'Target / Purpose',
-  'type.jira.field.target.placeholder': 'What you want done with it',
-  'type.jira.field.comments.label': 'Comment drafts',
-  'type.jira.field.comments.placeholder': 'Draft comments for the issue/page (local only)',
-  'type.meeting.label': 'Meeting',
-  'type.meeting.description':
-    'Prepare for a meeting: AI agenda + core topics, minutes in the working area, polished into a folder you own',
-  'type.meeting.field.target.label': 'Objective',
-  'type.meeting.field.target.placeholder': 'What the meeting is about and what it should achieve',
-  'type.meeting.field.filePath.label': 'File',
-  'type.meeting.field.filePath.placeholder': 'Optional markdown (.md) attachment',
-  'type.meeting.field.purpose.label': 'Prompt',
-  'type.meeting.field.purpose.placeholder': 'What the agenda and core topics should focus on',
 
   // ---- settings ----
   'settings.sections': 'Settings sections',
@@ -509,9 +499,10 @@ export const en = {
   // ---- what each finish behaviour does (FR-014) ----
   'finishBehaviour.completeOnly': 'Complete only — writes nothing',
   'finishBehaviour.fileAsIs': 'File as-is — saves your content unchanged',
-  'finishBehaviour.polishThenFile': 'Polish then file — the assistant rewrites it, then saves',
+  // Re-argued as the generic organize step (research D2): no meeting framing.
+  'finishBehaviour.polishThenFile': 'Organize then file — the assistant organizes the draft as your instruction describes, then files it',
   'finishBehaviour.depositThenCurate':
-    'Deposit then curate — raw material preserved first, then the assistant authors the artifact',
+    'Deposit then curate — your material is preserved in the knowledge base first, then the assistant curates the collection',
 
   // ---- the workflow-type editor ----
   'typeEditor.newTag': 'NEW',
@@ -526,15 +517,30 @@ export const en = {
   'typeEditor.labelPlaceholder': 'e.g. Code review',
   'typeEditor.description': 'Description',
   'typeEditor.descriptionPlaceholder': 'What this type is for',
-  'typeEditor.kind': 'Behavior kind',
-  'typeEditor.kind.plain': 'plain — notes & suggestion chips only',
-  'typeEditor.kind.learning': 'learning — prompt/summary, note editor, curated on Finish',
-  'typeEditor.kind.jira': 'jira — pasted source, chat, comment drafts',
-  'typeEditor.kind.meeting': 'meeting — agenda/core topics, minutes editor',
-  'typeEditor.fields': 'Input fields (from this kind)',
-  'typeEditor.aiGuidance': 'AI guidance',
-  'typeEditor.aiGuidanceHint': "(optional — appended to this type's pre-process prompt)",
-  'typeEditor.aiGuidancePlaceholder': 'e.g. Focus on security review angles.',
+  'typeEditor.family': 'Family',
+  'typeEditor.family.none': 'No family — a type that needs no assistance',
+  'typeEditor.family.document': 'document — write in the working area, organize and file on Finish',
+  'typeEditor.family.workingSystem': 'working-system — external work systems (not live yet)',
+  'typeEditor.family.coding': 'coding — code-centered assistance (not live yet)',
+  'typeEditor.family.noneHint': 'Without a family this type gets no assistant step: Finish completes or files as declared.',
+  'typeEditor.family.documentHint': 'Document types write in the working area; Finish offers organize & file or file as written.',
+  'typeEditor.family.notLiveHint':
+    'This family has no live assistance yet — the type saves and behaves like a family-less one until its feature lands.',
+  'typeEditor.fields': 'Declared inputs',
+  'typeEditor.fieldsHint': 'The fields a task of this type asks for. Empty means the task carries only title, background, target and the working area.',
+  'typeEditor.fieldKeyPlaceholder': 'key',
+  'typeEditor.fieldLabelPlaceholder': 'Label shown on the task',
+  'typeEditor.fieldType.text': 'text',
+  'typeEditor.fieldType.textarea': 'textarea',
+  'typeEditor.fieldType.url': 'url',
+  'typeEditor.fieldType.file': 'file',
+  'typeEditor.fieldRequired': 'required',
+  'typeEditor.fieldRemove': 'Remove this field',
+  'typeEditor.fieldAdd': 'Add field',
+  'typeEditor.fieldDuplicate': 'Duplicate input field key "{key}"',
+  'typeEditor.aiGuidance': 'Assistant instruction',
+  'typeEditor.aiGuidanceHint': "(optional — the instruction the organize step follows for this type)",
+  'typeEditor.aiGuidancePlaceholder': 'e.g. File my diary as date-prefixed notes; keep a feelings section.',
   'typeEditor.finishBehaviour': 'Finish behaviour',
   'typeEditor.finishFixed': 'fixed for a built-in type',
   'typeEditor.finishHint': 'What happens to your work when you press Finish on a task of this type.',
@@ -546,15 +552,9 @@ export const en = {
   'typeEditor.folderHint':
     'Plain markdown files land here. Nothing else is written, and an existing file is never overwritten.',
   'typeEditor.wikiResolved': 'Resolved as {dest} — the wiki structure is created there on first use; your existing files are never overwritten.',
-  'typeEditor.capabilities': 'Assistant capabilities',
-  'typeEditor.capabilitiesHint':
-    'Skills and tool servers let the assistant do more on a task of this type. Granting external reach means the assistant can act on that system — and that sessions for this type will no longer see your notes and minutes.',
-  'typeEditor.skillsLabel': 'Skills — capabilities the assistant can load:',
-  'typeEditor.serversLabel': 'Tool servers — external systems the assistant can read from and act on:',
-  'typeEditor.noneImported': 'none imported yet',
-  'typeEditor.noneRegistered': 'none registered yet',
-  'typeEditor.grantReach': '— grants external reach',
-  'typeEditor.grantHint': 'A change here takes effect on the next session; existing tasks do not need recreating.',
+  // The grants/capabilities keys are pruned with the grants section (D9):
+  // showing a control that changes nothing would tell the user something
+  // untrue about their control.
   'typeEditor.keyRequired': 'Key is required',
   'typeEditor.keyFormat': 'Key must be lowercase letters, digits, underscore (2–32 chars)',
   'typeEditor.keyTaken': 'Key "{key}" is already used',

@@ -4,21 +4,21 @@ import { useLanguage, useT } from '../../lib/useT'
 import { displayTypeLabel } from '../../lib/typeCatalog'
 import { TaskBand } from './TaskBand'
 import { TaskNotes } from './TaskNotes'
-import { JiraArea } from './JiraArea'
 import { ChatPanel } from './ChatPanel'
 import { IconChevronDown, IconChevronLeft, IconChevronRight, IconChevronUp, IconTarget } from '../ui/icons'
 import { effectiveType } from '../../lib/typeCatalog'
 import { workingAreaFor, type WorkingArea } from '../../../../core/domain/workingArea'
 import { isAssistantEnabled } from '../../../../core/domain/assistant'
 
-// The category selects the working surface (spec scope boundary: per-type
-// working-area declaration is out of scope). The mapping is an explicit table
-// rather than a ternary, so a new category is an entry here instead of another
-// branch in a component.
+// The Family selects the working surface (research D1/D3): a document-family
+// Type surfaces the task's note as the WORKING AREA — the writing space the
+// draft lives in — while every other Type keeps the ordinary notes field. The
+// Jira source-panel surface is deleted with the working-system engine (FR-016).
+// The mapping is an explicit table rather than a ternary, so a new surface is
+// an entry here instead of another branch in a component.
 const WorkingAreaView: Record<WorkingArea, (task: Parameters<typeof TaskNotes>[0]['task']) => JSX.Element> = {
   notes: (task) => <TaskNotes task={task} />,
-  markdown: (task) => <TaskNotes task={task} />,
-  'source-panel': (task) => <JiraArea task={task} />
+  markdown: (task) => <TaskNotes task={task} />
 }
 
 interface Props {
@@ -67,10 +67,10 @@ export function FocusColumn({ collapsed, onExpand, onCollapse }: Props) {
 
   const meta = effectiveType(task, snapshot?.taskTypes)
   const listName = snapshot?.lists.find((l) => l.id === task.listId)?.name ?? 'Inbox'
-  // The chat belongs in the band for the kinds whose working area grounded a
-  // chat in the task before it moved here (markdown + source-panel); the plain
-  // notes surface never had one and still doesn't.
-  const area = workingAreaFor(meta.kind)
+  // The chat belongs in the band for the Types whose working area grounds a
+  // chat in the task (the document family); the plain notes surface keeps its
+  // chat-free treatment until US2 attaches conversations to every task.
+  const area = workingAreaFor(meta.family)
   // Chat is an assistant surface: the tab does not exist while the harness
   // is declared off (D1) — no refusal notice, nothing.
   const hasChat = area !== 'notes' && isAssistantEnabled(snapshot!.settings)

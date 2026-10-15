@@ -1,4 +1,4 @@
-import type { AppSnapshot, Attachment, List, RedactedSettings, SettingsInput, SkillEntry, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from './types'
+import type { AppSnapshot, Attachment, List, RedactedSettings, SettingsInput, SkillEntry, Task, TaskNote, TaskTypeDef } from './types'
 
 // IPC channel names. Commands are renderer -> main invokes; events are
 // main -> renderer pushes.
@@ -16,7 +16,6 @@ export const IPC = {
   setMyDay: 'tasks:set-my-day',
   setTaskDone: 'tasks:set-done',
   setAlarm: 'tasks:set-alarm',
-  runPreprocess: 'tasks:run-preprocess',
   finishTask: 'tasks:finish',
   chooseFile: 'dialog:choose-file',
   importSkill: 'skills:import',
@@ -38,7 +37,6 @@ export const IPC = {
   dismissProposal: 'remote:dismiss',
   sendChat: 'chat:send',
   resetChat: 'chat:reset',
-  dismissSuggestion: 'suggestions:dismiss',
   getActivity: 'wiki:activity',
   retryIngest: 'wiki:retry-ingest',
   attachmentsAddFromDialog: 'attachments:add-from-dialog',
@@ -48,8 +46,6 @@ export const IPC = {
   evTaskUpdated: 'ev:task-updated',
   evListUpdated: 'ev:list-updated',
   evJobProgress: 'ev:job-progress',
-  evPreprocessUpdated: 'ev:preprocess-updated',
-  evSuggestionsUpdated: 'ev:suggestions-updated',
   evToast: 'ev:toast',
   evSettingsUpdated: 'ev:settings-updated',
   evTypesUpdated: 'ev:types-updated',
@@ -204,14 +200,10 @@ export interface SendChatArgs {
   taskId?: string
 }
 
-// A task's suggestions, pushed after a pre-process or a dismissal. The payload
-// names the task so the renderer can merge it into the app's full list —
-// replacing the list outright would drop every other task's chips, which is
-// what made the chips unreliable once they moved off the board row.
-export interface SuggestionsUpdatedEvent {
-  taskId: string
-  suggestions: Suggestion[]
-}
+// The retired preprocess/suggestion channels (tasks:run-preprocess,
+// suggestions:dismiss, ev:preprocess-updated, ev:suggestions-updated) are
+// deleted with the engines (D4). Their stored rows are history; no surface
+// reads or writes them.
 
 export interface ResetChatArgs {
   // Which surface's conversation to drop. Undefined = the ungrounded debug
@@ -232,7 +224,6 @@ export interface RendererApi {
   setMyDay: (args: { id: string; inMyDay: boolean }) => Promise<Task>
   setTaskDone: (args: { id: string; done: boolean }) => Promise<Task>
   setAlarm: (args: SetAlarmArgs) => Promise<Task>
-  runPreprocess: (args: { id: string }) => Promise<Task>
   finishTask: (args: { id: string }) => Promise<Task>
   chooseFile: () => Promise<string | null>
   chooseFolder: () => Promise<string | null>
@@ -259,7 +250,6 @@ export interface RendererApi {
   attachmentsOpen: (args: AttachmentOpenArgs) => Promise<void>
   sendChat: (args: SendChatArgs) => Promise<void>
   resetChat: (args: ResetChatArgs) => Promise<void>
-  dismissSuggestion: (args: { suggestionId: string }) => Promise<Suggestion>
   getActivity: () => Promise<import('./types').IngestRecord[]>
   retryIngest: (args: { ingestId: string }) => Promise<void>
   getProposals: () => Promise<RemoteProposalView[]>
@@ -269,8 +259,6 @@ export interface RendererApi {
   onTaskUpdated: (cb: (t: Task) => void) => () => void
   onListUpdated: (cb: (l: List) => void) => () => void
   onJobProgress: (cb: (e: JobProgressEvent) => void) => () => void
-  onPreprocessUpdated: (cb: (p: TaskPreprocess) => void) => () => void
-  onSuggestionsUpdated: (cb: (e: SuggestionsUpdatedEvent) => void) => () => void
   onSettingsUpdated: (cb: (s: RedactedSettings) => void) => () => void
   onTypesUpdated: (cb: (types: TaskTypeDef[]) => void) => () => void
   onToast: (cb: (t: ToastPayload) => void) => () => void
@@ -292,8 +280,6 @@ export interface AppEvents {
   [IPC.evTaskUpdated]: TaskEvent
   [IPC.evListUpdated]: List | null
   [IPC.evJobProgress]: JobProgressEvent
-  [IPC.evPreprocessUpdated]: TaskPreprocess
-  [IPC.evSuggestionsUpdated]: SuggestionsUpdatedEvent
   [IPC.evToast]: ToastPayload
   [IPC.evSettingsUpdated]: RedactedSettings
   [IPC.evTypesUpdated]: TaskTypeDef[]
@@ -319,7 +305,6 @@ export interface AppCommands {
   [IPC.setMyDay]: { args: { id: string; inMyDay: boolean }; result: Task }
   [IPC.setTaskDone]: { args: { id: string; done: boolean }; result: Task }
   [IPC.setAlarm]: { args: SetAlarmArgs; result: Task }
-  [IPC.runPreprocess]: { args: { id: string }; result: Task }
   [IPC.finishTask]: { args: { id: string }; result: Task }
   [IPC.chooseFile]: { args: void; result: string | null }
   [IPC.chooseFolder]: { args: void; result: string | null }
@@ -341,7 +326,6 @@ export interface AppCommands {
   [IPC.attachmentsOpen]: { args: AttachmentOpenArgs; result: void }
   [IPC.sendChat]: { args: SendChatArgs; result: void }
   [IPC.resetChat]: { args: ResetChatArgs; result: void }
-  [IPC.dismissSuggestion]: { args: { suggestionId: string }; result: Suggestion }
   [IPC.getActivity]: { args: void; result: import('./types').IngestRecord[] }
   [IPC.retryIngest]: { args: { ingestId: string }; result: void }
   [IPC.getProposals]: { args: void; result: RemoteProposalView[] }

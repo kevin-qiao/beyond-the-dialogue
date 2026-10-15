@@ -1,12 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ActivityPatch, ActivityRecordInput, StoragePort } from '../../../core/ports/storage'
-import type { IngestRecord, Settings, Task, TaskNote, TaskPreprocess, TaskTypeDef } from '../../../shared/types'
+import type { IngestRecord, Settings, Task, TaskNote, TaskTypeDef } from '../../../shared/types'
 import {
   createIngest,
   createTask,
   getIngest,
   getNotes,
-  getPreprocess,
   getTask,
   getType,
   listIngest,
@@ -30,7 +29,6 @@ export function createSqliteStorage(db: DatabaseSync): StoragePort {
 
     getNotes: (taskId: string): TaskNote | null => getNotes(db, taskId),
     saveNotes: (note: Omit<TaskNote, 'updatedAt'>): TaskNote => saveNotes(db, note),
-    getPreprocess: (taskId: string): TaskPreprocess | null => getPreprocess(db, taskId),
 
     listTypes: (): TaskTypeDef[] => listTypes(db),
     getType: (key: string): TaskTypeDef | null => getType(db, key),

@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { CreateTaskArgs, JobProgressEvent, RemoteOutcomeView, RemoteProposalView, ToastPayload, UpdateTaskArgs } from '../../shared/ipc'
-import type { AppSnapshot, ChatMessage, IngestRecord, List, RedactedSettings, Settings, SettingsInput, Suggestion, Task, TaskTypeDef } from '../../shared/types'
+import type { AppSnapshot, ChatMessage, IngestRecord, List, RedactedSettings, Settings, SettingsInput, Task, TaskTypeDef } from '../../shared/types'
 import { DEFAULT_LANGUAGE, localeOf, translator, type Language, type Translate } from '../../core/i18n'
 
 interface AppState {
@@ -53,14 +53,12 @@ interface AppContextValue extends AppState {
   setMyDay: (id: string, inMyDay: boolean) => Promise<Task>
   setAlarm: (id: string, alarmAt: string | null) => Promise<Task>
   finishTask: (id: string) => Promise<Task>
-  runPreprocess: (id: string) => Promise<Task>
   saveNote: (taskId: string, content: string) => Promise<void>
   saveType: (type: TaskTypeDef) => Promise<TaskTypeDef>
   deleteType: (key: string) => Promise<void>
   retryJob: (jobId: string) => Promise<void>
   cancelJob: (jobId: string) => Promise<void>
   saveSettings: (s: SettingsInput) => Promise<RedactedSettings>
-  dismissSuggestion: (suggestionId: string) => Promise<Suggestion>
   retryIngest: (ingestId: string) => Promise<void>
   proposals: RemoteProposalView[]
   confirmRemoteChange: (proposalId: string) => Promise<RemoteOutcomeView>
@@ -176,23 +174,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         })
       }
     })
-    const offPreprocess = window.api.onPreprocessUpdated((p) => {
-      setSnapshot((prev) => {
-        if (!prev) return prev
-        return { ...prev, preprocess: { ...prev.preprocess, [p.taskId]: p } }
-      })
-    })
-    // The event carries one task's suggestions, so it is merged: replacing the
-    // list outright dropped every other task's chips.
-    const offSug = window.api.onSuggestionsUpdated((e) => {
-      setSnapshot((prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          suggestions: [...prev.suggestions.filter((s) => s.taskId !== e.taskId), ...e.suggestions]
-        }
-      })
-    })
     const offSettings = window.api.onSettingsUpdated((s) => {
       setSnapshot((prev) => (prev ? { ...prev, settings: s } : prev))
     })
@@ -240,8 +221,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       offTask()
       offList()
       offJob()
-      offPreprocess()
-      offSug()
       offSettings()
       offTypes()
       offToast()
@@ -372,11 +351,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         mutateTask(t)
         return t
       },
-      runPreprocess: async (id) => {
-        const t = await window.api.runPreprocess({ id })
-        mutateTask(t)
-        return t
-      },
       saveNote: async (taskId, content) => {
         const n = await window.api.saveNote({ taskId, content })
         // Keep the snapshot's notes fresh so controlled editors reflect what
@@ -399,11 +373,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await refresh()
         return saved
       },
-      dismissSuggestion: async (suggestionId) => {
-        const s = await window.api.dismissSuggestion({ suggestionId })
-        await refresh()
-        return s
-      },
       retryIngest: (ingestId) => window.api.retryIngest({ ingestId }),
       confirmRemoteChange: (proposalId) => window.api.confirmRemoteChange({ proposalId }),
       dismissProposal: (proposalId) => window.api.dismissProposal({ proposalId }),
@@ -418,14 +387,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       searchTasks: (tasks) => {
         const q = query.trim().toLowerCase()
         if (!q) return tasks
-        return tasks.filter((t) => {
-          const p = snap?.preprocess[t.id]
-          return (
-            t.title.toLowerCase().includes(q) ||
-            t.notes.toLowerCase().includes(q) ||
-            (p?.summary ?? '').toLowerCase().includes(q)
-          )
-        })
+        // Title and the task's own free text only: the retired preprocess
+        // summary is history no surface reads (D4).
+        return tasks.filter(
+          (t) => t.title.toLowerCase().includes(q) || t.notes.toLowerCase().includes(q)
+        )
       }
     }
   }, [

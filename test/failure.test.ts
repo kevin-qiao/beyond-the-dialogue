@@ -1,18 +1,22 @@
-import { test, before } from 'node:test'
+import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { openDB, migrate, saveSettings, getTask, listIngest, getJob, saveNotes } from '../src/main/db'
+import { openDB, migrate, saveSettings, listIngest, saveNotes } from '../src/main/db'
 import { JobQueue } from '../src/main/job-queue'
-import { runPreprocessJob } from '../src/main/preprocess'
 import { runIngestJob } from '../src/main/wiki/ingest'
-import { setSessionFactory, setSimplePromptOverride, type CreateJobSessionOptions } from '../src/main/ai/session-factory'
+import { setSessionFactory, type CreateJobSessionOptions } from '../src/main/ai/session-factory'
 import { setUserDataRoot } from '../src/main/paths'
 import { storeProviderKey } from '../src/main/secrets'
 import { ensureVault } from '../src/main/wiki/vault'
 import { serviceCreateList, serviceCreateTask } from '../src/main/tasks'
-import { getTypeDef, updateTypeDef } from '../src/main/types'
+import { createTypeDef } from '../src/main/types'
+
+// The failure paths of the ONE live job kind (D4): the curation run behind a
+// `deposit-then-curate` finish. The preprocess/suggestion failure tests are
+// deleted with their engines — the retired kinds' history rule is pinned in
+// test/ai.test.ts.
 
 function fresh() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-fail-'))
@@ -24,149 +28,30 @@ function fresh() {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+// The knowledge-base location belongs to a user-declared wiki-destined
+// Document Type (spec Seed-set synthesis: the learning case is machinery, not
+// a built-in row).
 function configured(dir: string, conn: ReturnType<typeof openDB>) {
   saveSettings(conn.db, { provider: 'openai', model: 'gpt-4o', hasApiKey: true, defaultListId: null, maxConcurrentJobs: 2, showWelcome: false, theme: 'light', uiLanguage: 'en', assistantRuntime: 'on', lastCheck: null, skills: [], mcpServers: [] })
   storeProviderKey('openai', 'sk-x')
-  // The wiki location belongs to the learning TYPE now, not to settings.
-  updateTypeDef(conn.db, {
-    ...getTypeDef(conn.db, 'learning')!,
+  createTypeDef(conn.db, {
+    key: 'kb',
+    family: 'document',
+    label: 'Knowledge base',
+    emoji: '📚',
+    inputSchema: [],
+    isBuiltin: false,
+    finishBehaviour: 'deposit-then-curate',
     destination: { store: 'wiki', rootPath: path.join(dir, 'wiki-space'), subdir: 'learning-notes' }
   })
 }
-
-before(() => {
-  setSimplePromptOverride(async () => JSON.stringify(['Suggestion one', 'Suggestion two']))
-})
-
-test('8.2a no API key: preprocess fails fast, task marked failed, no corruption', async () => {
-  const { conn } = fresh()
-  const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
-  q.register('preprocess', runPreprocessJob)
-  const list = serviceCreateList(conn.db, 'L')
-  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'learn x', type: 'learning', inputs: { target: 'x' } })
-  const job = q.enqueue('preprocess', t.id)
-  await sleep(120)
-  const j = getJob(conn.db, job.id)!
-  assert.equal(j.state, 'failed')
-  assert.ok(j.error && j.error.includes('AI not configured'))
-  const task = getTask(conn.db, t.id)!
-  assert.equal(task.preprocessStatus, 'failed')
-  assert.equal(task.title, 'learn x')
-  conn.close()
-})
-
-test('8.2c learning preprocess outputs persist and land as chips', async () => {
-  const { conn, dir } = fresh()
-  configured(dir, conn)
-  const output = JSON.stringify({
-    summary: 'A learning task about linear algebra.',
-    suggestions: ['Work through 2x2 examples first', 'Connect to SVD notes']
-  })
-  setSessionFactory(async (_o: CreateJobSessionOptions) => ({
-    subscribe: () => () => {},
-    messages: [{ role: 'assistant', content: [{ type: 'text', text: output }] }],
-    async prompt() {},
-    async abort() {}
-  }))
-  const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
-  q.register('preprocess', runPreprocessJob)
-  const list = serviceCreateList(conn.db, 'L')
-  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'Eigenvalues', type: 'learning', inputs: { target: 'Eigenvalues' } })
-  const job = q.enqueue('preprocess', t.id)
-  await sleep(250)
-  const j = getJob(conn.db, job.id)!
-  assert.equal(j.state, 'done', j.error)
-  const task = getTask(conn.db, t.id)!
-  assert.equal(task.preprocessStatus, 'ready')
-  const { getPreprocess, listSuggestions } = await import('../src/main/db')
-  const p = getPreprocess(conn.db, t.id)!
-  assert.ok(p.summary.includes('linear algebra'), 'summary persisted')
-  assert.ok(p.inputsHash, 'hash recorded for the re-run gate')
-  assert.equal(p.suggestions.length, 2)
-  assert.equal(listSuggestions(conn.db, t.id).length, 2, 'suggestions land as dismissible chips')
-  conn.close()
-})
-
-test('8.2c2 jira/confluence preprocess: page kind produces quality summary from pasted source', async () => {
-  const { conn, dir } = fresh()
-  configured(dir, conn)
-  setSessionFactory(async (_o: CreateJobSessionOptions) => ({
-    subscribe: () => () => {},
-    messages: [
-      {
-        role: 'assistant',
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              summary: 'The page explains the release process but is missing a rollback section.',
-              suggestions: ['Add a rollback section', 'Update the stale links']
-            })
-          }
-        ]
-      }
-    ],
-    async prompt() {},
-    async abort() {}
-  }))
-  const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
-  q.register('preprocess', runPreprocessJob)
-  const list = serviceCreateList(conn.db, 'L')
-  const t = serviceCreateTask(conn.db, {
-    listId: list.id,
-    title: 'Fix the release doc',
-    type: 'jira',
-    inputs: { sourceKind: 'page', sourceText: 'How we release. Steps 1-4. (no rollback)', target: 'Improve the page' }
-  })
-  const job = q.enqueue('preprocess', t.id)
-  await sleep(250)
-  const j = getJob(conn.db, job.id)!
-  assert.equal(j.state, 'done', j.error)
-  const { getPreprocess } = await import('../src/main/db')
-  const p = getPreprocess(conn.db, t.id)!
-  assert.ok(p.summary.includes('rollback'), 'confluence summary assesses quality of the pasted content')
-  assert.equal(p.kind, 'jira')
-  conn.close()
-})
-
-test('8.2d provider 429 mid-preprocess: auto-retry with backoff then success', async () => {
-  const { conn, dir } = fresh()
-  configured(dir, conn)
-  let calls = 0
-  setSessionFactory(async (_o: CreateJobSessionOptions) => {
-    calls++
-    const attempt = calls
-    return {
-      subscribe: () => () => {},
-      messages: [],
-      async prompt() {
-        if (attempt < 3) throw new Error('Rate limit exceeded (429)')
-        this.messages.push({
-          role: 'assistant',
-          content: [{ type: 'text', text: JSON.stringify({ summary: 'ok', suggestions: ['a'] }) }]
-        })
-      },
-      async abort() {}
-    }
-  })
-  const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
-  q.register('preprocess', runPreprocessJob)
-  const list = serviceCreateList(conn.db, 'L')
-  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'learning', inputs: { target: 'x' } })
-  const job = q.enqueue('preprocess', t.id)
-  await sleep(500)
-  const j = getJob(conn.db, job.id)!
-  assert.equal(j.state, 'done', j.error)
-  assert.ok(calls >= 3, `retried ${calls} times`)
-  conn.close()
-})
 
 test('8.2e agent failure mid-ingest: deposit survives, task complete, retry succeeds', async () => {
   const { conn, dir } = fresh()
   configured(dir, conn)
   ensureVault()
   const list = serviceCreateList(conn.db, 'L')
-  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'learning' })
+  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'plain', customTypeKey: 'kb' })
   const notePath = path.join(dir, 'vault', 'notes', `${t.id}.md`)
   fs.mkdirSync(path.dirname(notePath), { recursive: true })
   fs.writeFileSync(notePath, '# notes')
@@ -211,7 +96,7 @@ test('8.2f permanent ingest failure: surfaced failed, deposit intact', async () 
   configured(dir, conn)
   ensureVault()
   const list = serviceCreateList(conn.db, 'L')
-  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'learning' })
+  const t = serviceCreateTask(conn.db, { listId: list.id, title: 'p', type: 'plain', customTypeKey: 'kb' })
   const notePath = path.join(dir, 'vault', 'notes', `${t.id}.md`)
   fs.mkdirSync(path.dirname(notePath), { recursive: true })
   fs.writeFileSync(notePath, '# notes')

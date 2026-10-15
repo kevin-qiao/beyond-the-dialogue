@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent, SuggestionsUpdatedEvent, RemoteProposalView } from '../shared/ipc'
-import type { IngestRecord, List, RedactedSettings, SkillEntry, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from '../shared/types'
+import type { RendererApi, JobProgressEvent, IngestProgressEvent, ToastPayload, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent, RemoteProposalView } from '../shared/ipc'
+import type { IngestRecord, List, RedactedSettings, SkillEntry, Task, TaskNote, TaskTypeDef } from '../shared/types'
 
 const api: RendererApi = {
   getSnapshot: () => ipcRenderer.invoke(IPC.getSnapshot),
@@ -15,7 +15,6 @@ const api: RendererApi = {
   setMyDay: (args) => ipcRenderer.invoke(IPC.setMyDay, args),
   setTaskDone: (args) => ipcRenderer.invoke(IPC.setTaskDone, args),
   setAlarm: (args) => ipcRenderer.invoke(IPC.setAlarm, args),
-  runPreprocess: (args) => ipcRenderer.invoke(IPC.runPreprocess, args),
   finishTask: (args) => ipcRenderer.invoke(IPC.finishTask, args),
   chooseFile: () => ipcRenderer.invoke(IPC.chooseFile),
   chooseFolder: () => ipcRenderer.invoke(IPC.chooseFolder),
@@ -37,7 +36,6 @@ const api: RendererApi = {
   testConnection: (settings) => ipcRenderer.invoke(IPC.testConnection, settings),
   sendChat: (args) => ipcRenderer.invoke(IPC.sendChat, args),
   resetChat: (args) => ipcRenderer.invoke(IPC.resetChat, args),
-  dismissSuggestion: (args) => ipcRenderer.invoke(IPC.dismissSuggestion, args),
   getActivity: () => ipcRenderer.invoke(IPC.getActivity),
   retryIngest: (args) => ipcRenderer.invoke(IPC.retryIngest, args),
   attachmentsAddFromDialog: (args) => ipcRenderer.invoke(IPC.attachmentsAddFromDialog, args),
@@ -57,16 +55,6 @@ const api: RendererApi = {
     const h = (_e: unknown, e: JobProgressEvent) => cb(e)
     ipcRenderer.on(IPC.evJobProgress, h)
     return () => ipcRenderer.removeListener(IPC.evJobProgress, h)
-  },
-  onPreprocessUpdated: (cb) => {
-    const h = (_e: unknown, p: TaskPreprocess) => cb(p)
-    ipcRenderer.on(IPC.evPreprocessUpdated, h)
-    return () => ipcRenderer.removeListener(IPC.evPreprocessUpdated, h)
-  },
-  onSuggestionsUpdated: (cb) => {
-    const h = (_e: unknown, e: SuggestionsUpdatedEvent) => cb(e)
-    ipcRenderer.on(IPC.evSuggestionsUpdated, h)
-    return () => ipcRenderer.removeListener(IPC.evSuggestionsUpdated, h)
   },
   onSettingsUpdated: (cb) => {
     const h = (_e: unknown, s: RedactedSettings) => cb(s)

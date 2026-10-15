@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import type { DatabaseSync } from 'node:sqlite'
-import type { JobKind, JobRecord, JobState } from '../shared/types'
+import type { JobKind, JobRecord } from '../shared/types'
 import { createJob, createIngest, getIngest, getJob, listActiveIngest, listRunningJobs, updateIngest, updateJob, type IngestPatch } from './db'
 import type { IngestRecord } from '../shared/types'
 
@@ -178,7 +178,12 @@ export class JobQueue extends EventEmitter {
     if (!job) return
     if (job.state === 'failed' || job.state === 'done') return
     this.running++
-    const handler = this.handlers.get(job.kind)
+    // `job.kind` reads back as StoredJobKind: rows of the retired
+    // `preprocess`/`suggestion` kinds survive as history (D4) and fall
+    // outside the narrowed JobKind union. They can never reach a handler —
+    // requeueInterrupted skips them, and no enqueue site names them — but the
+    // lookup stays honest at the boundary rather than lying in the type.
+    const handler = this.handlers.get(job.kind as JobKind)
     if (!handler) {
       updateJob(this.db, jobId, { state: 'failed', error: 'no handler', finishedAt: new Date().toISOString() })
       this.running--
@@ -243,10 +248,16 @@ export class JobQueue extends EventEmitter {
   }
 
   // On startup, re-queue interrupted jobs (those stuck in running).
+  //
+  // A job whose kind has NO registered handler is left untouched (T007/D4):
+  // stored `preprocess`/`suggestion` rows are history — they must never run
+  // again, and marking them failed would rewrite a record of what happened.
+  // They keep the state they were written in.
   requeueInterrupted(): number {
     const running = listRunningJobs(this.db)
     let count = 0
     for (const j of running) {
+      if (!this.handlers.has(j.kind as JobKind)) continue
       if (j.state === 'running' || j.state === 'queued') {
         this.queue.push(j.id)
         count++

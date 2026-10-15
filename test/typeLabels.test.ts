@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { displayFieldLabel, displayFieldPlaceholder, displayTypeDescription, displayTypeLabel, localizeTypeDef, typeLabel } from '../src/renderer/src/lib/typeCatalog'
 import { en, isMessageKey } from '../src/core/i18n'
-import { builtinTypeSeeds } from '../src/main/db'
+import { builtinTypeSeeds, LEARNING_INPUT_SCHEMA } from '../src/main/db'
 import type { TaskTypeDef } from '../src/shared/types'
 
 // Showing a seeded type label in the active language, without ever writing over
@@ -19,15 +19,29 @@ import type { TaskTypeDef } from '../src/shared/types'
 // drift apart, every built-in stops being recognised as untouched and quietly
 // reverts to English.
 
-const learning = () => builtinTypeSeeds().find((t) => t.key === 'learning')!
-const renamed = (label: string): TaskTypeDef => ({ ...learning(), label })
+const document = () => builtinTypeSeeds().find((t) => t.key === 'document')!
+const renamed = (label: string): TaskTypeDef => ({ ...document(), label })
+
+// A migration-era shaped type: the field-translation rule needs a key whose
+// catalog entries exist, and the retired learning key keeps them (the v3/v4
+// steps still seed rows with those field labels).
+const learningShaped = (): TaskTypeDef => ({
+  key: 'learning',
+  family: 'document',
+  label: en['type.learning.label'],
+  emoji: '🎓',
+  description: en['type.learning.description'],
+  inputSchema: LEARNING_INPUT_SCHEMA,
+  isBuiltin: false,
+  finishBehaviour: 'deposit-then-curate'
+})
 
 test('a seeded built-in is shown in the active language', () => {
-  const def = learning()
-  assert.equal(def.label, en['type.learning.label'], 'the seed must come from the catalog')
-  assert.equal(displayTypeLabel(def, 'en'), 'Learning')
-  assert.equal(displayTypeLabel(def, 'zh-CN'), '学习')
-  assert.equal(displayTypeDescription(def, 'zh-CN'), '学习一个概念：AI 提示 + 摘要，Markdown 笔记，完成时沉淀进 Wiki')
+  const def = document()
+  assert.equal(def.label, en['type.document.label'], 'the seed must come from the catalog')
+  assert.equal(displayTypeLabel(def, 'en'), 'Document')
+  assert.equal(displayTypeLabel(def, 'zh-CN'), '文档')
+  assert.ok(displayTypeDescription(def, 'zh-CN')?.includes('工作区'), 'the description translates too')
 })
 
 test('a renamed built-in keeps the name the user gave it, in every language', () => {
@@ -38,7 +52,7 @@ test('a renamed built-in keeps the name the user gave it, in every language', ()
 
 test('a custom type is never translated, because it has no catalog entry', () => {
   const custom: TaskTypeDef = {
-    ...learning(),
+    ...document(),
     key: 'paper_reading',
     label: 'Paper reading',
     description: 'Read and summarise a paper',
@@ -52,12 +66,12 @@ test('a custom type is never translated, because it has no catalog entry', () =>
 test('an absent description stays absent', () => {
   // `undefined` means "the user cleared it", not "translate the default":
   // falling back to the seeded text would resurrect a description they deleted.
-  const { description: _drop, ...withoutDescription } = learning()
+  const { description: _drop, ...withoutDescription } = document()
   assert.equal(displayTypeDescription(withoutDescription as TaskTypeDef, 'zh-CN'), undefined)
 })
 
 test('field labels and placeholders follow the same rule', () => {
-  const def = learning()
+  const def = learningShaped()
   const target = def.inputSchema.find((f) => f.key === 'target')!
   assert.equal(displayFieldLabel(def, target, 'zh-CN'), '学习目标')
   assert.equal(displayFieldPlaceholder(def, target, 'zh-CN'), '要学习的概念或问题')
@@ -71,15 +85,14 @@ test('field labels and placeholders follow the same rule', () => {
 })
 
 test('localizing a type changes only its presentation', () => {
-  const def = learning()
+  const def = document()
   const localized = localizeTypeDef(def, 'zh-CN')
-  assert.equal(localized.label, '学习')
+  assert.equal(localized.label, '文档')
   assert.equal(localized.key, def.key)
-  assert.equal(localized.kind, def.kind)
+  assert.equal(localized.family, def.family)
   assert.equal(localized.isBuiltin, def.isBuiltin)
   assert.equal(localized.finishBehaviour, def.finishBehaviour)
   assert.deepEqual(localized.destination, def.destination)
-  assert.deepEqual(localized.grants, def.grants)
   assert.deepEqual(
     localized.inputSchema.map((f) => f.key),
     def.inputSchema.map((f) => f.key)
@@ -92,22 +105,22 @@ test('localizing a type changes only its presentation', () => {
 
 test('the label a task shows resolves through its effective type', () => {
   const types = builtinTypeSeeds()
-  const task = { type: 'learning' as const, customTypeKey: null }
-  assert.equal(typeLabel(task, types, 'en'), 'Learning')
-  assert.equal(typeLabel(task, types, 'zh-CN'), '学习')
+  const task = { type: 'document' as const, customTypeKey: null }
+  assert.equal(typeLabel(task, types, 'en'), 'Document')
+  assert.equal(typeLabel(task, types, 'zh-CN'), '文档')
   // A custom key that still resolves wins over the built-in type.
-  const customType: TaskTypeDef = { ...learning(), key: 'paper', label: 'Paper', isBuiltin: false }
-  assert.equal(typeLabel({ type: 'learning', customTypeKey: 'paper' }, [...types, customType], 'zh-CN'), 'Paper')
+  const customType: TaskTypeDef = { ...document(), key: 'paper', label: 'Paper', isBuiltin: false }
+  assert.equal(typeLabel({ type: 'document', customTypeKey: 'paper' }, [...types, customType], 'zh-CN'), 'Paper')
   // A custom key that no longer resolves falls back to the built-in, translated.
-  assert.equal(typeLabel({ type: 'learning', customTypeKey: 'gone' }, types, 'zh-CN'), '学习')
+  assert.equal(typeLabel({ type: 'document', customTypeKey: 'gone' }, types, 'zh-CN'), '文档')
 })
 
 test('every built-in seed matches its catalog entry', () => {
   // The drift guard. Recognition is a comparison against the catalog value, so
   // if the seed text and the catalog ever disagree that type stops translating
   // — silently, because the label still renders (as the user's own words).
-  // Note that a translation may legitimately BE the English text (JIRA stays
-  // JIRA), so the check is on the values agreeing, not on the output differing.
+  // Note that a translation may legitimately BE the English text, so the check
+  // is on the values agreeing, not on the output differing.
   for (const def of builtinTypeSeeds()) {
     const key = `type.${def.key}.label`
     assert.ok(isMessageKey(key), `${def.key} has no label key`)

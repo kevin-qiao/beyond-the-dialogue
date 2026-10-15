@@ -23,14 +23,12 @@ import {
   rolloverMyDay
 } from './tasks'
 import { JobQueue } from './job-queue'
-import { runSuggestionJob } from './suggestions'
-import { runPreprocessJob } from './preprocess'
 import { runIngestJob } from './wiki/ingest'
 import { configureRuntimeFromSettings, isConfigured, listModelsForProvider, listProviders, testPrompt } from './ai/agent-runtime'
 import { ChatSession } from './ai/chat'
-import { getPreprocess, getNotes, listIngest, listSuggestions, listAllSuggestions, getTask, saveNotes, dismissSuggestion, getJob, updateTask, getAttachment } from './db'
+import { getNotes, listIngest, getTask, saveNotes, getJob, getAttachment } from './db'
 import { notePathFor } from './wiki/vault'
-import { createTypeDef, deleteTypeDef, effectiveKind, effectiveTypeDef, getTypeDef, listTypeDefs, updateTypeDef } from './types'
+import { createTypeDef, deleteTypeDef, effectiveTypeDef, getTypeDef, listTypeDefs, updateTypeDef } from './types'
 import { importSkillFolder } from './skills'
 import { importSkillFromGitHub } from './skills-github'
 import { IPC, type AppCommands, type AppEvents } from '../shared/ipc'
@@ -45,7 +43,6 @@ import { getProviderKey, readSecrets, stripStaleAuthFile, getMcpEnv, storeMcpEnv
 import { loadRuntimeSettings } from './runtimeSettings'
 import { createAttachmentStore } from './adapters/attachments'
 import { LocalizedError } from '../core/i18n/issues'
-import { runPreprocess as runPreprocessService } from '../core/services/preprocessService'
 import { buildSessionContext, createProposalQueue } from '../core/domain/grant'
 import { buildChatContext } from '../core/domain/chatContext'
 import { localeOf, message } from '../core/i18n'
@@ -132,43 +129,34 @@ function raiseAlarmNotification(fire: { taskId: string; title: string; dueAt: st
   n.show()
 }
 
-// Per-category chat grounding. What each category contributes lives in
-// src/core/domain/chatContext.ts; this is the transport-side wrapper.
+// Declaration-built chat grounding (research D10). What each case contributes
+// lives in src/core/domain/chatContext.ts; this is the transport-side wrapper.
 //
-// THE EGRESS BOUNDARY. Once a type has been granted external reach, this
-// session can echo onward whatever it can see — so the full context stops
-// being built for it (FR-029, contracts/plugin-grants.md §3). Filtering at the
-// tool boundary would be too late: the content would already be in the prompt.
+// THE EGRESS BOUNDARY. Once a session has been granted external reach, it can
+// echo onward whatever it can see — so the full context stops being built for
+// it (FR-011). Filtering at the tool boundary would be too late: the content
+// would already be in the prompt. In this feature no Type declares a grant
+// (D9), so the boundary is structural: there is nothing to grant.
 function chatContextFor(d: DatabaseSync, taskId: string): string | undefined {
   const task = getTask(d, taskId)
   if (!task) return undefined
-  const def = effectiveTypeDef(d, task)
   return buildSessionContext({
     task,
-    typeDef: def,
     purpose: 'interactive',
     fullContext: () => fullChatContext(d, task)
   })
 }
 
-function fullChatContext(d: DatabaseSync, task: Task): string | undefined {
-  // A missing registry entry would silently thin the grounding, which is the
-  // failure this replaced — so it is a registry lookup, never a fallback.
-  return buildChatContext(effectiveKind(d, task), {
+function fullChatContext(d: DatabaseSync, task: Task): string {
+  const def = effectiveTypeDef(d, task)
+  // A missing registry case would silently thin the grounding, which is the
+  // failure this replaced — so it is a total registry lookup over the two
+  // first-class cases (document-family, family-less), never a fallback.
+  return buildChatContext(def, {
     task,
-    preprocess: getPreprocess(d, task.id),
+    typeDef: def,
     workingContent: getNotes(d, task.id)?.content ?? null
   })
-}
-
-// What the grounding behind a conversation is worth, as a comparable string.
-// The pre-process is the part that can move under an open conversation: it is
-// written by a background job that may land — or be re-run — while the user is
-// chatting.
-function chatGroundingVersion(d: DatabaseSync, taskId: string | null): string {
-  if (!taskId) return ''
-  const p = getPreprocess(d, taskId)
-  return p ? `${p.status}|${p.updatedAt}|${p.inputsHash}` : 'none'
 }
 
 /** Attachments ride the task aggregate (contract: "new attachments ride
@@ -187,12 +175,8 @@ function buildSnapshot(): AppSnapshot {
   const d = db!.db
   const lists = serviceLists(d)
   const tasks = serviceListForList(d).map((t) => withAttachments(d, t))
-  const suggestions = listAllSuggestions(d)
-  const preprocess: AppSnapshot['preprocess'] = {}
   const notes: AppSnapshot['notes'] = {}
   for (const t of tasks) {
-    const p = getPreprocess(d, t.id)
-    if (p) preprocess[t.id] = p
     const n = getNotes(d, t.id)
     if (n) notes[t.id] = n
   }
@@ -200,8 +184,6 @@ function buildSnapshot(): AppSnapshot {
   return {
     lists,
     tasks,
-    suggestions,
-    preprocess,
     notes,
     settings: toRedacted(settings, readSecrets().secrets),
     taskTypes: listTypeDefs(d),
@@ -236,25 +218,9 @@ function wireJobEvents(q: JobQueue): void {
       if (t) broadcast(IPC.evTaskUpdated, withAttachments(d(), t))
     }
   })
-  q.on('done', (job) => {
-    if (job.kind === 'preprocess' && job.taskId) {
-      const p = getPreprocess(d(), job.taskId)
-      if (p) broadcast(IPC.evPreprocessUpdated, p)
-      const t = getTask(d(), job.taskId)
-      if (t) broadcast(IPC.evTaskUpdated, t)
-    }
-    if (job.kind === 'suggestion' && job.taskId) {
-      const taskId = job.taskId
-      broadcast(IPC.evSuggestionsUpdated, { taskId, suggestions: listSuggestions(d(), taskId) })
-    }
-  })
+  // The retired preprocess/suggestion job events are gone with the engines
+  // (D4): the queue now carries one kind, `ingest`, whose events follow.
   q.on('failed', (job) => {
-    if (job.kind === 'preprocess' && job.taskId) {
-      // Unstick the task: a failed job must leave preprocessStatus 'failed'
-      // (with the reason) so the band shows Retry instead of a forever
-      // "working…" state.
-      updateTask(d(), job.taskId, { preprocessStatus: 'failed', preprocessError: job.error ?? 'pre-process failed' })
-    }
     if (job.taskId) {
       const t = getTask(d(), job.taskId)
       if (t) broadcast(IPC.evTaskUpdated, withAttachments(d(), t))
@@ -465,15 +431,6 @@ function registerIpc(): void {
     broadcast(IPC.evTaskUpdated, agg)
     return agg
   })
-  handleCommand(IPC.runPreprocess, (args) => {
-    // The guards live in the service (including the switch refusal —
-    // `assistant.disabled` is raised at the core edge, not here).
-    const outcome = runPreprocessService(createSqliteStorage(d()), args.id, loadSettings(d()))
-    for (const work of outcome.enqueue) queue!.enqueue(work, outcome.task.id)
-    const agg = withAttachments(d(), outcome.task)
-    broadcast(IPC.evTaskUpdated, agg)
-    return agg
-  })
   ipcMain.handle(IPC.deleteTask, (_e, args) => {
     serviceDeleteTask(d(), args.id)
     // A deletion is final: the task, its alarm, and its attachments are gone
@@ -639,12 +596,7 @@ function registerIpc(): void {
     requireAssistant(d())
     const job = getJob(d(), args.jobId)
     if (!job) throw new Error('job not found')
-    if (job.kind === 'preprocess' && job.taskId) {
-      updateTask(d(), job.taskId, { preprocessStatus: 'queued', preprocessError: null })
-      queue!.retryJob(args.jobId)
-    } else {
-      queue!.retryJob(args.jobId)
-    }
+    queue!.retryJob(args.jobId)
     return undefined
   })
   ipcMain.handle(IPC.getSettings, () => snapshotSettings(d()))
@@ -713,13 +665,12 @@ function registerIpc(): void {
     // first message and kept for as long as the app runs, so a task's chat is
     // still there when the user comes back to it.
     const entry = chatEntryFor(taskId)
+    // The grounding is rebuilt from the task's CURRENT material on every send
+    // and swapped in: the working area moves while a conversation is open, and
+    // the reply must see the task as it stands (feature 002 replaces the
+    // preprocess-version comparison — there is no background job to race).
     const context = taskId ? chatContextFor(d(), taskId) : undefined
-    // The same conversation with newer grounding: swap the context in rather
-    // than restarting, so a pre-process that has just landed reaches the reply
-    // without discarding the exchange so far.
-    const grounding = chatGroundingVersion(d(), taskId)
-    if (grounding !== entry.grounding) entry.session.refreshContext(context)
-    entry.grounding = grounding
+    entry.session.refreshContext(context)
     try {
       const reply = await entry.session.send(
         args.text,
@@ -737,12 +688,6 @@ function registerIpc(): void {
     const taskId = args?.taskId ?? null
     chatEntryFor(taskId).session.reset()
     return undefined
-  })
-  handleCommand(IPC.dismissSuggestion, (args) => {
-    requireAssistant(d())
-    const s = dismissSuggestion(d(), args.suggestionId)
-    broadcast(IPC.evSuggestionsUpdated, { taskId: s.taskId, suggestions: listSuggestions(d(), s.taskId) })
-    return s
   })
   handleCommand(IPC.getProposals, () => {
     requireAssistant(d())
@@ -857,14 +802,13 @@ app.whenReady().then(async () => {
   rolloverMyDay(d.db)
 
   queue = new JobQueue(d.db, loadSettings(d.db).maxConcurrentJobs)
-  // T006 (FR-015): the assistant job kinds are REGISTERED ONLY while the
-  // declared switch says on — registration itself is the reachability, so a
-  // mis-typed enqueue could not even be picked up. wireJobEvents and
-  // requeueInterrupted stay wired regardless: the machinery is board-safe,
-  // and T004 is what prevents unregistered kinds from ever being enqueued.
+  // FR-021 (001's T006, carried): the assistant job kind is REGISTERED ONLY
+  // while the declared switch says on — registration itself is the
+  // reachability, so no session can run while off. The queue carries exactly
+  // one kind since feature 002 (D4): `ingest`, the curation run. The retired
+  // preprocess/suggestion rows are history — requeueInterrupted leaves them
+  // untouched because no handler is registered for them.
   if (isAssistantEnabled(loadSettings(d.db))) {
-    queue.register('preprocess', runPreprocessJob)
-    queue.register('suggestion', runSuggestionJob)
     queue.register('ingest', runIngestJob)
   }
   wireJobEvents(queue)

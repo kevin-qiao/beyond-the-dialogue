@@ -62,12 +62,12 @@ test('a granted name with no registered config is reported, not swallowed (FR-02
   assert.deepEqual(none.missingGranted, ['gone'])
 })
 
-test('a confined purpose arrives with NO_GRANT, so the seam constructs nothing — even for a misconfigured type', async () => {
+test('a confined purpose arrives with NO_GRANT, so the seam constructs nothing — even with a grant in hand', async () => {
   // resolveGrant is the confinement guarantee; this proves the MCP seam
-  // consumes it faithfully: the type below grants a server that IS registered,
-  // yet a confined purpose still wires nothing.
-  const typeDef = { grants: grant(['a']) } as TaskTypeDef
-  const confined = resolveGrant({ purpose: 'confined', typeDef })
+  // consumes it faithfully: the grant below names a server that IS registered,
+  // yet a confined purpose still wires nothing. (Since D9 no Type can even
+  // declare one — the literal stands in for what a later feature would hand.)
+  const confined = resolveGrant({ purpose: 'confined', grants: grant(['a']) })
   assert.deepEqual(confined, NO_GRANT)
   let constructed = 0
   setMcpAdapterFactory(() => {
@@ -96,9 +96,11 @@ test('the session factory wires the extension as an inline factory and names the
 
 test('every session path disposes, so the adapter tears its servers down', () => {
   // abort() alone never emits session_shutdown; dispose does the emission.
-  // Both job-consuming sites must call dispose in their finally, or a
-  // granted session leaks every child process it lazily spawned.
-  for (const rel of ['src/main/preprocess.ts', 'src/main/adapters/agent/sessionAdapter.ts']) {
+  // Every session-consuming site must call dispose in its finally, or a
+  // granted session leaks every child process it lazily spawned. The
+  // preprocess consumer is gone with the engine (D4); the adapter is the one
+  // job path left, and the conversation runner joins this list in US2.
+  for (const rel of ['src/main/adapters/agent/sessionAdapter.ts']) {
     const src = fs.readFileSync(path.join(process.cwd(), rel), 'utf-8')
     assert.ok(/session\.dispose\?\.\(\)/.test(src), `${rel} must dispose the session`)
   }

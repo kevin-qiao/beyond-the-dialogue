@@ -34,26 +34,30 @@ test('a folder destination requires an absolute rootPath', () => {
     validateDestination(nodePathPort, { ...folderDest, rootPath: 'relative/minutes' }),
     [{ key: 'destination.folderNeedsAbsoluteRoot' }]
   )
-  assert.deepEqual(
-    validateDestination(nodePathPort, { ...folderDest, rootPath: '' }),
-    [{ key: 'destination.folderNeedsAbsoluteRoot' }]
-  )
-  assert.deepEqual(
-    validateDestination(nodePathPort, { ...folderDest, rootPath: '   ' }),
-    [{ key: 'destination.folderNeedsAbsoluteRoot' }]
-  )
-  assert.deepEqual(
-    validateDestination(nodePathPort, { ...folderDest, rootPath: null }),
-    [{ key: 'destination.folderNeedsAbsoluteRoot' }]
-  )
+  // Feature 002 unified the blank-root rule (FR-013): a blank root is refused
+  // AT SAVE for a user Type — 'never legal on a saved user Type' — with a code
+  // naming what to fix.
+  for (const blank of ['', '   ', null]) {
+    assert.deepEqual(
+      validateDestination(nodePathPort, { ...folderDest, rootPath: blank as never }),
+      [{ key: 'validation.destinationNeedsRoot' }]
+    )
+  }
 })
 
-test('a wiki destination declares its own root; blank is incomplete, not inherited', () => {
+test('a wiki destination declares its own root; blank is refused for a user type, allowed only on a seeded built-in', () => {
   assert.deepEqual(validateDestination(nodePathPort, wikiDest), [])
-  // A blank root is an INCOMPLETE config, refused at Finish where it matters
-  // (the seeded Learning type is saved this way) — never resolved against a
-  // global location or a built-in default.
-  assert.deepEqual(validateDestination(nodePathPort, { ...wikiDest, rootPath: null }), [])
+  // A blank root on a USER type is refused at save, for either store — the
+  // refusal that used to wait until Finish now happens where the user can act
+  // on it (FR-013).
+  assert.deepEqual(validateDestination(nodePathPort, { ...wikiDest, rootPath: null }), [
+    { key: 'validation.destinationNeedsRoot' }
+  ])
+  // The seeded built-in exception (Q1): the generic Document Type ships
+  // without a location, and its FIRST FINISH is the guided refusal — so the
+  // save-time rule must not strangle the seed.
+  assert.deepEqual(validateDestination(nodePathPort, { ...wikiDest, rootPath: null }, { seededBuiltin: true }), [])
+  assert.deepEqual(validateDestination(nodePathPort, { ...folderDest, rootPath: '' }, { seededBuiltin: true }), [])
   assert.deepEqual(
     validateDestination(nodePathPort, { ...wikiDest, rootPath: 'relative/wiki' }),
     [{ key: 'destination.wikiNeedsRoot' }]
