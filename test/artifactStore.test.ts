@@ -28,7 +28,7 @@ test('prepare rejects a missing destination', async () => {
   const dir = tmpdir()
   const missing = path.join(dir, 'does-not-exist')
   await assert.rejects(() => store.prepare(ref(missing)), (e: unknown) => {
-    assert.deepEqual(issueKeysOf(e), ['artifact.folderMissing'])
+    assert.deepEqual(issueKeysOf(e), ['destination.unreachable'])
     assert.equal(issueParamsOf(e).path, missing)
     return true
   })
@@ -250,7 +250,7 @@ test('a wiki destination with no root prepares to a refusal, never a guessed pat
   await assert.rejects(
     () => store.prepare({ store: 'wiki', root: '', subdir: '', absRoot: 'raw' }),
     (e: unknown) => {
-      assert.deepEqual(issueKeysOf(e), ['wiki.notConfigured'])
+      assert.deepEqual(issueKeysOf(e), ['destination.notConfigured'])
       return true
     }
   )

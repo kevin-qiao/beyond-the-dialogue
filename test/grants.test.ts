@@ -11,58 +11,64 @@ import {
 } from '../src/core/domain/grant'
 import { NO_GRANT, type PluginGrant, type TaskTypeDef } from '../src/shared/types'
 import type { SessionPurpose } from '../src/core/ports/agent'
-import { preprocessInstruction } from '../src/core/domain/preprocess'
 
-// contracts/plugin-grants.md — grant resolution, confinement, the egress
-// boundary, and the propose/confirm split.
+// Grant resolution, confinement, the egress boundary, and the propose/confirm
+// split.
+//
+// Feature 002 (D9, FR-015): grants are NO LONGER a Type declaration — the
+// field does not exist on TaskTypeDef, so no configuration can confer reach.
+// The resolution and egress machinery stays (this file pins it) because the
+// later grants feature re-adds the declaration against the same guarantees:
+// a confined purpose resolves NO_GRANT unconditionally, and a granted session
+// sees less, by construction.
 //
 // Everything here is asserted against a scripted tool double; no real external
 // system is contacted and no live MCP connection is made.
 
-const typeWith = (grants: PluginGrant): TaskTypeDef => ({
-  key: 'jira_like',
-  kind: 'jira',
-  label: 'JIRA',
-  emoji: '🎫',
+const aType = (): TaskTypeDef => ({
+  key: 'doc_like',
+  family: 'document',
+  label: 'Doc',
+  emoji: '📄',
   inputSchema: [],
   isBuiltin: false,
-  finishBehaviour: 'complete-only',
-  grants
+  finishBehaviour: 'polish-then-file'
 })
 
-const GRANTED = typeWith({ skills: ['summarize'], toolServers: ['jira'] })
-const UNGRANTED = typeWith(NO_GRANT)
+// The grants a LATER feature would declare; today nothing can supply them
+// from a Type. The literal stands in for the declaration the resolver reads.
+const GRANTS: PluginGrant = { skills: ['summarize'], toolServers: ['jira'] }
 
-// Every confined purpose the feature defines: material ingestion, minute
-// polishing, suggestion generation.
+// Every confined purpose the feature defines: organizing, curating,
+// conversing — all of feature 002's assistant steps.
 const CONFINED_PURPOSES: SessionPurpose[] = ['confined']
 
-// ---- FR-019, FR-020, SC-006 ----
+// ---- D9, FR-015 ----
 
-test('grant resolution: an interactive session receives its type grants', () => {
-  assert.deepEqual(resolveGrant({ purpose: 'interactive', typeDef: GRANTED }), { skills: ['summarize'], toolServers: ['jira'] })
+test('grant resolution: an interactive session receives the grants it is handed', () => {
+  assert.deepEqual(resolveGrant({ purpose: 'interactive', grants: GRANTS }), { skills: ['summarize'], toolServers: ['jira'] })
 })
 
-test('grant resolution: a type with no grant gets none', () => {
-  assert.deepEqual(resolveGrant({ purpose: 'interactive', typeDef: UNGRANTED }), NO_GRANT)
-  assert.deepEqual(resolveGrant({ purpose: 'interactive', typeDef: null }), NO_GRANT)
+test('grant resolution: nothing supplied gets none — and no Type can supply any', () => {
+  assert.deepEqual(resolveGrant({ purpose: 'interactive', grants: NO_GRANT }), NO_GRANT)
+  assert.deepEqual(resolveGrant({ purpose: 'interactive', grants: null }), NO_GRANT)
   assert.deepEqual(resolveGrant({ purpose: 'interactive' }), NO_GRANT)
+  // The structural half of D9: the declaration itself does not exist.
+  assert.equal('grants' in aType(), false, 'TaskTypeDef must not grow a grants field without a spec')
 })
 
-test('a confined build returns NO_GRANT unconditionally, even for a granted type', () => {
+test('a confined build returns NO_GRANT unconditionally, even with a grant in hand', () => {
   for (const purpose of CONFINED_PURPOSES) {
-    assert.deepEqual(resolveGrant({ purpose, typeDef: GRANTED }), NO_GRANT)
+    assert.deepEqual(resolveGrant({ purpose, grants: GRANTS }), NO_GRANT)
   }
 })
 
-test('conformance over every confined purpose: a misconfigured type still yields no grant', () => {
-  // The guarantee is architectural, not convention-driven: no configuration a
-  // user can produce makes a confined operation privileged. Assert it for the
-  // most permissive type we can express, and for a purpose the caller supplies
-  // that does not even exist in the union.
-  const mostPermissive = typeWith({ skills: ['*'], toolServers: ['jira', 'github', 'shell'] })
+test('conformance over every confined purpose: the most permissive grant still yields nothing', () => {
+  // The guarantee is architectural, not convention-driven: no value a caller
+  // can produce makes a confined operation privileged.
+  const mostPermissive: PluginGrant = { skills: ['*'], toolServers: ['jira', 'github', 'shell'] }
   for (const purpose of CONFINED_PURPOSES) {
-    const grant = resolveGrant({ purpose, typeDef: mostPermissive })
+    const grant = resolveGrant({ purpose, grants: mostPermissive })
     assert.deepEqual(grant, NO_GRANT)
     assert.equal(grant.skills.length + grant.toolServers.length, 0)
   }
@@ -80,12 +86,11 @@ test('a granted interactive session excludes working content; an ungranted one i
     inputs: { sourceKind: 'issue', sourceText: 'pasted body', target: 'unblock the release' }
   }
   // What today's context builder would produce for an ungranted session: the
-  // note, the wiki-derived summary, and the pasted source.
-  const FULL = 'Task: AUTH-42\nCurrent working note:\nSECRET MINUTES\nPre-process summary: ...'
+  // note and the task's whole picture.
+  const FULL = 'Task: AUTH-42\nWorking-area draft:\nSECRET MINUTES'
 
   const ungranted = buildSessionContext({
     task,
-    typeDef: UNGRANTED,
     purpose: 'interactive',
     fullContext: () => FULL
   })
@@ -93,21 +98,20 @@ test('a granted interactive session excludes working content; an ungranted one i
 
   const granted = buildSessionContext({
     task,
-    typeDef: GRANTED,
+    grants: GRANTS,
     purpose: 'interactive',
     fullContext: () => FULL
   })!
   assert.ok(!granted.includes('SECRET MINUTES'), 'working content is excluded once reach is granted')
-  assert.ok(!granted.includes('Pre-process summary'), 'and so are derived notes')
   assert.ok(granted.includes('pasted body'), 'declared inputs still reach the session')
   assert.ok(granted.includes('unblock the release'))
 })
 
 test('a confined session keeps the full context (it has nowhere to send it)', () => {
-  const FULL = 'Task: x\nCurrent learning note:\nNOTES'
+  const FULL = 'Task: x\nWorking-area draft:\nNOTES'
   const ctx = buildSessionContext({
     task: { title: 'x', notes: '', inputs: {} },
-    typeDef: GRANTED,
+    grants: GRANTS,
     purpose: 'confined',
     fullContext: () => FULL
   })
@@ -228,50 +232,8 @@ test('confirming a proposal that is gone reports it rather than silently doing n
   assert.ok(outcome.ok === false && outcome.error.includes('no longer pending'))
 })
 
-// ---- FR-021: a granted type can read the live source ----
-
-test("a granted type's instruction stops denying remote access; an ungranted one keeps it", () => {
-  // The pre-process instruction must not tell the assistant it cannot reach a
-  // system the session can reach — and must keep saying so when it cannot.
-  const instruction = preprocessInstruction('jira')!
-  const inputs = { sourceKind: 'issue', sourceText: 'pasted: status To Do', target: 'unblock' }
-  const args = {
-    context: instruction.buildContext({ title: 'AUTH-42', notes: '' }, inputs),
-    userPrompt: '',
-    aiGuidance: '',
-    inputs
-  }
-
-  const ungranted = instruction.buildPrompt({ ...args, granted: false })
-  assert.ok(ungranted.includes('no access to the remote system'), 'an ungranted session is told the truth')
-  assert.ok(!ungranted.includes('prefer what you read from it'))
-
-  const granted = instruction.buildPrompt({ ...args, granted: true })
-  assert.ok(!granted.includes('no access to the remote system'), 'the denial must not survive the grant')
-  assert.ok(granted.includes('prefer what you read from it over the pasted content'))
-  // The pasted content is still present: a live read supplements it, and there
-  // is a session with no grant to fall back on.
-  assert.ok(granted.includes('pasted: status To Do'))
-})
-
-test('a confined pre-process resolves to no grant, so its instruction always denies access', async () => {
-  // The wiring, not just the text: the job builds `granted` from the RESOLVED
-  // grant, so a confined run can never produce the permissive instruction even
-  // for a type that declares a tool server.
-  const { resolveGrant: resolve } = await import('../src/core/domain/grant')
-  const grant = resolve({ purpose: 'confined', typeDef: GRANTED })
-  assert.deepEqual(grant, NO_GRANT)
-  const grantedFlag = grant.skills.length > 0 || grant.toolServers.length > 0
-  assert.equal(grantedFlag, false)
-
-  const instruction = preprocessInstruction('jira')!
-  const inputs = { sourceKind: 'issue', sourceText: 'pasted', target: 'x' }
-  const prompt = instruction.buildPrompt({
-    context: instruction.buildContext({ title: 'T', notes: '' }, inputs),
-    userPrompt: '',
-    aiGuidance: '',
-    inputs,
-    granted: grantedFlag
-  })
-  assert.ok(prompt.includes('no access to the remote system'))
-})
+// The two preprocess-instruction tests that used to close this file died with
+// the engine (D4). The wiring guarantee they pinned — a confined run resolves
+// NO_GRANT whatever the configuration says — is the conformance test above,
+// and it no longer has a permissive instruction to leak into: every assistant
+// step this feature runs (organize, curate, converse) is confined.

@@ -1,6 +1,6 @@
 import type { JobContext } from '../job-queue'
-import type { IngestRecord, TaskPreprocess } from '../../shared/types'
-import { getTask, listTypes, updateIngest } from '../db'
+import type { IngestRecord } from '../../shared/types'
+import { getIngest, getTask, listTypes, updateIngest } from '../db'
 import { loadRuntimeSettings } from '../runtimeSettings'
 import { message } from '../../core/i18n'
 import { LocalizedError } from '../../core/i18n/issues'
@@ -42,15 +42,20 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
   // scaffold in the working directory.
   const wikiRoot = (dest.rootPath ?? '').trim()
   if (!wikiRoot) {
-    throw new LocalizedError([{ key: 'wiki.notConfigured' }])
+    throw new LocalizedError([{ key: 'destination.notConfigured' }])
   }
 
   const storage = createSqliteStorage(db)
   const target = resolveArtifact(nodePathPort, dest, task.title, task.id)
   const session = createAgentSessionAdapter(() => loadRuntimeSettings(db))
-  const preprocess = storage.getPreprocess(taskId)
 
   const record = (patch: Parameters<typeof updateIngest>[2]): void => updateIngest(db, job.id, patch)
+
+  // The finish already deposited synchronously (D7's order: deposit first,
+  // then this job snapshots and curates). The ledger row names what landed;
+  // the strategy reports it instead of depositing a second time.
+  const ledger = getIngest(db, job.id)
+  const priorDeposit = ledger?.depositFiles ?? []
 
   // A learning task may override where its curated note lands. The default is
   // the destination's own subdir + slug, which is exactly what
@@ -82,30 +87,20 @@ export async function runIngestJob(ctx: JobContext): Promise<void> {
     onDetail: (detail) => {
       if (detail.depositFiles) record({ depositFiles: detail.depositFiles })
       if (detail.protectedFiles) record({ touchedFiles: detail.protectedFiles })
+      // The snapshot location (RELATIVE to the collection, FR-024) is what
+      // the undo action restores from (T040) — recorded as it is taken.
+      if (detail.snapshotDir) record({ snapshotDir: detail.snapshotDir })
     },
-    summary: renderSummary(taskId, preprocess),
+    // No preprocess summary (D4): the retired engine's rows are history no
+    // live path reads; the deposit carries the user's own material.
     attachmentPath: typeof task.inputs.filePath === 'string' ? task.inputs.filePath : undefined,
-    noteTargetRel: noteTargetRel || undefined
+    noteTargetRel: noteTargetRel || undefined,
+    priorDeposit
   })
 
   // What the agent actually created or modified.
   record({ touchedFiles: result.touchedFiles })
   ctx.setStep(message(settings.uiLanguage, 'job.step.complete'), message(settings.uiLanguage, 'ingest.done'))
-}
-
-function renderSummary(taskId: string, p: TaskPreprocess | null): string | undefined {
-  if (!p) return undefined
-  return `# AI Pre-process Summary — ${taskId}
-
-## Summary
-${p.summary || '(none)'}
-
-## Analysis
-${p.analysis || '(none)'}
-
-## Activity suggestions
-${p.suggestions.map((s) => `- ${s}`).join('\n') || '(none)'}
-`
 }
 
 // Re-exported for callers and tests that already import it from here.

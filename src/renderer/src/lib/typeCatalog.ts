@@ -1,17 +1,18 @@
-import type { Task, TaskKind, TaskTypeDef, TypeInputField } from '../../../shared/types'
+import type { Family, Task, TaskTypeDef, TypeInputField } from '../../../shared/types'
 import { en, isMessageKey, message, type Language, type MessageKey } from '../../../core/i18n'
 
-// Centralized type catalog (design D2): tasks carry a built-in `type` and an
-// optional `customTypeKey` resolved against the task_types registry (delivered
-// in AppSnapshot.taskTypes). This module resolves the effective type + kind
+// Centralized type catalog: tasks carry a built-in `type` and an optional
+// `customTypeKey` resolved against the task_types registry (delivered in
+// AppSnapshot.taskTypes). This module resolves the effective type + family
 // for display, filtering, and creation — components should never hardcode
-// type labels/emoji/kinds. Fallbacks keep the UI alive if a custom key
+// type labels/emoji/families. Fallbacks keep the UI alive if a custom key
 // disappears (the task then reads as plain, mirroring the main-side
 // reassignment on type deletion).
 
 const FALLBACK_PLAIN: TaskTypeDef = {
   key: 'plain',
-  kind: 'plain',
+  // No family: needs no assistance (research D1).
+  family: null,
   // From the catalog, not a second copy of the string: this is what renders
   // before the first snapshot lands, and a hardcoded English label would flash
   // English in a Chinese interface on every start.
@@ -20,8 +21,7 @@ const FALLBACK_PLAIN: TaskTypeDef = {
   inputSchema: [],
   isBuiltin: true,
   // A plain task finishes locally and writes nothing.
-  finishBehaviour: 'complete-only',
-  grants: { skills: [], toolServers: [] }
+  finishBehaviour: 'complete-only'
 }
 
 export function allTypeConfigs(types?: TaskTypeDef[] | null): TaskTypeDef[] {
@@ -32,7 +32,7 @@ export function getTypeConfig(key: string | null | undefined, types?: TaskTypeDe
   if (!key) return FALLBACK_PLAIN
   const found = allTypeConfigs(types).find((c) => c.key === key)
   if (found) return found
-  return { key, kind: 'plain', label: key, emoji: '📌', inputSchema: [], isBuiltin: false, finishBehaviour: 'complete-only', grants: { skills: [], toolServers: [] } }
+  return { key, family: null, label: key, emoji: '📌', inputSchema: [], isBuiltin: false, finishBehaviour: 'complete-only' }
 }
 
 // Effective type for a task: customTypeKey wins when the referenced type
@@ -45,9 +45,10 @@ export function effectiveType(task: Pick<Task, 'type' | 'customTypeKey'>, types?
   return getTypeConfig(task.type, types)
 }
 
-// Behavior kind for dispatch (working area, AI band, pre-process display).
-export function effectiveKind(task: Pick<Task, 'type' | 'customTypeKey'>, types?: TaskTypeDef[] | null): TaskKind {
-  return effectiveType(task, types).kind
+// The assistance family a task's Type declares, or null when it declares none.
+// Dispatch reads this — never a type key (Principle I).
+export function effectiveFamily(task: Pick<Task, 'type' | 'customTypeKey'>, types?: TaskTypeDef[] | null): Family | null {
+  return effectiveType(task, types).family ?? null
 }
 
 export function typeEmoji(task: Pick<Task, 'type' | 'customTypeKey'>, types?: TaskTypeDef[] | null): string {

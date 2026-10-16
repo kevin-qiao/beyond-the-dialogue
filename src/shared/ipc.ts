@@ -1,4 +1,4 @@
-import type { AppSnapshot, Attachment, List, RedactedSettings, SettingsInput, SkillEntry, Suggestion, Task, TaskNote, TaskPreprocess, TaskTypeDef } from './types'
+import type { AppSnapshot, Attachment, Conversation, ConversationMessage, DestinationStore, FinishMode, FinishReport, List, RedactedSettings, SettingsInput, SkillEntry, Task, TaskNote, TaskTypeDef } from './types'
 
 // IPC channel names. Commands are renderer -> main invokes; events are
 // main -> renderer pushes.
@@ -16,7 +16,6 @@ export const IPC = {
   setMyDay: 'tasks:set-my-day',
   setTaskDone: 'tasks:set-done',
   setAlarm: 'tasks:set-alarm',
-  runPreprocess: 'tasks:run-preprocess',
   finishTask: 'tasks:finish',
   chooseFile: 'dialog:choose-file',
   importSkill: 'skills:import',
@@ -24,7 +23,7 @@ export const IPC = {
   saveNote: 'notes:save',
   listTypes: 'types:list',
   saveType: 'types:save',
-  deleteType: 'types:delete',
+  removeType: 'types:remove',
   retryJob: 'jobs:retry',
   cancelJob: 'jobs:cancel',
   getSettings: 'settings:get',
@@ -36,11 +35,16 @@ export const IPC = {
   getProposals: 'remote:get-proposals',
   confirmRemoteChange: 'remote:confirm',
   dismissProposal: 'remote:dismiss',
-  sendChat: 'chat:send',
-  resetChat: 'chat:reset',
-  dismissSuggestion: 'suggestions:dismiss',
+  // Conversations (feature 002, contracts/document-assist-ipc.md). The old
+  // chat:send / chat:reset channels are retired with the in-memory transcript.
+  conversationsList: 'conversations:list',
+  conversationsCreate: 'conversations:create',
+  conversationsSend: 'conversations:send',
+  conversationsMessages: 'conversations:messages',
+  conversationsDelete: 'conversations:delete',
   getActivity: 'wiki:activity',
   retryIngest: 'wiki:retry-ingest',
+  undoCuration: 'wiki:undoCuration',
   attachmentsAddFromDialog: 'attachments:add-from-dialog',
   attachmentsRemove: 'attachments:remove',
   attachmentsOpen: 'attachments:open',
@@ -48,16 +52,19 @@ export const IPC = {
   evTaskUpdated: 'ev:task-updated',
   evListUpdated: 'ev:list-updated',
   evJobProgress: 'ev:job-progress',
-  evPreprocessUpdated: 'ev:preprocess-updated',
-  evSuggestionsUpdated: 'ev:suggestions-updated',
   evToast: 'ev:toast',
   evSettingsUpdated: 'ev:settings-updated',
   evTypesUpdated: 'ev:types-updated',
   evIngestUpdated: 'ev:ingest-updated',
   evIngestProgress: 'ev:ingest-progress',
-  evChatDelta: 'ev:chat-delta',
-  evChatDone: 'ev:chat-done',
-  evChatError: 'ev:chat-error',
+  // Feature 002 contract events use the contract's own names.
+  evArtifactsFiled: 'artifacts.filed',
+  // The old ev:chat-delta channel, re-keyed per the contract: live streaming
+  // keeps a named channel, and the completed turn arrives as
+  // conversation.updated — no delta is ever shown without the stored message
+  // behind it.
+  evConversationDelta: 'conversation.delta',
+  evConversationUpdated: 'conversation.updated',
   evOpenTask: 'ev:open-task',
   evProposals: 'ev:proposals'
 } as const
@@ -112,29 +119,46 @@ export interface IngestProgressEvent {
   stepLabel: string | null
 }
 
+/** Emitted after a finish write succeeds (contract Events). */
+export interface ArtifactsFiledEvent {
+  taskId: string
+  path: string
+  store: DestinationStore
+  mode: FinishMode
+}
+
+/** `tasks:finish` args — the mode is the user's choice at the finish step;
+ *  the Type's declaration sets the default when it is absent (D8). */
+export interface FinishTaskArgs {
+  taskId: string
+  mode?: FinishMode
+}
+
 export interface ToastPayload {
   message: string
   view?: 'activity'
 }
 
-// Every chat event names the surface it belongs to: the owning task id, or
-// null for the ungrounded debug chat. Transcripts are per-surface, so a delta
-// must be routable to the panel that asked for it rather than to whichever
-// panel happens to be mounted.
-export interface ChatOwner {
-  owner: string | null
-}
-
-export interface ChatDeltaEvent extends ChatOwner {
+// Conversation events (contract): a delta streams against its conversation,
+// and every stored message is announced — no delta is ever shown without the
+// stored message behind it.
+export interface ConversationDeltaEvent {
+  conversationId: string
   delta: string
 }
 
-export interface ChatDoneEvent extends ChatOwner {
-  text: string
+export interface ConversationUpdatedEvent {
+  taskId: string
+  conversationId: string
+  message: ConversationMessage
 }
 
-export interface ChatErrorEvent extends ChatOwner {
-  error: string
+/** `conversations:send` result (contract): the stored assistant message, or
+ *  the honest reason nothing was stored. */
+export interface ConversationSendResult {
+  ok: boolean
+  message?: ConversationMessage
+  error?: string
 }
 
 export interface CreateListArgs {
@@ -191,32 +215,63 @@ export interface SaveTypeArgs {
   type: TaskTypeDef
 }
 
+/** `types:save` result (contract): a save refusal arrives as a structured
+ *  result with localized issue sentences, not as a throw. */
+export interface SaveTypeResult {
+  ok: boolean
+  issues?: string[]
+}
+
+/** `types:remove` result (contract): tasks using the Type are re-homed,
+ *  never left without a Type in silence (FR-013/US3-AC4). */
+export interface RemoveTypeResult {
+  ok: boolean
+  rehomedTo?: 'plain'
+}
+
 export interface SaveSettingsArgs {
   // The only secret-bearing request on the map (contract guard): write-only
   // apiKey, merged by `splitInput`; absent/empty means "keep existing".
   settings: SettingsInput
 }
 
-export interface SendChatArgs {
-  text: string
-  // When set, the chat is grounded in this task's kind context (inputs,
-  // pre-process outputs, current note). Undefined = plain debug chat.
-  taskId?: string
-}
+// The retired preprocess/suggestion channels (tasks:run-preprocess,
+// suggestions:dismiss, ev:preprocess-updated, ev:suggestions-updated) are
+// deleted with the engines (D4), and chat:send / chat:reset with the
+// in-memory transcript (T027): a conversation is stored state now, addressed
+// by its own id.
 
-// A task's suggestions, pushed after a pre-process or a dismissal. The payload
-// names the task so the renderer can merge it into the app's full list —
-// replacing the list outright would drop every other task's chips, which is
-// what made the chips unreliable once they moved off the board row.
-export interface SuggestionsUpdatedEvent {
+export interface ConversationsListArgs {
   taskId: string
-  suggestions: Suggestion[]
 }
 
-export interface ResetChatArgs {
-  // Which surface's conversation to drop. Undefined = the ungrounded debug
-  // chat, which is also what the debug drawer means.
-  taskId?: string
+export interface ConversationsCreateArgs {
+  taskId: string
+}
+
+export interface ConversationsSendArgs {
+  conversationId: string
+  content: string
+}
+
+export interface ConversationsMessagesArgs {
+  conversationId: string
+}
+
+export interface ConversationsDeleteArgs {
+  conversationId: string
+}
+
+/** `wiki:undoCuration` (contract): the restore is a code operation on
+ *  user-owned files; refusals arrive as localized sentences in `error`. */
+export interface UndoCurationArgs {
+  recordId: string
+}
+
+export interface UndoCurationResult {
+  ok: boolean
+  restored?: string[]
+  error?: string
 }
 
 // The API surface exposed on window.api by the preload script.
@@ -232,8 +287,7 @@ export interface RendererApi {
   setMyDay: (args: { id: string; inMyDay: boolean }) => Promise<Task>
   setTaskDone: (args: { id: string; done: boolean }) => Promise<Task>
   setAlarm: (args: SetAlarmArgs) => Promise<Task>
-  runPreprocess: (args: { id: string }) => Promise<Task>
-  finishTask: (args: { id: string }) => Promise<Task>
+  finishTask: (args: FinishTaskArgs) => Promise<FinishReport>
   chooseFile: () => Promise<string | null>
   chooseFolder: () => Promise<string | null>
   importSkill: () => Promise<SkillEntry | null>
@@ -242,8 +296,8 @@ export interface RendererApi {
   importSkillFromGitHub: (url: string) => Promise<SkillEntry>
   saveNote: (args: SaveNoteArgs) => Promise<TaskNote>
   listTypes: () => Promise<TaskTypeDef[]>
-  saveType: (args: SaveTypeArgs) => Promise<TaskTypeDef>
-  deleteType: (args: { key: string }) => Promise<void>
+  saveType: (args: SaveTypeArgs) => Promise<SaveTypeResult>
+  removeType: (args: { key: string }) => Promise<RemoveTypeResult>
   retryJob: (args: { jobId: string }) => Promise<void>
   cancelJob: (args: { jobId: string }) => Promise<void>
   getSettings: () => Promise<RedactedSettings>
@@ -257,11 +311,14 @@ export interface RendererApi {
   attachmentsAddFromDialog: (args: AttachmentAddArgs) => Promise<Attachment | null>
   attachmentsRemove: (args: AttachmentRemoveArgs) => Promise<void>
   attachmentsOpen: (args: AttachmentOpenArgs) => Promise<void>
-  sendChat: (args: SendChatArgs) => Promise<void>
-  resetChat: (args: ResetChatArgs) => Promise<void>
-  dismissSuggestion: (args: { suggestionId: string }) => Promise<Suggestion>
+  conversationsList: (args: ConversationsListArgs) => Promise<Conversation[]>
+  conversationsCreate: (args: ConversationsCreateArgs) => Promise<Conversation>
+  conversationsSend: (args: ConversationsSendArgs) => Promise<ConversationSendResult>
+  conversationsMessages: (args: ConversationsMessagesArgs) => Promise<ConversationMessage[]>
+  conversationsDelete: (args: ConversationsDeleteArgs) => Promise<{ ok: boolean }>
   getActivity: () => Promise<import('./types').IngestRecord[]>
   retryIngest: (args: { ingestId: string }) => Promise<void>
+  undoCuration: (args: UndoCurationArgs) => Promise<UndoCurationResult>
   getProposals: () => Promise<RemoteProposalView[]>
   confirmRemoteChange: (args: { proposalId: string }) => Promise<RemoteOutcomeView>
   dismissProposal: (args: { proposalId: string }) => Promise<void>
@@ -269,16 +326,14 @@ export interface RendererApi {
   onTaskUpdated: (cb: (t: Task) => void) => () => void
   onListUpdated: (cb: (l: List) => void) => () => void
   onJobProgress: (cb: (e: JobProgressEvent) => void) => () => void
-  onPreprocessUpdated: (cb: (p: TaskPreprocess) => void) => () => void
-  onSuggestionsUpdated: (cb: (e: SuggestionsUpdatedEvent) => void) => () => void
   onSettingsUpdated: (cb: (s: RedactedSettings) => void) => () => void
   onTypesUpdated: (cb: (types: TaskTypeDef[]) => void) => () => void
   onToast: (cb: (t: ToastPayload) => void) => () => void
   onIngestUpdated: (cb: (rec: import('./types').IngestRecord) => void) => () => void
   onIngestProgress: (cb: (e: IngestProgressEvent) => void) => () => void
-  onChatDelta: (cb: (e: ChatDeltaEvent) => void) => () => void
-  onChatDone: (cb: (e: ChatDoneEvent) => void) => () => void
-  onChatError: (cb: (e: ChatErrorEvent) => void) => () => void
+  onArtifactsFiled: (cb: (e: ArtifactsFiledEvent) => void) => () => void
+  onConversationDelta: (cb: (e: ConversationDeltaEvent) => void) => () => void
+  onConversationUpdated: (cb: (e: ConversationUpdatedEvent) => void) => () => void
   onOpenTask: (cb: (taskId: string) => void) => () => void
   onProposals: (cb: (proposals: RemoteProposalView[]) => void) => () => void
 }
@@ -292,16 +347,14 @@ export interface AppEvents {
   [IPC.evTaskUpdated]: TaskEvent
   [IPC.evListUpdated]: List | null
   [IPC.evJobProgress]: JobProgressEvent
-  [IPC.evPreprocessUpdated]: TaskPreprocess
-  [IPC.evSuggestionsUpdated]: SuggestionsUpdatedEvent
   [IPC.evToast]: ToastPayload
   [IPC.evSettingsUpdated]: RedactedSettings
   [IPC.evTypesUpdated]: TaskTypeDef[]
   [IPC.evIngestUpdated]: import('./types').IngestRecord
   [IPC.evIngestProgress]: IngestProgressEvent
-  [IPC.evChatDelta]: ChatDeltaEvent
-  [IPC.evChatDone]: ChatDoneEvent
-  [IPC.evChatError]: ChatErrorEvent
+  [IPC.evArtifactsFiled]: ArtifactsFiledEvent
+  [IPC.evConversationDelta]: ConversationDeltaEvent
+  [IPC.evConversationUpdated]: ConversationUpdatedEvent
   [IPC.evOpenTask]: string
   [IPC.evProposals]: RemoteProposalView[]
 }
@@ -319,16 +372,15 @@ export interface AppCommands {
   [IPC.setMyDay]: { args: { id: string; inMyDay: boolean }; result: Task }
   [IPC.setTaskDone]: { args: { id: string; done: boolean }; result: Task }
   [IPC.setAlarm]: { args: SetAlarmArgs; result: Task }
-  [IPC.runPreprocess]: { args: { id: string }; result: Task }
-  [IPC.finishTask]: { args: { id: string }; result: Task }
+  [IPC.finishTask]: { args: FinishTaskArgs; result: FinishReport }
   [IPC.chooseFile]: { args: void; result: string | null }
   [IPC.chooseFolder]: { args: void; result: string | null }
   [IPC.importSkill]: { args: void; result: SkillEntry | null }
   [IPC.importSkillGitHub]: { args: { url: string }; result: SkillEntry }
   [IPC.saveNote]: { args: SaveNoteArgs; result: TaskNote }
   [IPC.listTypes]: { args: void; result: TaskTypeDef[] }
-  [IPC.saveType]: { args: SaveTypeArgs; result: TaskTypeDef }
-  [IPC.deleteType]: { args: { key: string }; result: void }
+  [IPC.saveType]: { args: SaveTypeArgs; result: SaveTypeResult }
+  [IPC.removeType]: { args: { key: string }; result: RemoveTypeResult }
   [IPC.retryJob]: { args: { jobId: string }; result: void }
   [IPC.cancelJob]: { args: { jobId: string }; result: void }
   [IPC.getSettings]: { args: void; result: RedactedSettings }
@@ -339,11 +391,14 @@ export interface AppCommands {
   [IPC.attachmentsAddFromDialog]: { args: AttachmentAddArgs; result: Attachment | null }
   [IPC.attachmentsRemove]: { args: AttachmentRemoveArgs; result: void }
   [IPC.attachmentsOpen]: { args: AttachmentOpenArgs; result: void }
-  [IPC.sendChat]: { args: SendChatArgs; result: void }
-  [IPC.resetChat]: { args: ResetChatArgs; result: void }
-  [IPC.dismissSuggestion]: { args: { suggestionId: string }; result: Suggestion }
+  [IPC.conversationsList]: { args: ConversationsListArgs; result: Conversation[] }
+  [IPC.conversationsCreate]: { args: ConversationsCreateArgs; result: Conversation }
+  [IPC.conversationsSend]: { args: ConversationsSendArgs; result: ConversationSendResult }
+  [IPC.conversationsMessages]: { args: ConversationsMessagesArgs; result: ConversationMessage[] }
+  [IPC.conversationsDelete]: { args: ConversationsDeleteArgs; result: { ok: boolean } }
   [IPC.getActivity]: { args: void; result: import('./types').IngestRecord[] }
   [IPC.retryIngest]: { args: { ingestId: string }; result: void }
+  [IPC.undoCuration]: { args: UndoCurationArgs; result: UndoCurationResult }
   [IPC.getProposals]: { args: void; result: RemoteProposalView[] }
   [IPC.confirmRemoteChange]: { args: { proposalId: string }; result: RemoteOutcomeView }
   [IPC.dismissProposal]: { args: { proposalId: string }; result: void }

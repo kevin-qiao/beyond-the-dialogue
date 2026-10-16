@@ -23,8 +23,8 @@ handler.
 
 | Directory | Holds |
 |---|---|
-| `domain/` | Entities and pure rules — categories, destinations, finish behaviours, validation, grants, hashing |
-| `services/` | Use cases — finish a task, move to My Day, enqueue pre-processing, edit types |
+| `domain/` | Entities and pure rules — families, destinations, finish behaviours, validation, grants, chat grounding |
+| `services/` | Use cases — finish a task, move to My Day, hold a conversation, edit types |
 | `ports/` | Interfaces the services depend on. Interfaces only; no implementations |
 
 If you are about to write `import * as fs from 'node:fs'` in here, the answer is a new

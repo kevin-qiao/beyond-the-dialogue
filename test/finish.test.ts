@@ -8,8 +8,6 @@ import {
   fileAsIs,
   polishThenFile,
   depositThenCurate,
-  parsePolishOutput,
-  renderPolished,
   verifyPolish,
   PolishBoundExceeded,
   POLISH_INPUT_LIMIT,
@@ -27,7 +25,9 @@ import type { Destination, Task, TaskTypeDef } from '../src/shared/types'
 // directly against the strategies so each rule is pinned to the behaviour that
 // owns it rather than to the orchestration around it.
 
-const MINUTES = `Attendees: Ana, Ben
+// The user's draft (the working area's content). The old fixture was meeting
+// minutes; the organize step is generic now (D2), so the draft is a document.
+const MINUTES = `weekly sync draft
 
 We reviewed the roadmap. Decision: we ship the beta in March.
 
@@ -82,15 +82,14 @@ function makeCtx(opts: {
     deletedAt: null
   } as Task
   const typeDef = {
-    key: 'meeting',
-    kind: 'meeting',
-    label: 'Meeting',
-    emoji: '🗓',
+    key: 'doc',
+    family: 'document',
+    label: 'Document',
+    emoji: '📄',
     inputSchema: [],
-    isBuiltin: true,
+    isBuiltin: false,
     finishBehaviour: opts.behaviour,
-    destination: dest,
-    grants: { skills: [], toolServers: [] }
+    destination: dest
   } as TaskTypeDef
   return {
     task,
@@ -107,8 +106,7 @@ function makeCtx(opts: {
 }
 
 const POLISH_OK = JSON.stringify({
-  polished: 'Attendees: Ana, Ben\n\nWe reviewed the roadmap.\n\n**Decision:** we ship the beta in March.\n\nAna raised the onboarding drop-off.',
-  actionItems: [],
+  polished: 'Weekly sync\n\nWe reviewed the roadmap.\n\n**Decision:** we ship the beta in March.\n\nAna raised the onboarding drop-off.',
   preservedFacts: ['we ship the beta in March']
 })
 
@@ -165,14 +163,13 @@ test('a complete-only type declaring a destination is a validation error', async
   const root = tmpdir()
   const def: TaskTypeDef = {
     key: 'plain_copy',
-    kind: 'plain',
+    family: null,
     label: 'Plain',
     emoji: '📝',
     inputSchema: [],
     isBuiltin: false,
     finishBehaviour: 'complete-only',
-    destination: { store: 'folder', rootPath: root, subdir: '' },
-    grants: { skills: [], toolServers: [] }
+    destination: { store: 'folder', rootPath: root, subdir: '' }
   }
   const result = validateTypeDefinition(def, { paths: nodePathPort, existing: null, mode: 'create' })
   assert.equal(result.ok, false)
@@ -184,14 +181,13 @@ test('a complete-only type declaring a destination is a validation error', async
 
 test('a writing behaviour without a destination is a validation error', () => {
   const def: TaskTypeDef = {
-    key: 'meetings',
-    kind: 'meeting',
-    label: 'Meetings',
-    emoji: '🗓',
+    key: 'essays',
+    family: 'document',
+    label: 'Essays',
+    emoji: '📄',
     inputSchema: [],
     isBuiltin: false,
-    finishBehaviour: 'polish-then-file',
-    grants: { skills: [], toolServers: [] }
+    finishBehaviour: 'polish-then-file'
   }
   const result = validateTypeDefinition(def, { paths: nodePathPort, existing: null, mode: 'create' })
   assert.equal(result.ok, false)
@@ -203,19 +199,18 @@ test('a writing behaviour without a destination is a validation error', () => {
 
 // ---- the polish bound (FR-009, SC-011) ----
 
-test('polish is caught when it injects a decision the user never recorded', async () => {
+test('organize is caught when it injects a fact the user never recorded', async () => {
   const root = tmpdir()
-  // The scripted assistant invents a commitment the minutes do not contain.
+  // The scripted assistant invents a commitment the draft does not contain.
   const session = scriptedSession(
     JSON.stringify({
-      polished: 'Attendees: Ana, Ben\n\nWe reviewed the roadmap and agreed to hire two engineers.',
-      actionItems: ['Approve the Q3 hiring budget'],
-      preservedFacts: ['we ship the beta in March']
+      polished: 'We reviewed the roadmap and agreed to hire two engineers.',
+      preservedFacts: ['approve the Q3 hiring budget']
     })
   )
   const result = await polishThenFile(makeCtx({ root, behaviour: 'polish-then-file', session }))
 
-  // The finish still completes — it never fails outright (FR-025) — but the
+  // The finish still completes — it never fails outright (FR-006) — but the
   // injected content is NOT what gets filed.
   assert.equal(result.assistantStep, 'failed')
   assert.ok(
@@ -227,33 +222,33 @@ test('polish is caught when it injects a decision the user never recorded', asyn
   assert.ok(!written.includes('hiring'), 'the invented commitment is nowhere in the artifact')
 })
 
-test('verifyPolish refuses an untraceable action item but accepts a faithful one', () => {
+test('verifyPolish refuses an untraceable fact but accepts a faithful one', () => {
   const faithful = {
     polished: 'x',
-    actionItems: ['Ana raised the onboarding drop-off'],
-    preservedFacts: ['we ship the beta in March']
+    preservedFacts: ['we ship the beta in March', 'Ana raised the onboarding drop-off']
   }
   assert.doesNotThrow(() => verifyPolish(faithful, MINUTES))
-  const injected = { polished: 'x', actionItems: ['Approve the Q3 hiring budget'], preservedFacts: [] }
+  const injected = { polished: 'x', preservedFacts: ['Approve the Q3 hiring budget'] }
   assert.throws(() => verifyPolish(injected, MINUTES), PolishBoundExceeded)
 })
 
-test('recorded action items appear as a distinct section of the finished document', async () => {
+test('the organize step is driven by the Type instruction, not a meeting template (D2)', async () => {
   const root = tmpdir()
-  const session = scriptedSession(
-    JSON.stringify({
-      polished: 'Attendees: Ana, Ben\n\nWe reviewed the roadmap.',
-      actionItems: ['Ana raised the onboarding drop-off'],
-      preservedFacts: ['we ship the beta in March']
-    })
-  )
-  const result = await polishThenFile(makeCtx({ root, behaviour: 'polish-then-file', session }))
-  const written = fs.readFileSync(result.artifactPath!, 'utf-8')
-  assert.ok(/^## Action items$/m.test(written), `expected a distinct section, got:\n${written}`)
-  assert.ok(written.includes('- Ana raised the onboarding drop-off'))
-  // The section is structural: it is appended by the app, so it cannot be
-  // forgotten by the model or merged into the prose.
-  assert.equal(renderPolished(parsePolishOutput(JSON.stringify({ polished: 'body', actionItems: ['Ana raised the onboarding drop-off'], preservedFacts: [] }))).includes('## Action items'), true)
+  const session = scriptedSession(POLISH_OK)
+  const ctx = makeCtx({ root, behaviour: 'polish-then-file', session })
+  ctx.typeDef = { ...ctx.typeDef, aiGuidance: 'File my diary as date-prefixed notes; keep a feelings section.' }
+  await polishThenFile(ctx)
+  const req = session.requests[0]!
+  // The declared instruction reaches the prompt...
+  assert.ok(req.prompt.includes('File my diary as date-prefixed notes'), 'the Type instruction drives the step')
+  assert.ok(req.prompt.includes('Type instruction:'), 'labelled as the instruction it is')
+  // ...and no meeting framing survives anywhere in the session's texts.
+  assert.ok(!req.systemPrompt.toLowerCase().includes('meeting'), 'the system prompt is the generic document editor')
+  assert.ok(!req.prompt.includes('===MINUTES'), 'the old minutes delimiter is gone')
+  assert.ok(req.prompt.includes('===DOCUMENT AS WRITTEN BY THE USER==='))
+  // The organized output is filed as produced — no app-appended section.
+  const written = fs.readFileSync(path.join(root, 'weekly-sync.md'), 'utf-8')
+  assert.ok(!written.includes('## Action items'), 'the meeting-only append is deleted with the engine')
 })
 
 // ---- degradation (FR-025, FR-011) ----

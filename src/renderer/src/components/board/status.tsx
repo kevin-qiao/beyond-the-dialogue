@@ -1,6 +1,6 @@
 import type { Task, TaskTypeDef } from '../../../../shared/types'
 import type { MessageKey, Translate } from '../../../../core/i18n'
-import { effectiveKind, effectiveType } from '../../lib/typeCatalog'
+import { effectiveType } from '../../lib/typeCatalog'
 
 // Shared v2 visuals (docs/workboard-ux.html): per-type emoji/label and the
 // status dot-chip. Rows, the focus head, and band share these so the board
@@ -13,30 +13,25 @@ export function typeMeta(type: string, types?: TaskTypeDef[] | null): { emoji: s
   return { emoji: def.emoji, label: def.label }
 }
 
-export type DotState = 'running' | 'ready' | 'failed' | 'queued' | 'none'
+export type DotState = 'running' | 'none'
 
 export interface JobStepLike {
   stepLabel?: string | null
   state?: string
 }
 
+// Feature 002 deleted the pre-process pipeline the dot used to mirror (D4):
+// no board interaction starts background AI work, so the only live state is a
+// job the user themselves started (a finish's organize step, a curation run).
 export function dotStateOf(task: Task, types?: TaskTypeDef[] | null, jobStep?: JobStepLike | null): DotState {
+  void task
+  void types
   if (jobStep) return 'running'
-  // Only AI-kinded tasks (learning/jira via their type's kind) have a
-  // pre-process pipeline; plain tasks never show a chip.
-  if (effectiveKind(task, types) === 'plain') return 'none'
-  if (task.preprocessStatus === 'queued' || task.preprocessStatus === 'running') return 'running'
-  if (task.preprocessStatus === 'ready') return 'ready'
-  if (task.preprocessStatus === 'failed') return 'failed'
-  if (task.inMyDay && !task.completed) return 'queued'
   return 'none'
 }
 
 const LABEL: Record<DotState, MessageKey | null> = {
   running: 'task.status.working',
-  ready: 'task.status.ready',
-  failed: 'task.status.failed',
-  queued: 'task.status.queued',
   none: null
 }
 

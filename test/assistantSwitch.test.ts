@@ -3,10 +3,9 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { openDB, migrate, createList, saveSettings, getTask, type DB } from '../src/main/db'
+import { openDB, migrate, createList, saveSettings, saveNotes, type DB } from '../src/main/db'
 import { createSqliteStorage } from '../src/main/adapters/sqlite/storageAdapter'
 import { createTask, setMyDay, updateTask } from '../src/core/services/taskService'
-import { runPreprocess } from '../src/core/services/preprocessService'
 import { finishTask } from '../src/core/services/finishService'
 import { createTypeDef } from '../src/main/types'
 import { setUserDataRoot } from '../src/main/paths'
@@ -16,14 +15,21 @@ import { folderArtifactStore, ensureDestination } from '../src/main/adapters/art
 import { nodePathPort } from '../src/main/adapters/paths'
 import { systemClock } from '../src/core/ports/clock'
 import { isAssistantEnabled } from '../src/core/domain/assistant'
-import type { Settings, TaskTypeDef } from '../src/shared/types'
+import type { Settings } from '../src/shared/types'
 import type { AgentSessionPort } from '../src/core/ports/agent'
 import type { FinishDeps } from '../src/core/services/finishService'
 
-// FR-014/FR-015, research D1/D7: with the switch off the harness is not just
-// quiet — it is STRUCTURALLY unreachable. Every seam that could construct an
-// agent session, a single-shot prompt, or an MCP extension counts its
+// FR-015/FR-021: with the switch off the harness is not just quiet — it is
+// STRUCTURALLY unreachable from board work. Every seam that could construct
+// an agent session, a single-shot prompt, or an MCP extension counts its
 // constructions here, and the count must stay ZERO across a full board day.
+//
+// Feature 002 note: the run-preprocess refusal this file used to pin is
+// deleted with the engine (D4) — there is no board interaction left that
+// COULD start AI work, so the off-state guarantee is the stronger one: zero
+// seams, period. The finish half below pins the 001-era off-state refusal;
+// T016 re-argues it (off forces the as-written path rather than refusing) and
+// updates these assertions with it.
 
 let constructions: { kind: string[] } = { kind: [] }
 let simplePrompts = 0
@@ -86,42 +92,44 @@ function harness(): { conn: DB; settings: Settings; listId: string; minutesDir: 
   const list = createList(conn.db, 'Work')
   const minutesDir = path.join(dir, 'minutes')
   ensureDestination(minutesDir)
-  // A meeting type that WOULD polish-and-file: the type the switch must stop.
+  // A document type that WOULD organize-and-file: the type whose assistant
+  // step the switch must stop. No grants exist any more (D9).
   createTypeDef(conn.db, {
     key: 'minutes',
-    kind: 'meeting',
+    family: 'document',
     label: 'Minutes',
     emoji: '🗓',
     inputSchema: [],
     isBuiltin: false,
     finishBehaviour: 'polish-then-file',
-    destination: { store: 'folder', rootPath: minutesDir, subdir: '' },
-    grants: { skills: ['a-skill'], toolServers: ['a-server'] }
-  } as TaskTypeDef)
+    destination: { store: 'folder', rootPath: minutesDir, subdir: '' }
+  })
   return { conn, settings, listId: list.id, minutesDir }
 }
 
-test('a full board day with the switch off constructs NOTHING at any seam (FR-014/FR-015)', () => {
+test('a full board day with the switch off constructs NOTHING at any seam (FR-015/FR-021)', () => {
   const { conn, settings, listId } = harness()
   installCountingSeams()
   const storage = createSqliteStorage(conn.db)
 
   // Capture, flesh out, My Day — every board action with configured plugins
-  // present and keys stored. D7's suggestion fire is the case that used to
-  // reach the network from a plain interaction.
+  // present and keys stored. Since D4 no board interaction enqueues AI work
+  // at all, in either switch state.
   const plain = createTask(storage, { listId, title: 'write the brief', type: 'plain' })
   assert.deepEqual(setMyDay(storage, plain.id, true, settings).enqueue, [])
-  const learning = createTask(storage, { listId, title: 'read the paper', type: 'learning', inputs: { target: 'x' } })
-  assert.deepEqual(setMyDay(storage, learning.id, true, settings).enqueue, [])
-  const meeting = createTask(storage, { listId, title: 'standup', type: 'meeting' })
-  assert.deepEqual(setMyDay(storage, meeting.id, true, settings).enqueue, [])
+  const doc = createTask(storage, { listId, title: 'draft the post', type: 'document' })
+  assert.deepEqual(setMyDay(storage, doc.id, true, settings).enqueue, [])
+  const minutes = createTask(storage, { listId, title: 'standup', type: 'plain', customTypeKey: 'minutes' })
+  assert.deepEqual(setMyDay(storage, minutes.id, true, settings).enqueue, [])
 
-  // An edit that WOULD re-run a pre-process hash-wise (research D3's gate).
-  setMyDay(storage, learning.id, true, { ...settings, assistantRuntime: 'on' })
-  storage.updateTask(learning.id, { preprocessStatus: 'ready' })
+  // An edit — which used to be hash-gated pre-process territory — is pure
+  // board work now.
   const off: Settings = { ...settings, assistantRuntime: 'off' }
   assert.equal(isAssistantEnabled(off), false)
-  assert.deepEqual(updateTask(storage, { id: learning.id, inputs: { target: 'CHANGED' } }, off).enqueue, [])
+  assert.deepEqual(updateTask(storage, { id: doc.id, title: 'draft the post v2' }, off).enqueue, [])
+  // And the same with the switch ON: the engines are gone, so there is
+  // nothing a board action could start.
+  assert.deepEqual(setMyDay(storage, doc.id, true, { ...settings, assistantRuntime: 'on' }).enqueue, [])
 
   assert.deepEqual(constructions.kind, [], 'no agent session was built')
   assert.equal(simplePrompts, 0, 'no single-shot prompt ran')
@@ -129,21 +137,17 @@ test('a full board day with the switch off constructs NOTHING at any seam (FR-01
   conn.close()
 })
 
-test('assistant refusals are codes, not crashes: run-preprocess and finish while off', async () => {
-  const { conn, settings, listId, minutesDir } = harness()
+test('finish while off files as written with ZERO sessions — the 001 refusal is deleted (FR-006/FR-021, T016)', async () => {
+  const { conn, listId, minutesDir } = harness()
   installCountingSeams()
   const storage = createSqliteStorage(conn.db)
 
-  // tasks:run-preprocess refuses with assistant.disabled.
-  const learning = createTask(storage, { listId, title: 'paper', type: 'learning', inputs: { target: 'x' } })
-  assert.throws(
-    () => runPreprocess(storage, learning.id, settings),
-    (e: any) => e.name === 'PreprocessRefused' && e.issues[0]?.key === 'assistant.disabled'
-  )
-
-  // tasks:finish on a wiki/folder-destined type refuses while off — BEFORE
-  // completion (finishService ordering).
-  const meeting = createTask(storage, { listId, title: 'standup', type: 'meeting', customTypeKey: 'minutes' })
+  // The document type declares polish-then-file. While off it stays reachable
+  // on its as-written path: the user's own words are filed, the task
+  // completes, and no seam is touched — the guarantee that the app will not
+  // silently rewrite prose now does not depend on a failure path (D8).
+  const minutes = createTask(storage, { listId, title: 'standup', type: 'plain', customTypeKey: 'minutes' })
+  saveNotes(conn.db, { taskId: minutes.id, notePath: 'notes/x.md', content: 'Decision: ship it.' })
   const deps: FinishDeps = {
     language: 'en',
     assistantEnabled: false,
@@ -155,18 +159,20 @@ test('assistant refusals are codes, not crashes: run-preprocess and finish while
     notifier: { toast: () => {}, progress: () => {} },
     enqueueCurate: () => {}
   }
-  await assert.rejects(
-    () => finishTask(deps, meeting.id),
-    (e: any) => e.name === 'FinishRefused' && e.issues[0]?.key === 'assistant.disabled'
-  )
-  assert.equal(getTask(conn.db, meeting.id)!.completed, false, 'refused before marking complete')
-  assert.deepEqual(fs.readdirSync(minutesDir), [], 'and before writing anything')
+  const outcome = await finishTask(deps, minutes.id, { mode: 'assisted' })
+  assert.equal(outcome.task.completed, true, 'the board never blocks on AI')
+  assert.equal(outcome.mode, 'as-written', 'the off state forced the mode')
+  assert.equal(outcome.report.path, 'as-written')
+  assert.equal(outcome.report.assistantStep, 'skipped')
+  assert.deepEqual(fs.readdirSync(minutesDir), ['standup.md'])
+  assert.equal(fs.readFileSync(path.join(minutesDir, 'standup.md'), 'utf-8'), 'Decision: ship it.')
 
-  // The board half of finish still works while off: complete-only is board.
+  // complete-only is board work as always.
   const plain = createTask(storage, { listId, title: 'pay rent', type: 'plain' })
-  const outcome = await finishTask(deps, plain.id)
-  assert.equal(outcome.task.completed, true)
+  const plainOutcome = await finishTask(deps, plain.id)
+  assert.equal(plainOutcome.task.completed, true)
 
-  assert.deepEqual(constructions.kind, [], 'not even the refused paths built a session')
+  assert.deepEqual(constructions.kind, [], 'no path built a session while off')
+  assert.equal(mcpFactories, 0)
   conn.close()
 })

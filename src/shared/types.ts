@@ -1,21 +1,28 @@
 // Shared domain types used by main, preload, and renderer.
 
-// The behaviour-category and finish-behaviour vocabularies are declared
-// exactly once, in src/core/domain/categories.ts, and re-exported here so
-// every layer reads the same declaration (constitution Principle VI).
-// `TaskType` and `TaskKind` are retained as the names the rest of the code
-// already uses; they denote the same set.
-import type { TaskCategory, FinishBehaviour, DestinationStore } from '../core/domain/categories'
+// The assistance-family and finish-behaviour vocabularies are declared exactly
+// once each — family in src/core/domain/family.ts, finish behaviour in
+// src/core/domain/finish.ts, destination store in
+// src/core/domain/destination.ts (research D1: each set lives in the module
+// that dispatches on it) — and re-exported here so every layer reads the same
+// declaration (constitution Principle I/VI).
+//
+// The retired vocabulary: `TaskCategory` / `TaskType` / `TaskKind` denoted the
+// POC's four behaviour categories. Feature 002 deletes them (FR-016); nothing
+// dispatches on a category any more.
+import type { Family } from '../core/domain/family'
+import type { FinishBehaviour } from '../core/domain/finish'
+import type { DestinationStore } from '../core/domain/destination'
 import type { Language } from '../core/i18n/language'
 
-export type { TaskCategory, FinishBehaviour, DestinationStore }
+export type { Family, FinishBehaviour, DestinationStore }
 
-// A task's `type` column holds a category key. A user-defined type is
-// referenced via `customTypeKey` and resolves through the task_types registry.
-// The category governs pre-processing and the working area; the type's own
-// `finishBehaviour` and `destination` govern Finish.
-export type TaskType = TaskCategory
-export type TaskKind = TaskCategory
+// A task's `type` column holds a built-in Type key ('plain', 'document'); a
+// user-defined type is referenced via `customTypeKey` and resolves through the
+// task_types registry. The Type's declarations — family, inputs, instruction,
+// finish behaviour, destination — govern everything its assistance does
+// (FR-012); nothing is inferred from the type key.
+export type TaskType = string
 
 // ---- Destinations (contracts/destination.md) ----
 
@@ -90,24 +97,47 @@ export interface TypeInputField {
 
 // A workflow type definition — built-in rows (isBuiltin) and user-defined
 // types share one registry persisted in the task_types table.
+//
+// Feature 002 (research D1, D9): `kind: TaskKind` becomes `family`; the Type
+// declaration — family, declared inputs, assistant instruction, finish
+// behaviour, destination — is the SOLE determinant of what assistance does
+// (FR-012). No grants field is exposed on this shape (D9): every assistance
+// this feature runs is confined by construction, so a declared grant would
+// pretend to a control that does not exist. The `grants_json` column persists
+// with the empty default — the later grants feature adds the field back.
 export interface TaskTypeDef {
   key: string
-  kind: TaskKind
+  /** The assistance family, or null when the Type needs no assistance.
+   *  `plain` and its user-defined equivalents carry null (research D1). */
+  family: Family | null
   label: string
   emoji: string
   description?: string
   color?: string
   inputSchema: TypeInputField[]
-  // Extra guidance injected into this type's pre-process system prompt.
+  /**
+   * The declared assistant instruction — it drives the organize step (D2).
+   * The field name stays `aiGuidance`; the comment records what it is now.
+   */
   aiGuidance?: string
   isBuiltin: boolean
   // ---- declared workflow (contracts/type-definition.md) ----
-  // How Finish behaves. One of four; never inferred from the category.
+  // How Finish behaves. One of four; never inferred from a type key or name.
   finishBehaviour: FinishBehaviour
-  // Where finished artifacts go. Absent only for 'complete-only'.
+  // Where finished artifacts go. Absent only for 'complete-only'. An empty
+  // rootPath is legal only on the seeded built-in Types (Q1) — a saved user
+  // Type is refused at save (FR-013), and the built-in is refused at Finish
+  // (FR-007).
   destination?: Destination
-  // Skills/tool servers granted to this type's interactive sessions.
-  grants: PluginGrant
+  // NO grants field (D9, FR-015, contract: "no grants field is exposed").
+  // Grants are storage-only: the `grants_json` column persists with its empty
+  // default and `types:save` writes that default whatever a payload carries
+  // (T032). Every assistance this feature runs — organize, curate, converse —
+  // is confined by construction (`resolveGrant` returns NO_GRANT for a
+  // confined purpose, and no declaration can confer reach any more). Withholding
+  // the field is what makes the inertness structural: even the configuration
+  // cannot pretend. The later grants feature adds the declared field and its
+  // UI back together.
 }
 
 // ---- Skills & MCP (managed plugin entries) ----
@@ -138,8 +168,43 @@ export interface McpServerEntry {
   disabled?: boolean
 }
 
+// ---- Finish (feature 002, contracts/document-assist-ipc.md) ----
+
+/**
+ * The choice Finish offers where an assistant step would run (D8): let the
+ * assistant organize the draft, or file the user's exact words. The Type's
+ * declaration sets the DEFAULT the UI presents — an organize-capable Type
+ * defaults to 'assisted', a file-as-is Type to 'as-written' — and while the
+ * assistant is off or unconfigured the resolved mode is always 'as-written'
+ * (FR-021): no session is constructed at all.
+ */
+export type FinishMode = 'assisted' | 'as-written'
+
+/** Which path actually ran: the organized document, the words as written,
+ *  or the knowledge-base deposit (curation follows in the background). */
+export type FinishPathTaken = 'organized' | 'as-written' | 'deposited'
+
+/** The `tasks:finish` result: where the filed copy went and which path ran
+ *  (FR-003's report). Refusals cross the boundary as localized throws, so
+ *  `issues` only ever rides a non-throwing degraded report. */
+export interface FinishReport {
+  ok: boolean
+  /** The filed copy, when the finish wrote one. */
+  artifact?: { path: string; store: DestinationStore }
+  path: FinishPathTaken
+  /** 'skipped' is the switch-off / degraded reporting value (contract);
+   *  'ran' means the organize step succeeded; 'failed' means it was tried and
+   *  the user's words were filed as written instead (FR-005/FR-006). */
+  assistantStep?: 'failed' | 'skipped' | 'ran'
+  issues?: string[]
+}
+
 // ---- Task management ----
 
+// Retired machinery kept honest: the `preprocess_status` COLUMN and its stored
+// values survive as history (D4 — "Existing `task_preprocess` and `suggestions`
+// rows stay in the database. No new code reads them"). Nothing new sets these;
+// the renderer no longer surfaces them.
 export type PreprocessStatus = 'none' | 'queued' | 'running' | 'ready' | 'failed'
 
 export interface List {
@@ -203,13 +268,9 @@ export interface Task {
   attachments?: Attachment[]
 }
 
-export interface Suggestion {
-  id: string
-  taskId: string
-  text: string
-  dismissed: boolean
-  createdAt: string
-}
+// The retired `Suggestion` entity: the `suggestions` table keeps its rows as
+// history (D4), and no shipped type reads them. The type is deleted with the
+// suggestion engine.
 
 // ---- Settings ----
 
@@ -326,12 +387,20 @@ void _everySettingIsListed
 
 // ---- Jobs ----
 
-export type JobKind = 'preprocess' | 'suggestion' | 'ingest'
+// Feature 002 deletes the `preprocess` and `suggestion` job kinds: no code
+// enqueues them any more, and only `ingest` (the curation run) is live (D4).
+export type JobKind = 'ingest'
+// Stored history says otherwise: rows of the retired kinds survive in
+// `enrichment_jobs` (contract: "stored rows kept"), so a JobRecord READ back
+// from the database can legitimately carry one of those strings. Naming it
+// honestly at the read boundary keeps the narrow `JobKind` true for every
+// enqueue site.
+export type StoredJobKind = JobKind | 'preprocess' | 'suggestion'
 export type JobState = 'queued' | 'running' | 'done' | 'failed'
 
 export interface JobRecord {
   id: string
-  kind: JobKind
+  kind: StoredJobKind
   taskId: string | null
   state: JobState
   stepLabel: string | null
@@ -343,23 +412,40 @@ export interface JobRecord {
   finishedAt: string | null
 }
 
-// ---- Pre-process (per-kind AI outputs produced on My Day add) ----
+// The retired `TaskPreprocess` entity: the `task_preprocess` table keeps its
+// rows as history (D4 — "No new code reads them"); the type itself is deleted
+// with the preprocess engine.
 
-export interface TaskPreprocess {
+// ---- Conversations (feature 002, FR-008–FR-011) ----
+
+// A task-owned exchange with the assistant. Conversations are persisted in
+// SQLite (v14): they survive restarts (FR-009), they belong to the task
+// (cascade delete, final as 001 FR-004), and they never act on the board
+// (FR-010). A task may hold several; starting a fresh one leaves the earlier
+// ones retrievable.
+export interface Conversation {
+  id: string
   taskId: string
-  kind: TaskKind
-  // Markdown summary produced by the kind's pre-process routine.
-  summary: string
-  // One-sentence guess of the user's likely intention behind the request.
-  analysis: string
-  // Dismissible activity suggestion chips (also mirrored into the
-  // suggestions table for the existing chip UI).
-  suggestions: string[]
-  status: PreprocessStatus
-  // Hash of the inputs this output was computed from — gates re-runs when
-  // relevant inputs change while the task sits in My Day (design D3).
-  inputsHash: string
-  updatedAt: string
+  createdAt: string
+  /**
+   * Populated by `conversations:list` summaries only (contract: "summaries:
+   * id, createdAt, messageCount"); a single created/fetched Conversation may
+   * omit it.
+   */
+  messageCount?: number
+}
+
+export interface ConversationMessage {
+  id: string
+  conversationId: string
+  role: 'user' | 'assistant'
+  // Must not be empty (data-model rule). Stored records keep the language
+  // they were written in.
+  content: string
+  // The chatMessages rule: an assistant entry carries its usage metadata —
+  // without it the SDK's context estimator throws inside the provider call.
+  usage?: Record<string, unknown> | null
+  createdAt: string
 }
 
 // ---- Notes ----
@@ -373,7 +459,10 @@ export interface TaskNote {
 
 // ---- Wiki / ingest ledger ----
 
-export type IngestState = 'queued' | 'running' | 'done' | 'failed'
+// Feature 002 adds the undo story (FR-020): a completed curation moves
+// `done → undone`. A `queued` run whose curation never happened (assistant
+// off, D8/FR-021) reads as "did not run" in the Activity view.
+export type IngestState = 'queued' | 'running' | 'done' | 'failed' | 'undone'
 
 export interface IngestRecord {
   id: string
@@ -387,13 +476,26 @@ export interface IngestRecord {
   createdAt: string
   startedAt: string | null
   finishedAt: string | null
+  /** Set by the undo action (v15); null until a `done` run is undone. */
+  undoneAt: string | null
+  /**
+   * The `.history/<run>/` snapshot directory, stored RELATIVE to the
+   * collection root (FR-024 portability rule — no absolute path may enter a
+   * board row). Taken after the deposit; the order is load-bearing (D7).
+   */
+  snapshotDir: string | null
 }
 
-// ---- Debug chat ----
+// ---- Chat history shaping ----
 
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  /** The chatMessages rule: an assistant entry carries its usage metadata —
+   *  without it the SDK's context estimator throws inside the provider call.
+   *  Stored conversation messages supply it; absent means "unknown" and the
+   *  shaping layer substitutes the honest zero. */
+  usage?: Record<string, unknown> | null
 }
 
 // ---- Views ----
@@ -401,8 +503,6 @@ export interface ChatMessage {
 export interface AppSnapshot {
   lists: List[]
   tasks: Task[]
-  suggestions: Suggestion[]
-  preprocess: Record<string, TaskPreprocess>
   notes: Record<string, TaskNote>
   // Redacted by construction (FR-020): the snapshot has no field a secret
   // could be put into. `aiReadiness` replaces the old `aiConfigured` boolean
@@ -411,4 +511,6 @@ export interface AppSnapshot {
   taskTypes: TaskTypeDef[]
   aiReadiness: 'not-configured' | 'configured-verified' | 'configured-last-check-failed'
   ingestHistory: IngestRecord[]
+  // The preprocess/suggestion snapshot fields are retired with the engines
+  // (D4): the rows stay in the database as history, nothing reads them.
 }

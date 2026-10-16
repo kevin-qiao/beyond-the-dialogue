@@ -1,116 +1,110 @@
-import type { Task, TaskPreprocess } from '../../shared/types'
-import type { TaskCategory } from './categories'
+import type { Task, TaskTypeDef } from '../../shared/types'
+import type { Family } from './family'
 
-// What a task-grounded chat session is told about its task.
+// What a task-grounded conversation is told about its task (research D10).
 //
-// This used to be a chain of `kind === 'learning'` / `kind === 'jira'` ternaries
-// in the transport. It has the same shape as the pre-process registry and for
-// the same reason: a category that nobody added a branch for is not an error
-// anybody sees — the session simply gets *less* grounding and answers from a
-// thinner picture. When `meeting` was added, that is exactly what happened: a
-// meeting's chat never received its own objective or focus prompt, and nothing
-// failed or warned.
+// This used to be a per-category registry with an entry for every category
+// that had a pre-process — and `plain` was ABSENT, which was fine while only
+// pre-processed kinds could chat. Feature 002 attaches a conversation to
+// EVERY task (FR-008), so the family-less case is a first-class entry, not an
+// absence. The lesson from 001 stands: the added `meeting` category silently
+// received less grounding because a ternary did not know it, and nothing
+// failed. The registry is total over the cases that exist, and
+// `test/chatContext.test.ts` asserts that totality — a case the registry does
+// not cover fails the test rather than degrading quietly.
 //
-// So the registry is total over the categories that have a pre-process, and
-// `test/chatContext.test.ts` asserts that. A missing entry for a category that
-// can be chatted with is a test failure, not a quiet degradation.
+// The grounding is built from DECLARATIONS, never from a type key (Principle
+// I): title, background, target, the Type's declared inputs, and the
+// working-area note when the task has one. The egress rule rides along
+// (FR-011): the session sees only THIS task's material, because this block is
+// the whole task picture the context construction receives.
 
 const MAX_CONTENT = 60_000
 
 export interface ChatContextInput {
-  task: Pick<Task, 'title' | 'notes' | 'inputs'>
-  preprocess: TaskPreprocess | null
-  /** The user's working content (note, minutes), when they have written any. */
+  task: Pick<Task, 'title' | 'background' | 'target' | 'notes' | 'inputs'>
+  /** The Type whose declarations govern this task, when one resolves. */
+  typeDef: TaskTypeDef | null | undefined
+  /** The working-area content (the task note), when the user has written any. */
   workingContent: string | null
 }
 
 export interface ChatContextInstruction {
-  /** The complete grounding for this category, in the order it is presented. */
+  /** The complete grounding for this case, in the order it is presented. */
   build: (input: ChatContextInput) => string[]
 }
-
-const text = (v: unknown): string => (typeof v === 'string' && v.trim() ? v : '')
 
 /** Whitespace-only content is no content: it must not produce a labelled line. */
 const has = (v: string | null | undefined): v is string => typeof v === 'string' && v.trim().length > 0
 
 const cap = (s: string): string => s.slice(0, MAX_CONTENT)
 
-const head = (task: ChatContextInput['task']): string[] => [
-  `Task: ${task.title}`,
-  task.notes ? `Description: ${task.notes}` : ''
-]
+/** The lines every case shares: the task's own head material. */
+function head({ task, typeDef }: ChatContextInput): string[] {
+  const lines = [`Task: ${task.title}`]
+  if (has(task.background)) lines.push(`Background: ${cap(task.background)}`)
+  if (has(task.target)) lines.push(`Target: ${cap(task.target)}`)
+  if (has(task.notes)) lines.push(`Description: ${cap(task.notes)}`)
+  // Declared inputs only (FR-011's egress rule at the grounding level): an
+  // input the Type does not declare is not this task's declared material.
+  for (const field of typeDef?.inputSchema ?? []) {
+    const value = task.inputs?.[field.key]
+    if (typeof value === 'string' && value.trim()) lines.push(`${field.label || field.key}: ${cap(value)}`)
+  }
+  return lines
+}
 
 /**
- * Every output the pre-process produced, in the order the task shows them.
- *
- * All three, deliberately. Grounding a chat in the summary alone made it the
- * one surface that saw a partial picture: the card showed the analysis, the
- * deposit archived it, and the chat that could act on it never received it.
- * An empty field contributes no line rather than an empty label, which is the
- * same rule the rest of this file follows.
+ * A document-family task: its working-area note is the DRAFT — the user's own
+ * work in progress (research D3) — and is presented as such.
  */
-function preprocessLines(p: TaskPreprocess | null): string[] {
-  if (!p) return []
-  const suggestions = p.suggestions ?? []
-  return [
-    text(p.summary) ? `Pre-process summary: ${p.summary}` : '',
-    text(p.analysis) ? `Pre-process analysis: ${p.analysis}` : '',
-    suggestions.length > 0 ? `Pre-process suggestions:\n${suggestions.map((s) => `- ${s}`).join('\n')}` : ''
+const documentCase: ChatContextInstruction = {
+  build: (input) => [
+    ...head(input),
+    has(input.workingContent) ? `Working-area draft:\n${cap(input.workingContent)}` : ''
   ].filter(Boolean)
 }
 
-const learning: ChatContextInstruction = {
-  build: ({ task, preprocess, workingContent }) =>
-    [
-      ...head(task),
-      ...preprocessLines(preprocess),
-      text(task.inputs.target) ? `Target: ${text(task.inputs.target)}` : '',
-      text(task.inputs.purpose) ? `Prompt: ${text(task.inputs.purpose)}` : '',
-      has(workingContent) ? `Current learning note:\n${cap(workingContent)}` : ''
-    ].filter(Boolean)
-}
-
-const jira: ChatContextInstruction = {
-  build: ({ task, preprocess }) =>
-    [
-      ...head(task),
-      ...preprocessLines(preprocess),
-      `Source kind: ${task.inputs.sourceKind === 'page' ? 'Confluence page' : 'JIRA issue'}`,
-      text(task.inputs.sourceText) ? `Pasted source content:\n${cap(text(task.inputs.sourceText))}` : ''
-    ].filter(Boolean)
-}
-
-const meeting: ChatContextInstruction = {
-  build: ({ task, preprocess, workingContent }) =>
-    [
-      ...head(task),
-      ...preprocessLines(preprocess),
-      text(task.inputs.target) ? `Objective: ${text(task.inputs.target)}` : '',
-      text(task.inputs.purpose) ? `Prompt: ${text(task.inputs.purpose)}` : '',
-      has(workingContent) ? `Minutes so far:\n${cap(workingContent)}` : ''
-    ].filter(Boolean)
-}
-
 /**
- * The categories whose tasks open a chat panel. `plain` is absent: its working
- * area has no chat, so there is no grounding to build.
- */
-export const CHAT_CONTEXT_INSTRUCTIONS: Partial<Record<TaskCategory, ChatContextInstruction>> = {
-  learning,
-  jira,
-  meeting
-}
-
-/**
- * The grounding for a task's chat, or undefined when its category has none.
+ * A family-less task (`plain` and its user-defined equivalents): no assistance
+ * is declared, but the conversation still grounds in everything the task
+ * actually holds (US2-AC5). The note is ordinary additional information here,
+ * not a draft.
  *
- * Undefined means "this category has no chat", not "we forgot this category" —
- * the latter is caught by the totality test rather than papered over here.
+ * Not-yet-live families (working-system, coding) receive this treatment in
+ * dispatch terms until their own features land (T033's honest affordance).
  */
-export function buildChatContext(category: TaskCategory, input: ChatContextInput): string | undefined {
-  const instruction = CHAT_CONTEXT_INSTRUCTIONS[category]
-  if (!instruction) return undefined
-  const lines = instruction.build(input)
-  return lines.length > 0 ? lines.join('\n') : undefined
+const familyLessCase: ChatContextInstruction = {
+  build: (input) => [
+    ...head(input),
+    has(input.workingContent) ? `Notes:\n${cap(input.workingContent)}` : ''
+  ].filter(Boolean)
+}
+
+/** The cases the registry covers. Total, and pinned by the totality test. */
+export const CHAT_GROUNDING_CASES = ['document', 'family-less'] as const
+export type ChatGroundingCase = (typeof CHAT_GROUNDING_CASES)[number]
+
+export const CHAT_CONTEXT_INSTRUCTIONS: Record<ChatGroundingCase, ChatContextInstruction> = {
+  document: documentCase,
+  'family-less': familyLessCase
+}
+
+/**
+ * Which grounding case a task's family selects. Total over every family value
+ * including null: a family this feature has not lit up yet gets the
+ * family-less treatment rather than falling out of the registry.
+ */
+export function chatCaseFor(family: Family | null | undefined): ChatGroundingCase {
+  return family === 'document' ? 'document' : 'family-less'
+}
+
+/**
+ * The grounding block for a task's conversation. Every task has one (FR-008):
+ * this always returns at least the task title line.
+ */
+export function buildChatContext(typeDef: TaskTypeDef | null | undefined, input: ChatContextInput): string {
+  const instruction = CHAT_CONTEXT_INSTRUCTIONS[chatCaseFor(typeDef?.family ?? null)]
+  const lines = instruction.build({ ...input, typeDef })
+  return lines.join('\n')
 }

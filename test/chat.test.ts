@@ -1,138 +1,89 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ChatSession, type ChatStreamFn } from '../src/main/ai/chat'
+import { runChatTurn, type ChatStreamFn } from '../src/main/ai/chat'
 import type { ChatMessage, Settings } from '../src/shared/types'
 
-const SETTINGS_ON: Settings = {
+// The per-turn runner (feature 002, D5). The in-memory ChatSession model is
+// deleted: storage holds the history (pinned by test/conversations.test.ts),
+// and this module is one short-lived call per turn — deltas out, text + usage
+// back, nothing retained.
+
+const SETTINGS_ON = {
   provider: 'deepseek',
   model: 'deepseek-v4-flash',
   hasApiKey: true,
   defaultListId: null,
   maxConcurrentJobs: 2,
-  showWelcome: false
-}
+  showWelcome: false,
+  theme: 'light',
+  uiLanguage: 'en',
+  assistantRuntime: 'on',
+  lastCheck: null,
+  skills: [],
+  mcpServers: []
+} as unknown as Settings
 
 const SETTINGS_OFF: Settings = { ...SETTINGS_ON, hasApiKey: false }
 
-// Scripted stream: emits two deltas then returns the full reply.
+// Scripted stream: emits deltas then returns the reply WITH usage — the
+// stored assistant message must carry it (the chatMessages rule).
 function scriptedStream(reply = 'hello from the model'): { fn: ChatStreamFn; deltas: string[] } {
   const deltas: string[] = []
   const fn: ChatStreamFn = async (_settings, _history, onDelta) => {
-    const parts = reply.split(' ')
-    for (const p of parts) {
+    for (const p of reply.split(' ')) {
       deltas.push(p + ' ')
       onDelta(p + ' ')
     }
-    return reply
+    return { text: reply, usage: { totalTokens: 7 } }
   }
   return { fn, deltas }
 }
 
-test('send streams deltas and accumulates history', async () => {
+test('a turn streams deltas and returns the text with its usage', async () => {
   const { fn, deltas } = scriptedStream()
-  const s = new ChatSession(fn)
   let streamed = ''
-  const reply = await s.send('ping', SETTINGS_ON, (d) => (streamed += d))
-  assert.equal(reply, 'hello from the model')
+  const result = await runChatTurn(SETTINGS_ON, [{ role: 'user', content: 'ping' }], (d) => (streamed += d), fn)
+  assert.equal(result.text, 'hello from the model')
+  assert.deepEqual(result.usage, { totalTokens: 7 })
   assert.equal(streamed, 'hello from the model ')
-  assert.deepEqual(s.messages, [
-    { role: 'user', content: 'ping' },
-    { role: 'assistant', content: 'hello from the model' }
-  ])
-  assert.equal(deltas.length, 4, 'two tokens per scripted reply')
+  assert.equal(deltas.length, 4)
 })
 
-test('multi-turn: history grows and is passed to the stream function', async () => {
+test('the shaped history is passed through untouched — stored usage rides along', async () => {
   const seen: ChatMessage[][] = []
   const fn: ChatStreamFn = async (_s, history, onDelta) => {
     seen.push([...history])
     onDelta('ok')
-    return 'ok'
+    return { text: 'ok' }
   }
-  const s = new ChatSession(fn)
-  await s.send('first', SETTINGS_ON, () => {})
-  await s.send('second', SETTINGS_ON, () => {})
-  assert.equal(seen.length, 2)
-  assert.equal(seen[0]!.length, 1, 'first turn sees only its own user message')
-  assert.equal(seen[1]!.length, 3, 'second turn sees user + assistant + user')
+  const history: ChatMessage[] = [
+    { role: 'user', content: 'Task context…' },
+    { role: 'assistant', content: 'Understood.', usage: null },
+    { role: 'user', content: 'first' },
+    { role: 'assistant', content: 'an answer', usage: { totalTokens: 12 } }
+  ]
+  await runChatTurn(SETTINGS_ON, [...history, { role: 'user', content: 'second' }], () => {}, fn)
+  assert.deepEqual(seen[0], [...history, { role: 'user', content: 'second' }])
+  assert.deepEqual(seen[0]![3]!.usage, { totalTokens: 12 }, 'the stored usage reaches the shaping layer')
 })
 
-test('no-key send is rejected without contacting the model', async () => {
+test('no-key turn is rejected without contacting the model', async () => {
   const { fn } = scriptedStream()
-  const s = new ChatSession(fn)
-  await assert.rejects(() => s.send('ping', SETTINGS_OFF, () => {}), /AI not configured/)
-  assert.equal(s.messages.length, 0, 'no user message pollutes history')
+  let called = false
+  await assert.rejects(
+    () =>
+      runChatTurn(SETTINGS_OFF, [{ role: 'user', content: 'ping' }], () => {}, async (...args) => {
+        called = true
+        return fn(...args)
+      }),
+    /AI not configured/
+  )
+  assert.equal(called, false, 'the stream is never reached when unconfigured')
 })
 
-test('failed turn rolls back the user message', async () => {
+test('a failed turn rejects with the provider error — the caller keeps history intact', async () => {
   const fn: ChatStreamFn = async () => {
     throw new Error('rate limit exceeded')
   }
-  const s = new ChatSession(fn)
-  await assert.rejects(() => s.send('ping', SETTINGS_ON, () => {}), /rate limit/)
-  assert.deepEqual(s.messages, [], 'history clean after a failed turn')
-})
-
-test('reset clears the conversation', async () => {
-  const { fn } = scriptedStream()
-  const s = new ChatSession(fn)
-  await s.send('ping', SETTINGS_ON, () => {})
-  s.reset()
-  assert.deepEqual(s.messages, [])
-})
-
-test('refreshContext replaces the grounding and keeps the exchange', async () => {
-  const seen: ChatMessage[][] = []
-  const fn: ChatStreamFn = async (_s, history, onDelta) => {
-    seen.push([...history])
-    onDelta('ok')
-    return 'ok'
-  }
-  const s = new ChatSession(fn)
-  await s.send('first', SETTINGS_ON, () => {}, 'pre-process: summary only')
-  // The pre-process lands while the conversation is open.
-  s.refreshContext('pre-process: summary, analysis, suggestions')
-  await s.send('second', SETTINGS_ON, () => {}, 'pre-process: summary, analysis, suggestions')
-
-  assert.equal(seen[1]!.length, 5, 'the context pair plus the two turns so far')
-  assert.ok(seen[1]![0]!.content.includes('analysis, suggestions'), 'the newer grounding reaches the model')
-  assert.equal(seen[1]![2]!.content, 'first', 'and the earlier exchange is still there')
-})
-
-test('a context passed on a later send does not replace the captured one', async () => {
-  const seen: ChatMessage[][] = []
-  const fn: ChatStreamFn = async (_s, history, onDelta) => {
-    seen.push([...history])
-    onDelta('ok')
-    return 'ok'
-  }
-  const s = new ChatSession(fn)
-  await s.send('first', SETTINGS_ON, () => {}, 'grounding at the first message')
-  await s.send('second', SETTINGS_ON, () => {}, 'grounding that arrived later')
-
-  // Why the transport compares a grounding version at all: passing a newer
-  // context is not enough on its own, so a pre-process landing mid-conversation
-  // is invisible to the model until something calls refreshContext.
-  assert.ok(seen[1]![0]!.content.includes('at the first message'))
-  assert.ok(!seen[1]![0]!.content.includes('arrived later'))
-})
-
-test('empty message is rejected', async () => {
-  const s = new ChatSession(scriptedStream().fn)
-  await assert.rejects(() => s.send('   ', SETTINGS_ON, () => {}), /empty message/)
-})
-
-test('concurrent sends are rejected while streaming', async () => {
-  let release!: () => void
-  const gate = new Promise<void>((r) => (release = r))
-  const fn: ChatStreamFn = async (_s, _h, onDelta) => {
-    onDelta('waiting')
-    await gate
-    return 'done'
-  }
-  const s = new ChatSession(fn)
-  const first = s.send('ping', SETTINGS_ON, () => {})
-  await assert.rejects(() => s.send('second', SETTINGS_ON, () => {}), /already streaming/)
-  release()
-  await first
+  await assert.rejects(() => runChatTurn(SETTINGS_ON, [{ role: 'user', content: 'ping' }], () => {}, fn), /rate limit/)
 })

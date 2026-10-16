@@ -1,12 +1,8 @@
 import type { Settings, Task } from '../../shared/types'
 import type { StoragePort, CreateTaskInput } from '../ports/storage'
-import { effectiveCategory, effectiveType } from '../domain/taskType'
+import { effectiveType } from '../domain/taskType'
 import { validateInputsForWrite, validateTaskWrite } from '../domain/validation'
-import { preprocessInputHash } from '../domain/hashing'
 import { LocalizedError } from '../i18n/issues'
-import { hasPreprocess } from '../domain/preprocess'
-import { isConfigured } from '../domain/config'
-import { isAssistantEnabled } from '../domain/assistant'
 
 // Task use cases: create, edit, and My Day membership.
 //
@@ -14,13 +10,21 @@ import { isAssistantEnabled } from '../domain/assistant'
 // next to the transport and could only be exercised by launching Electron.
 // The rules are the same; what changed is that they now take a StoragePort and
 // are testable without a window.
+//
+// Feature 002 (D4): the preprocess/suggestion engines are deleted. An edit or
+// a My Day add no longer decides any background work — the spec asks for no
+// automatic job when a task is added, and assistance now begins only where
+// the user chooses it (finish, conversation). The mutation outcome keeps its
+// shape (`enqueue` stays, always empty) so callers and tests read one honest
+// contract rather than a half-used one.
 
-/** Work the caller should hand to the background, decided by the service. */
-export type BackgroundWork = 'suggestion' | 'preprocess'
+/** Work the caller should hand to the background, decided by the service.
+ *  With the POC engines retired, no task mutation enqueues any. */
+export type BackgroundWork = never
 
 export interface TaskMutationOutcome {
   task: Task
-  /** Jobs to enqueue, in order. Empty for most edits. */
+  /** Always empty since feature 002 — an edit never starts AI work by itself. */
   enqueue: BackgroundWork[]
 }
 
@@ -55,14 +59,13 @@ export interface UpdateTaskInput {
 }
 
 /**
- * Edit a task. Returns the task plus whatever background work the edit
- * warrants, so the caller does no rule-evaluation of its own.
+ * Edit a task.
  *
- * Two rules live here rather than in a handler:
- *   - switching type discards inputs the new type does not declare (the
- *     renderer re-collects what carries over, so the values are not stranded);
- *   - a change to a *relevant* input while the task sits in My Day re-runs
- *     pre-processing, gated on the input hash so an unrelated edit does not.
+ * The one rule that lives here rather than in a handler: switching type
+ * discards inputs the new type does not declare (the renderer re-collects
+ * what carries over, so the values are not stranded). What used to also live
+ * here — the hash-gated pre-process re-run on relevant input changes — is
+ * deleted with the engine (D4).
  */
 export function updateTask(storage: StoragePort, args: UpdateTaskInput, settings: Settings): TaskMutationOutcome {
   const before = storage.getTask(args.id)
@@ -100,43 +103,15 @@ export function updateTask(storage: StoragePort, args: UpdateTaskInput, settings
     patch.inputs = args.inputs
   }
 
-  let task = storage.updateTask(args.id, patch)
-
-  // A type change invalidates the old outputs wholesale; the stale results
-  // belong to the previous type, so re-running is left to the My Day re-add.
-  const inputsTouched = args.inputs !== undefined || args.title !== undefined || args.notes !== undefined
-  if (!typeChanged && inputsTouched && shouldRerunPreprocess(storage, task, settings)) {
-    task = storage.updateTask(task.id, { preprocessStatus: 'queued', preprocessError: null })
-    return { task, enqueue: ['preprocess'] }
-  }
+  const task = storage.updateTask(args.id, patch)
   return { task, enqueue: [] }
 }
 
 /**
- * The hash gate (design D3): re-run only when a relevant input actually
- * changed, the task is still actionable in My Day, no run is in flight, and
- * the AI is configured.
- */
-function shouldRerunPreprocess(storage: StoragePort, task: Task, settings: Settings): boolean {
-  // Feature 001's switch (FR-015, research D1/D7): with the assistant off the
-  // board never enqueues AI work — the returned enqueue is empty and no
-  // preprocess_status is set, exactly as if the category had no pre-process.
-  if (!isAssistantEnabled(settings)) return false
-  const category = effectiveCategory(storage.listTypes(), task)
-  if (!hasPreprocess(category) || !isConfigured(settings)) return false
-  if (!task.inMyDay || task.completed) return false
-  if (task.preprocessStatus === 'queued' || task.preprocessStatus === 'running') return false
-  const def = effectiveType(storage.listTypes(), task)
-  const newHash = preprocessInputHash(task, def)
-  const consumed = storage.getPreprocess(task.id)?.inputsHash ?? ''
-  return newHash !== consumed
-}
-
-/**
- * Add or remove a task from My Day. My Day is planning-only: a first add fires
- * the suggestion chips for a category with no pre-process, or that category's
- * pre-process for one that has it — never both, because the pre-process folds
- * its suggestions in.
+ * Add or remove a task from My Day. Since feature 002 a first add starts no
+ * job at all (D4): the pre-process and suggestion triggers belonged to the
+ * retired engines, and the 002 spec asks for no automatic AI work on any
+ * board interaction.
  */
 export function setMyDay(
   storage: StoragePort,
@@ -146,22 +121,6 @@ export function setMyDay(
 ): TaskMutationOutcome {
   const before = storage.getTask(id)
   if (!before) throw new Error('task not found')
-  let task = storage.updateTask(id, { inMyDay, myDayAddedAt: inMyDay ? new Date().toISOString() : null })
-
-  const enqueue: BackgroundWork[] = []
-  const firstAdd = inMyDay && !before.inMyDay
-  // The switch decides whether a My Day add may reach the network at all
-  // (FR-015): with it off, neither the plain-task suggestion (research D7 —
-  // the one place a *board* interaction used to call a provider) nor any
-  // pre-process is enqueued, and `preprocess_status` never flips to queued.
-  if (firstAdd && isAssistantEnabled(settings)) {
-    const category = effectiveCategory(storage.listTypes(), task)
-    if (!hasPreprocess(category)) {
-      enqueue.push('suggestion')
-    } else if (isConfigured(settings)) {
-      task = storage.updateTask(task.id, { preprocessStatus: 'queued', preprocessError: null })
-      enqueue.push('preprocess')
-    }
-  }
-  return { task, enqueue }
+  const task = storage.updateTask(id, { inMyDay, myDayAddedAt: inMyDay ? new Date().toISOString() : null })
+  return { task, enqueue: [] }
 }

@@ -1,4 +1,4 @@
-import type { PluginGrant, Task, TaskTypeDef } from '../../shared/types'
+import type { PluginGrant, Task } from '../../shared/types'
 import { NO_GRANT, hasAnyGrant } from '../../shared/types'
 import type { SessionPurpose } from '../ports/agent'
 
@@ -20,10 +20,16 @@ import type { SessionPurpose } from '../ports/agent'
 /**
  * The grant a run may use. `confined` is a property of the CALL SITE, not of
  * the caller's intent — which is the entire point of resolving it here.
+ *
+ * Feature 002 (D9, FR-015): grants are no longer a Type declaration — the
+ * field does not exist on `TaskTypeDef`, so no caller can supply one from a
+ * configuration. The parameter survives for the later grants feature (it will
+ * re-add the declared field); until then every purpose resolves NO_GRANT, and
+ * a confined purpose does so unconditionally as it always did.
  */
-export function resolveGrant(req: { purpose: SessionPurpose; typeDef?: TaskTypeDef | null }): PluginGrant {
+export function resolveGrant(req: { purpose: SessionPurpose; grants?: PluginGrant | null }): PluginGrant {
   if (req.purpose === 'confined') return NO_GRANT
-  return req.typeDef?.grants ?? NO_GRANT
+  return req.grants ?? NO_GRANT
 }
 
 // ---- the egress boundary (FR-029, SC-010) ----
@@ -45,13 +51,14 @@ export interface ContextPart {
  */
 export function buildSessionContext(args: {
   task: Pick<Task, 'title' | 'notes' | 'inputs'>
-  typeDef: TaskTypeDef | null | undefined
+  /** The already-resolved grant for this session (D9: no Type declares one). */
+  grants?: PluginGrant | null
   purpose: SessionPurpose
-  /** Everything the ungranted path would include: notes, minutes, wiki, history. */
+  /** Everything the ungranted path would include: notes, drafts, wiki, history. */
   fullContext: () => string | undefined
 }): string | undefined {
   if (args.purpose === 'confined') return args.fullContext()
-  if (!hasAnyGrant(args.typeDef?.grants)) return args.fullContext()
+  if (!hasAnyGrant(args.grants)) return args.fullContext()
   return declaredInputsOnly(args.task)
 }
 

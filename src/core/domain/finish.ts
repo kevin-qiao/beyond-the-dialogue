@@ -2,12 +2,36 @@ import type { Destination, Task, TaskTypeDef } from '../../shared/types'
 import type { ArtifactStorePort } from '../ports/artifactStore'
 import type { AgentSessionPort } from '../ports/agent'
 import type { ClockPort } from '../ports/clock'
-import type { FinishBehaviour } from './categories'
 import { message, type Language } from '../i18n'
+import { LocalizedError } from '../i18n/issues'
 
 // The four finish behaviours (contracts/finish-behaviours.md). Exactly four
 // exist; adding a fifth is meant to be a deliberate act with a known shape
 // rather than an edit to a conditional.
+//
+// This is the module that DISPATCHES on the set (FINISH_STRATEGIES below), so
+// feature 002's retirement of `categories.ts` moved the declaration here —
+// "the finish-behaviour set and the destination-store set move to the modules
+// that dispatch on them" (research D1). A SQL `CHECK` restatement in
+// src/main/db.ts mirrors these four literals; it names THIS file as its source.
+export const FINISH_BEHAVIOURS = [
+  'complete-only',
+  'file-as-is',
+  'polish-then-file',
+  'deposit-then-curate'
+] as const
+export type FinishBehaviour = (typeof FINISH_BEHAVIOURS)[number]
+
+export function isFinishBehaviour(value: unknown): value is FinishBehaviour {
+  return typeof value === 'string' && (FINISH_BEHAVIOURS as readonly string[]).includes(value)
+}
+
+export function writesArtifact(behaviour: FinishBehaviour): boolean {
+  return behaviour !== 'complete-only'
+}
+
+// The four behaviours are the closed set (FR-014): users select among these,
+// they cannot define new ones.
 //
 // Every behaviour shares the same invariants:
 //   - a finish never fails solely because AI is unconfigured (FR-025)
@@ -36,7 +60,7 @@ export interface FinishContext {
   typeDef: TaskTypeDef
   /** null only for 'complete-only'. */
   destination: FinishDestinationRef | null
-  /** The user's own content: their minutes, or their working note. */
+  /** The user's own content: their working-area draft (or ordinary note). */
   workingContent: string
   declaredInputs: Record<string, unknown>
   store: ArtifactStorePort
@@ -47,12 +71,21 @@ export interface FinishContext {
   /**
    * Structural detail as the strategy produces it, so the activity record can
    * show what was preserved even when a later step fails. `onStep` carries the
-   * human-readable progress; this carries the file lists.
+   * human-readable progress; this carries the file lists and the snapshot
+   * location (RELATIVE to the collection — the storable form, FR-024) the
+   * undo action restores from (T040).
    */
-  onDetail?: (detail: { depositFiles?: string[]; protectedFiles?: string[] }) => void
+  onDetail?: (detail: { depositFiles?: string[]; protectedFiles?: string[]; snapshotDir?: string }) => void
   /** Pre-rendered AI pre-process summary, for the deposit-first safety net. */
   summary?: string
   attachmentPath?: string
+  /**
+   * The deposit that ALREADY landed — synchronously, at finish time — when
+   * the curating job re-enters this strategy (D7's order: deposit first at
+   * finish, snapshot and curation in the job). The strategy does not
+   * re-deposit what the finish deposited: one code path, no double work.
+   */
+  priorDeposit?: string[]
   /**
    * The curated target the curating agent should write to, relative to the
    * destination root. Supplied by the caller because a wiki destination lets
@@ -87,7 +120,8 @@ function requireDestination(ctx: FinishContext): FinishDestinationRef {
 
 /**
  * Writes nothing. Marks the task complete and clears its alarm. `plain` and
- * `jira` today; a destination is a configuration error, refused at save time.
+ * family-less user Types; a destination is a configuration error, refused at
+ * save time.
  */
 export const completeOnly: FinishStrategy = async () => ({
   artifactPath: null,
@@ -98,24 +132,41 @@ export const completeOnly: FinishStrategy = async () => ({
 /** Writes the user's working content to the destination unchanged. */
 export const fileAsIs: FinishStrategy = async (ctx) => {
   const dest = requireDestination(ctx)
+  // US1-AC6 backstop: filing an empty document is never what the user meant;
+  // the service refuses earlier, and a direct call meets the same rule.
+  if (!ctx.workingContent.trim()) {
+    throw new LocalizedError([{ key: 'document.empty' }])
+  }
   const path = await ctx.store.writeArtifact(dest, ctx.workingContent)
   return { artifactPath: path, assistantStep: 'skipped', touchedFiles: [dest.rel] }
 }
 
 /**
- * The assistant rewrites the content; the result is then written.
+ * The ORGANIZE step (feature 002, research D2 — the behaviour keeps its
+ * `polish-then-file` name; this comment records the re-argument): the
+ * assistant re-organizes the user's draft as the TYPE'S DECLARED INSTRUCTION
+ * describes, and the result is then written. The instruction that drives it is
+ * `typeDef.aiGuidance` — not a meeting-minutes template. The meeting-only
+ * action-items append is deleted with the meeting engine.
  *
- * The bound matters more than the transformation (FR-009): polish may
- * restructure and tighten prose, but it must preserve every fact, decision and
- * action item the user recorded and must not introduce any it did not. Those
- * are enforced, not merely requested — see `verifyPolish`.
+ * The bound matters more than the transformation (FR-005): organize may
+ * restructure and tighten prose, but every fact and action item in the filed
+ * document must be traceable to the user's own written content, and it must
+ * not introduce any it did not. That is enforced, not merely requested — see
+ * `verifyPolish`. When the check fails, the user's content is filed AS WRITTEN
+ * and the assistant step is reported failed.
  *
  * Degradation: with no provider, or when the assistant step fails or violates
- * the bound, the user's content is filed unpolished and the failure is
- * reported. A finish never fails outright (FR-025, FR-011).
+ * the bound, the user's content is filed unorganized and the failure is
+ * reported. A finish never fails outright (FR-006).
  */
 export const polishThenFile: FinishStrategy = async (ctx) => {
   const dest = requireDestination(ctx)
+  // US1-AC6 backstop: the service refuses a blank draft before the
+  // destination resolves; a direct strategy call meets the same rule.
+  if (!ctx.workingContent.trim()) {
+    throw new LocalizedError([{ key: 'document.empty' }])
+  }
   const content = truncateForAssistant(ctx.workingContent)
 
   let polished: string | null = null
@@ -124,16 +175,16 @@ export const polishThenFile: FinishStrategy = async (ctx) => {
 
   if (!ctx.session.isAvailable()) {
     assistantStep = 'failed'
-    assistantError = 'no AI provider is configured — the minutes were filed as written'
+    assistantError = 'no AI provider is configured — the document was filed as written'
     ctx.onStep?.(message(ctx.language, 'finish.step.filingUnpolished'), message(ctx.language, 'finish.step.noAi'))
   } else {
     try {
-      ctx.onStep?.(message(ctx.language, 'finish.step.polishing'), message(ctx.language, 'finish.step.polishingDetail'))
+      ctx.onStep?.(message(ctx.language, 'finish.step.organizing'), message(ctx.language, 'finish.step.organizingDetail'))
       const raw = await ctx.session.run({
         purpose: 'confined',
         cwd: dest.root,
-        systemPrompt: POLISH_SYSTEM_PROMPT,
-        prompt: buildPolishPrompt(ctx, content),
+        systemPrompt: ORGANIZE_SYSTEM_PROMPT,
+        prompt: buildOrganizePrompt(ctx, content),
         tools: [],
         thinkingLevel: 'medium',
         signal: ctx.signal,
@@ -141,7 +192,7 @@ export const polishThenFile: FinishStrategy = async (ctx) => {
       })
       const draft = parsePolishOutput(raw)
       verifyPolish(draft, ctx.workingContent)
-      polished = renderPolished(draft)
+      polished = draft.polished
       assistantStep = 'succeeded'
     } catch (e: any) {
       assistantStep = 'failed'
@@ -169,24 +220,47 @@ export const polishThenFile: FinishStrategy = async (ctx) => {
 export const depositThenCurate: FinishStrategy = async (ctx) => {
   const dest = requireDestination(ctx)
 
-  ctx.onStep?.(message(ctx.language, 'finish.step.depositing'), message(ctx.language, 'finish.step.depositingDetail'))
-  const deposit = await ctx.store.deposit(dest, {
-    taskId: ctx.task.id,
-    title: ctx.task.title,
-    content: ctx.workingContent,
-    summary: ctx.summary,
-    attachmentPath: ctx.attachmentPath
-  })
-  // Reported as it happens: the deposit is the part that survives a later
-  // failure, so the activity record must show it even if the rest never runs.
-  ctx.onDetail?.({ depositFiles: deposit.files })
-  if (deposit.files.length === 0) {
-    throw new Error('nothing to ingest: task has no notes or AI summary')
+  // The wiki store establishes the pattern's minimal structure create-only
+  // at the first destined finish (D6/FR-018) — the step is named for the
+  // Activity surface; a folder destination is never scaffolded.
+  if (dest.store === 'wiki') {
+    ctx.onStep?.(message(ctx.language, 'finish.step.settingUp'), message(ctx.language, 'finish.step.settingUpDetail'))
   }
 
+  // Deposit-first (D7): the user's material lands synchronously and survives
+  // any later failure. When the curating JOB re-enters this strategy, the
+  // finish already deposited — the prior deposit is reported, not repeated
+  // ("the job does not re-implement the finish, and the finish does not
+  // re-implement the job").
+  let depositFiles: string[]
+  if (ctx.priorDeposit && ctx.priorDeposit.length > 0) {
+    depositFiles = ctx.priorDeposit
+    ctx.onDetail?.({ depositFiles })
+  } else {
+    ctx.onStep?.(message(ctx.language, 'finish.step.depositing'), message(ctx.language, 'finish.step.depositingDetail'))
+    const deposit = await ctx.store.deposit(dest, {
+      taskId: ctx.task.id,
+      title: ctx.task.title,
+      content: ctx.workingContent,
+      summary: ctx.summary,
+      attachmentPath: ctx.attachmentPath
+    })
+    // Reported as it happens: the deposit is the part that survives a later
+    // failure, so the activity record must show it even if the rest never runs.
+    depositFiles = deposit.files
+    ctx.onDetail?.({ depositFiles })
+  }
+  if (depositFiles.length === 0) {
+    throw new LocalizedError([{ key: 'document.empty' }])
+  }
+
+  // The snapshot comes AFTER the deposit — the order is load-bearing (D7):
+  // because the deposit stands first, the snapshot is of the collection as
+  // the user's material already entered it, and undo restores curation
+  // against exactly that retained state.
   ctx.onStep?.(message(ctx.language, 'finish.step.snapshotting'), message(ctx.language, 'finish.step.snapshottingDetail'))
   const handle = await ctx.store.snapshot(dest)
-  ctx.onDetail?.({ protectedFiles: handle.files })
+  ctx.onDetail?.({ protectedFiles: handle.files, ...(handle.relLocation ? { snapshotDir: handle.relLocation } : {}) })
 
   if (!ctx.session.isAvailable()) {
     throw new Error('AI not configured: no API key')
@@ -199,7 +273,7 @@ export const depositThenCurate: FinishStrategy = async (ctx) => {
     // agent has to reach the schema file, the raw deposit, index.md and log.md.
     cwd: dest.root,
     systemPrompt: STORE_SCHEMA_PROMPT,
-    prompt: buildCuratePrompt(ctx, deposit.files),
+    prompt: buildCuratePrompt(ctx, depositFiles),
     tools: ['read', 'write', 'edit', 'grep', 'find', 'ls'],
     thinkingLevel: 'medium',
     signal: ctx.signal,
@@ -211,7 +285,7 @@ export const depositThenCurate: FinishStrategy = async (ctx) => {
     artifactPath: dest.abs,
     assistantStep: 'succeeded',
     touchedFiles,
-    depositFiles: deposit.files
+    depositFiles: depositFiles
   }
 }
 
@@ -222,39 +296,46 @@ export const FINISH_STRATEGIES: Record<FinishBehaviour, FinishStrategy> = {
   'deposit-then-curate': depositThenCurate
 }
 
-// ---- polish: prompt, parsing, and the bound ----
+// ---- organize: prompt, parsing, and the bound ----
 
-const POLISH_SYSTEM_PROMPT = `You re-organize and tighten meeting minutes. You are a careful editor, not an author.
+// The generic document editor (research D2). The old prompt was a
+// meeting-minutes template; the meeting engine is deleted, and the shape of
+// the document is now the Type's declared instruction's business, not the
+// prompt's. What stays absolute is the traceability rule the code check
+// enforces (`verifyPolish`).
+const ORGANIZE_SYSTEM_PROMPT = `You re-organize a document the user wrote. You are a careful editor, not an author.
 
-You will be given minutes a user wrote during or after a meeting. Return exactly one JSON object:
+You will be given a document from the user's working area, and — when their type declares one — the instruction describing how they want such documents organized. Return exactly one JSON object:
 
 {
-  "polished": "the re-organized minutes as markdown, WITHOUT an action-items section",
-  "actionItems": ["every action item the user recorded, quoted in their own words"],
-  "preservedFacts": ["every decision and factual point the user recorded"]
+  "polished": "the re-organized document as markdown",
+  "preservedFacts": ["every fact, decision and action item the user recorded, quoted in their own words"]
 }
 
 Absolute rules — these are correctness requirements, not style guidance:
 - Preserve EVERY fact, decision and action item the user recorded. Drop nothing.
 - Introduce NOTHING the user did not write. Do not add plausible-sounding decisions, names, dates, numbers, owners, or next steps.
-- The action items must be quoted from the user's own text, not paraphrased into new commitments.
-- Do not add an action-items section yourself — it is appended from your "actionItems" list.
+- The preserved facts must be quoted from the user's own text, not paraphrased into new commitments.
+- Follow the type's instruction for structure and tone; where it is silent, keep the document's own shape and tighten it.
 - Output ONLY the JSON object. No markdown fences, no commentary.`
 
-function buildPolishPrompt(ctx: FinishContext, content: string): string {
+function buildOrganizePrompt(ctx: FinishContext, content: string): string {
   const parts = [`Task: ${ctx.task.title}`]
   if (ctx.task.notes) parts.push(`Description: ${ctx.task.notes}`)
   const objective = ctx.declaredInputs.target
   if (typeof objective === 'string' && objective.trim()) parts.push(`Objective: ${objective}`)
-  if (ctx.typeDef.aiGuidance) parts.push(`Type guidance: ${ctx.typeDef.aiGuidance}`)
-  parts.push(`\n===MINUTES AS WRITTEN BY THE USER===\n${content || '(empty)'}`)
+  // The declared assistant instruction (D2): the Type says how its documents
+  // are organized; the prompt carries that declaration, never a template.
+  if (ctx.typeDef.aiGuidance) parts.push(`Type instruction: ${ctx.typeDef.aiGuidance}`)
+  parts.push(`\n===DOCUMENT AS WRITTEN BY THE USER===\n${content || '(empty)'}`)
   return parts.join('\n')
 }
 
 /**
- * The same bound the pre-process path applies, for the same reason: minutes
- * larger than the model can process must degrade predictably rather than fail
- * (T034). Truncation is reported through `assistantError` when it bites.
+ * A draft larger than the model can process must degrade predictably rather
+ * than fail — writing and as-is filing never fail because of size (spec edge
+ * case). Truncation is visible to the model, and when the organize step then
+ * cannot stay traceable, the bound files the user's words as written.
  */
 export const POLISH_INPUT_LIMIT = 200_000
 
@@ -265,19 +346,19 @@ function truncateForAssistant(content: string): string {
 
 export interface PolishDraft {
   polished: string
-  actionItems: string[]
   preservedFacts: string[]
 }
 
 /**
- * Raised when a polish draft would introduce content the user did not record.
- * A failure of the behaviour, not a transient error — the finish degrades to
- * filing the user's own words rather than filing something they never wrote.
+ * Raised when an organize draft would introduce content the user did not
+ * record. A failure of the behaviour, not a transient error — the finish
+ * degrades to filing the user's own words rather than filing something they
+ * never wrote.
  */
 export class PolishBoundExceeded extends Error {
   constructor(readonly untraceable: string[]) {
     super(
-      `polish would have introduced content the user did not record: ${untraceable.join('; ')} — the minutes were filed as written`
+      `organizing would have introduced content the user did not record: ${untraceable.join('; ')} — the document was filed as written`
     )
     this.name = 'PolishBoundExceeded'
   }
@@ -287,23 +368,26 @@ export function parsePolishOutput(text: string): PolishDraft {
   const cleaned = text.replace(/```(?:json)?/g, '').trim()
   const start = cleaned.indexOf('{')
   const end = cleaned.lastIndexOf('}')
-  if (start === -1 || end === -1) throw new Error('polish agent returned no JSON object')
+  if (start === -1 || end === -1) throw new Error('organize agent returned no JSON object')
   const parsed = JSON.parse(cleaned.slice(start, end + 1))
   const strings = (v: unknown): string[] =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : []
   const polished = typeof parsed.polished === 'string' ? parsed.polished.trim() : ''
-  if (!polished) throw new Error('polish agent returned no polished text')
-  return { polished, actionItems: strings(parsed.actionItems), preservedFacts: strings(parsed.preservedFacts) }
+  if (!polished) throw new Error('organize agent returned no organized text')
+  return { polished, preservedFacts: strings(parsed.preservedFacts) }
 }
 
 /**
- * FR-009 / SC-011, made checkable.
+ * FR-005, made checkable (re-argued verbatim from the spec): every fact and
+ * action item in the filed document MUST be traceable to the user's own
+ * written content. When that check fails, the system files the user's content
+ * as written and reports the assistant step as failed.
  *
- * Every action item and every preserved fact the assistant reports must be
- * traceable to the user's own words. An item that shares no significant word
- * with the minutes is something the user did not record, so it is refused.
+ * Every preserved fact the assistant reports must be traceable to the user's
+ * own words. An item that shares no significant word with the draft is
+ * something the user did not record, so it is refused.
  *
- * The honest bound: this catches *asserted* content — action items and facts
+ * The honest bound: this catches *asserted* content — facts and action items
  * the assistant declares. A fabrication buried in flowing prose that the
  * assistant does not declare is not machine-detectable from a rewrite, which
  * is why the prompt states the rule absolutely and the check covers the
@@ -312,7 +396,7 @@ export function parsePolishOutput(text: string): PolishDraft {
  */
 export function verifyPolish(draft: PolishDraft, userContent: string): void {
   const source = normalizeForMatch(userContent)
-  const untraceable = [...draft.actionItems, ...draft.preservedFacts].filter((item) => !traceable(item, source))
+  const untraceable = draft.preservedFacts.filter((item) => !traceable(item, source))
   if (untraceable.length > 0) throw new PolishBoundExceeded(untraceable)
 }
 
@@ -336,16 +420,11 @@ function traceable(item: string, source: string): boolean {
   return words.every((w) => source.includes(` ${w} `) || source.includes(`${w} `))
 }
 
-/**
- * The finished document: the polished body, then the recorded action items as
- * a distinct section (FR-009). Appending it here rather than trusting the
- * model to produce one makes the section structural.
- */
-export function renderPolished(draft: PolishDraft): string {
-  if (draft.actionItems.length === 0) return draft.polished
-  const bullets = draft.actionItems.map((a) => `- ${a.trim()}`).join('\n')
-  return `${draft.polished}\n\n## Action items\n\n${bullets}\n`
-}
+// The meeting-only action-items append (`renderPolished`) is deleted with the
+// meeting engine (research D2): the organized document is filed exactly as the
+// organize step produced it, under the traceability bound above. A Type whose
+// instruction asks for an action-items section gets one because the
+// instruction says so — declared, never hardcoded.
 
 export const STORE_SCHEMA_PROMPT = `You are the maintainer of a personal knowledge wiki. You will ingest a finished learning note into the wiki by following the workflow in the CLAUDE.md schema file in your working directory.
 

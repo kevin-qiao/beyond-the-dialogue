@@ -35,17 +35,18 @@ export class WikiArtifactStore implements ArtifactStorePort {
   }
 
   async prepare(target: DestinationRef): Promise<void> {
-    // Belt and braces: the finish service refuses a wiki-destined type with no
-    // directory before this runs, and an empty root must never reach
-    // `ensureWikiDir` — it would scaffold a wiki in the working directory.
+    // Belt and braces: the finish service refuses a destination with no
+    // location before this runs (the same code for both stores, D6), and an
+    // empty root must never reach `ensureWikiDir` — it would scaffold a
+    // collection in the working directory.
     if (!this.wikiRoot) {
-      throw new LocalizedError([{ key: 'wiki.notConfigured' }])
+      throw new LocalizedError([{ key: 'destination.notConfigured' }])
     }
     try {
-      // Create-only: an existing wiki is reused, never restructured.
+      // Create-only: an existing collection is reused, never restructured.
       ensureWikiDir(this.wikiRoot)
     } catch (e: any) {
-      throw new LocalizedError([{ key: 'artifact.wikiUnusable', params: { error: e?.message ?? String(e) } }])
+      throw new LocalizedError([{ key: 'destination.unreachable', params: { path: this.wikiRoot } }])
     }
     if (!fs.existsSync(target.absRoot)) {
       fs.mkdirSync(target.absRoot, { recursive: true })
@@ -83,11 +84,15 @@ export class WikiArtifactStore implements ArtifactStorePort {
     const touched = snapshotWikiFiles(this.wikiRoot, [], subdir)
     const historyRoot = path.join(this.wikiRoot, '.history')
     const stamps = fs.existsSync(historyRoot) ? fs.readdirSync(historyRoot).sort() : []
+    const latest = stamps.length ? stamps[stamps.length - 1]! : null
     return {
       store: 'wiki',
       root: this.wikiRoot,
       subdir,
-      location: stamps.length ? path.join(historyRoot, stamps[stamps.length - 1]!) : null,
+      location: latest ? path.join(historyRoot, latest) : null,
+      // The storable form (FR-024): relative to the collection root, so the
+      // ledger row survives the collection moving with the user's data.
+      relLocation: latest ? `.history/${latest}` : null,
       // `snapshotWikiFiles` returns what it actually backed up; `before` is
       // what existed. They agree, but the backup list is the authoritative one.
       files: touched.length ? touched : before

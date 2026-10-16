@@ -34,7 +34,10 @@ export function createAgentSessionAdapter(getSettings: () => SettingsInput): Age
       const settings = getSettings()
       // Grants are resolved from the PURPOSE, here at the build seam — a
       // confined run gets none by construction (contracts/plugin-grants.md §2).
-      const grant = resolveGrant({ purpose: req.purpose, typeDef: req.typeDef })
+      // D9: no Type declares grants in this feature, so the resolution has
+      // nothing to read — a confined run gets NO_GRANT by construction, and
+      // an interactive one gets NO_GRANT because no declaration exists.
+      const grant = resolveGrant({ purpose: req.purpose })
 
       const session = await createJobSession({
         settings,

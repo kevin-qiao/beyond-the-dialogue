@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../../store'
-import type { Destination, DestinationStore, FinishBehaviour, McpServerEntry, RedactedSettings, Settings, SettingsInput, SkillEntry, TaskKind, TaskTypeDef } from '../../../../shared/types'
+import type { Destination, DestinationStore, Family, FinishBehaviour, McpServerEntry, RedactedSettings, Settings, SettingsInput, SkillEntry, TaskTypeDef, TypeInputField } from '../../../../shared/types'
 import { SETTINGS_KEYS } from '../../../../shared/types'
-import { FINISH_BEHAVIOURS } from '../../../../core/domain/categories'
+import { FAMILIES } from '../../../../core/domain/family'
+import { FINISH_BEHAVIOURS } from '../../../../core/domain/finish'
 import { describeDestination } from '../../../../core/domain/destination'
 import { describeMcpServer, parseMcpJsonPaste } from '../../../../core/domain/mcpConfig'
 import { LANGUAGES, LANGUAGE_NAMES, isLanguage, type MessageKey } from '../../../../core/i18n'
 import { useLanguage, useT } from '../../lib/useT'
 import { isAssistantEnabled } from '../../../../core/domain/assistant'
-import { allTypeConfigs, displayTypeDescription, displayTypeLabel, localizeTypeDef } from '../../lib/typeCatalog'
+import { allTypeConfigs, displayTypeDescription, displayTypeLabel } from '../../lib/typeCatalog'
 import { useDialog } from '../ui/Dialog'
 
 const FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google', 'xai']
@@ -27,6 +28,14 @@ const FINISH_BEHAVIOUR_LABELS: Record<FinishBehaviour, MessageKey> = {
   'deposit-then-curate': 'finishBehaviour.depositThenCurate'
 }
 
+// Family labels (T034). Total over FAMILIES — a family added to the
+// declaration without a label here is a typecheck error, which is the point.
+const FAMILY_LABELS: Record<Family, MessageKey> = {
+  document: 'typeEditor.family.document',
+  'working-system': 'typeEditor.family.workingSystem',
+  coding: 'typeEditor.family.coding'
+}
+
 type Tab = 'general' | 'types' | 'plugins' | 'ai'
 
 // Settings drawer (spec task-types / skills-mcp-settings): capsule tabs —
@@ -37,7 +46,7 @@ type Tab = 'general' | 'types' | 'plugins' | 'ai'
 // NOT a setting here — a `store: wiki` type declares its own destination on
 // the Types tab, and with none configured a Finish is refused.
 export function SettingsView() {
-  const { snapshot, types, saveSettings, saveType, deleteType } = useApp()
+  const { snapshot, types, saveSettings, saveType, removeType } = useApp()
   const t = useT()
   const language = useLanguage()
   const [tab, setTab] = useState<Tab>('general')
@@ -140,10 +149,6 @@ export function SettingsView() {
     })
   }, [draft, snapshot?.settings])
 
-  // The seed input schema a kind supports — taken from its built-in type.
-  const kindSchema = (kind: TaskKind): TaskTypeDef['inputSchema'] =>
-    types.find((t) => t.key === kind)?.inputSchema ?? []
-
   const builtinTypes = allTypeConfigs(types).filter((t) => t.isBuiltin)
   const customTypes = allTypeConfigs(types).filter((t) => !t.isBuiltin)
 
@@ -243,7 +248,7 @@ export function SettingsView() {
                 {t('settings.ai.checkFailed', {
                   provider: draft.provider,
                   model: draft.model || t('settings.ai.noModel'),
-                  reason: snapshot.settings.lastCheck?.reason ?? t('task.preprocess.unknownError')
+                  reason: snapshot.settings.lastCheck?.reason ?? t('error.unknown')
                 })}
               </span>
             ) : (
@@ -267,7 +272,7 @@ export function SettingsView() {
                   <div className="tc-emoji">{c.emoji}</div>
                   <div className="tc-main">
                     <div className="tc-label">{displayTypeLabel(c, language)}</div>
-                    <code className="tc-key">{c.key} · {c.kind}</code>
+                    <code className="tc-key">{c.key}{c.family ? ` · ${c.family}` : ''}</code>
                     {c.description && <div className="tc-desc">{displayTypeDescription(c, language)}</div>}
                   </div>
                   <div className="tc-actions">
@@ -301,7 +306,7 @@ export function SettingsView() {
                     <div className="tc-emoji">{c.emoji}</div>
                     <div className="tc-main">
                       <div className="tc-label">{displayTypeLabel(c, language)}</div>
-                      <code className="tc-key">{c.key} · {c.kind}</code>
+                      <code className="tc-key">{c.key}{c.family ? ` · ${c.family}` : ''}</code>
                       {c.description && <div className="tc-desc">{displayTypeDescription(c, language)}</div>}
                     </div>
                     <div className="tc-actions">
@@ -404,7 +409,7 @@ export function SettingsView() {
                 <span className={testResult.ok ? 'ai-on' : 'error-text'}>
                   {testResult.ok
                     ? t('settings.ai.connected', { text: testResult.text || t('common.ok') })
-                    : t('settings.ai.failed', { error: testResult.error ?? t('task.preprocess.unknownError') })}
+                    : t('settings.ai.failed', { error: testResult.error ?? t('error.unknown') })}
                 </span>
               )}
             </div>
@@ -417,10 +422,17 @@ export function SettingsView() {
           mode={typeEditor.mode}
           existing={typeEditor.existing}
           takenKeys={new Set(allTypeConfigs(types).filter((c) => c !== typeEditor.existing).map((c) => c.key))}
-          kindSchema={kindSchema}
           onSave={async (cfg) => {
             try {
-              await saveType(cfg)
+              // The contract result: a save refusal (e.g. FR-013's
+              // destination without a location) arrives as structured,
+              // already-localized issues — shown, and the editor stays open
+              // so the user can fix what the refusal names.
+              const result = await saveType(cfg)
+              if (!result.ok) {
+                setTypeError((result.issues ?? []).join('; ') || t('error.unknown'))
+                return
+              }
               setTypeEditor(null)
               setTypeError(null)
             } catch (e: any) {
@@ -437,7 +449,10 @@ export function SettingsView() {
           refCount={referenceCount(pendingDelete.key)}
           onConfirm={async () => {
             try {
-              await deleteType(pendingDelete.key)
+              // Tasks using the Type are re-homed to plain (US3-AC4); main
+              // broadcasts each re-home, and the snapshot refresh picks the
+              // registry change up.
+              await removeType(pendingDelete.key)
             } catch (e: any) {
               setTypeError(e?.message ?? String(e))
             }
@@ -663,30 +678,33 @@ function McpSection({
   )
 }
 
-// Modal: add or edit a workflow type. Custom types choose a behavior kind and
-// a subset of that kind's supported input fields; built-in types expose only
-// presentation (label/emoji/description). Key is fixed on edit.
+// Modal: add or edit a workflow type. Custom types choose a Family, declare
+// their own input fields, the assistant instruction, finish behaviour and
+// destination; built-in types expose only presentation (label/emoji/
+// description) plus their destination. Key is fixed on edit.
+//
+// NO grants section (D9): "show the grant UI but ignore it — rejected: a
+// checkbox that changes nothing tells the user something untrue about their
+// control." The family selector carries the honest affordance: only
+// `document` has live assistance in this feature.
 function TypeEditorModal({
   mode,
   existing,
   takenKeys,
-  kindSchema,
   onSave,
   onClose
 }: {
   mode: 'add' | 'edit'
   existing?: TaskTypeDef
   takenKeys: Set<string>
-  kindSchema: (kind: TaskKind) => TaskTypeDef['inputSchema']
   onSave: (cfg: TaskTypeDef) => Promise<void>
   onClose: () => void
 }) {
-  const { snapshot, types } = useApp()
   const t = useT()
-  const language = useLanguage()
   const isBuiltinEdit = mode === 'edit' && !!existing?.isBuiltin
   const [key, setKey] = useState(existing?.key ?? '')
-  const [kind, setKind] = useState<TaskKind>(existing?.kind ?? 'learning')
+  // '' = no family: a Type that needs no assistance (research D1).
+  const [family, setFamily] = useState<Family | ''>(existing?.family ?? '')
   const [label, setLabel] = useState(existing?.label ?? '')
   const [emoji, setEmoji] = useState(existing?.emoji ?? '📌')
   const [description, setDescription] = useState(existing?.description ?? '')
@@ -699,20 +717,33 @@ function TypeEditorModal({
   const [destStore, setDestStore] = useState<DestinationStore>(existing?.destination?.store ?? 'folder')
   const [destRoot, setDestRoot] = useState(existing?.destination?.rootPath ?? '')
   const [destSubdir, setDestSubdir] = useState(existing?.destination?.subdir ?? '')
-  const [grantSkills, setGrantSkills] = useState<Set<string>>(new Set(existing?.grants?.skills ?? []))
-  const [grantServers, setGrantServers] = useState<Set<string>>(new Set(existing?.grants?.toolServers ?? []))
-  // The fields offered come from the kind's built-in type, and their labels are
-  // seeded strings — shown in the active language through the same rule as
-  // everywhere else.
-  const kindDef = allTypeConfigs(types).find((c) => c.key === kind)
-  const supported = kindDef ? localizeTypeDef(kindDef, language).inputSchema : kindSchema(kind)
   const behaviourWrites = (existing?.isBuiltin ? existing.finishBehaviour : finishBehaviour) !== 'complete-only'
-  const skillsForGrants = snapshot?.settings.skills ?? []
-  const serversForGrants = snapshot?.settings.mcpServers ?? []
-  const [fieldKeys, setFieldKeys] = useState<Set<string>>(
-    new Set(existing && !existing.isBuiltin ? existing.inputSchema.map((f) => f.key) : supported.map((f) => f.key))
+  // The declared inputs (T033): a user Type declares its own fields — there is
+  // no built-in schema to inherit since the reference engines retired. A
+  // built-in's schema is fixed identity (FR-017) and is never edited here.
+  const [fields, setFields] = useState<TypeInputField[]>(
+    existing && !existing.isBuiltin ? existing.inputSchema.map((f) => ({ ...f })) : []
   )
   const [error, setError] = useState<string | null>(null)
+
+  const updateField = (i: number, patch: Partial<TypeInputField>) =>
+    setFields((cur) => cur.map((f, j) => (j === i ? { ...f, ...patch } : f)))
+  // Named handlers rather than inline object literals (block bodies, so the
+  // JSX-text census in test/i18n.test.ts never misreads a call as copy).
+  const patchFieldKey = (i: number, value: string) => {
+    updateField(i, { key: value.replace(/[^a-zA-Z0-9_]/g, '') })
+  }
+  const patchFieldLabel = (i: number, value: string) => {
+    updateField(i, { label: value })
+  }
+  const patchFieldType = (i: number, value: string) => {
+    updateField(i, { type: value as TypeInputField['type'] })
+  }
+  const patchFieldRequired = (i: number, checked: boolean) => {
+    updateField(i, { required: checked })
+  }
+  const removeFieldAt = (i: number) => setFields((cur) => cur.filter((_, j) => j !== i))
+  const addField = () => setFields((cur) => [...cur, { key: '', label: '', type: 'text' }])
 
   const submit = () => {
     const k = key.trim().replace(/\s+/g, '_').toLowerCase()
@@ -723,29 +754,41 @@ function TypeEditorModal({
     }
     if (!label.trim()) return setError(t('typeEditor.labelRequired'))
     if (!emoji.trim()) return setError(t('typeEditor.emojiRequired'))
-    const inputSchema = existing?.isBuiltin ? existing.inputSchema : supported.filter((f) => fieldKeys.has(f.key))
+    const cleanedFields = fields
+      .map((f) => ({ ...f, key: f.key.trim(), label: f.label.trim() }))
+      .filter((f) => f.key && f.label)
+    const seen = new Set<string>()
+    for (const f of cleanedFields) {
+      if (seen.has(f.key)) return setError(t('typeEditor.fieldDuplicate', { key: f.key }))
+      seen.add(f.key)
+    }
+    const inputSchema = existing?.isBuiltin ? existing.inputSchema : cleanedFields
 
     // A built-in's behaviour is fixed; its destination is a setting the user
-    // owns (FR-004) and stays editable. BOTH stores declare their own root
-    // now — there is no global wiki location to inherit. A folder without a
-    // root means nothing, so it is caught here; a wiki may be saved before it
-    // is pointed (the seeded Learning type starts that way) — Finish refuses
-    // until it names a directory.
+    // owns (Q1/FR-007) and stays editable — pointing the seeded Document Type
+    // at a folder IS the guided flow. BOTH stores declare their own root;
+    // there is no global location to inherit.
+    //
+    // FR-013 (T031 states the rule in core; this is the early renderer-side
+    // phrasing): a USER type whose behaviour writes must name a location — an
+    // empty rootPath is legal only on the seeded built-ins, which refuse at
+    // Finish instead. Core validation is the authority; this message just
+    // arrives before the round-trip.
     const behaviour = existing?.isBuiltin ? existing.finishBehaviour : finishBehaviour
     const writes = behaviour !== 'complete-only'
-    if (writes && destStore === 'folder' && !destRoot.trim()) {
+    if (writes && !existing?.isBuiltin && !destRoot.trim()) {
       return setError(t('typeEditor.needsFolder'))
     }
     if (writes && destSubdir.trim().split(/[\\/]/).includes('..')) {
       return setError(t('typeEditor.subfolderRelative'))
     }
     const destination: Destination | undefined = writes
-      ? { store: destStore, rootPath: destRoot.trim() || null, subdir: destSubdir.trim() }
+      ? { store: destStore, rootPath: destRoot.trim(), subdir: destSubdir.trim() }
       : undefined
 
     void onSave({
       key: existing?.key ?? k,
-      kind: existing?.isBuiltin ? existing.kind : kind,
+      family: existing?.isBuiltin ? existing.family ?? null : family === '' ? null : family,
       label: label.trim(),
       emoji: emoji.trim().slice(0, 4),
       description: description.trim() || undefined,
@@ -753,8 +796,9 @@ function TypeEditorModal({
       aiGuidance: (!existing?.isBuiltin && aiGuidance.trim()) || undefined,
       isBuiltin: existing?.isBuiltin ?? false,
       finishBehaviour: behaviour,
-      destination,
-      grants: { skills: [...grantSkills], toolServers: [...grantServers] }
+      destination
+      // No grants field (D9): it does not exist on the shape, and main
+      // persists the empty default whatever arrives (T032).
     })
   }
 
@@ -762,22 +806,6 @@ function TypeEditorModal({
     const picked = await window.api.chooseFolder()
     if (picked) setDestRoot(picked)
   }
-
-  const toggleGrant = (setter: (fn: (cur: Set<string>) => Set<string>) => void) => (name: string) =>
-    setter((cur) => {
-      const next = new Set(cur)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
-
-  const toggleField = (fk: string) =>
-    setFieldKeys((cur) => {
-      const next = new Set(cur)
-      if (next.has(fk)) next.delete(fk)
-      else next.add(fk)
-      return next
-    })
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -808,27 +836,63 @@ function TypeEditorModal({
           {!isBuiltinEdit && (
             <>
               <label>
-                {t('typeEditor.kind')}
-                <select value={kind} disabled={mode === 'edit'} onChange={(e) => setKind(e.target.value as TaskKind)}>
-                  <option value="plain">{t('typeEditor.kind.plain')}</option>
-                  <option value="learning">{t('typeEditor.kind.learning')}</option>
-                  <option value="jira">{t('typeEditor.kind.jira')}</option>
-                  <option value="meeting">{t('typeEditor.kind.meeting')}</option>
-                </select>
-              </label>
-              {mode === 'add' && (
-                <div className="tif-fields">
-                  <span className="tif-label">{t('typeEditor.fields')}</span>
-                  {supported.map((f) => (
-                    <label key={f.key} className="tif-check">
-                      <input type="checkbox" checked={fieldKeys.has(f.key)} onChange={() => toggleField(f.key)} />
-                      {f.label}
-                      {f.required && <span className="tif-required"> *</span>}
-                      {f.inert && <span className="muted"> {t('task.inputs.notYetActive')}</span>}
-                    </label>
+                {t('typeEditor.family')}
+                <select
+                  value={family}
+                  disabled={mode === 'edit'}
+                  onChange={(e) => setFamily(e.target.value as Family | '')}
+                >
+                  <option value="">{t('typeEditor.family.none')}</option>
+                  {FAMILIES.map((f) => (
+                    <option key={f} value={f}>
+                      {t(FAMILY_LABELS[f])}
+                    </option>
                   ))}
-                </div>
-              )}
+                </select>
+                {/* The honest affordance (T033): only the document family has
+                    live assistance in this feature; the others save and get
+                    the family-less treatment until their features land. */}
+                <span className="muted">
+                  {family === 'document' ? t('typeEditor.family.documentHint') : family === '' ? t('typeEditor.family.noneHint') : t('typeEditor.family.notLiveHint')}
+                </span>
+              </label>
+              <div className="tif-fields">
+                <span className="tif-label">{t('typeEditor.fields')}</span>
+                <span className="muted">{t('typeEditor.fieldsHint')}</span>
+                {fields.map((f, i) => (
+                  <div key={i} className="row" style={{ gap: 6, alignItems: 'center' }}>
+                    <input
+                      style={{ width: 110 }}
+                      value={f.key}
+                      onChange={(e) => patchFieldKey(i, e.target.value)}
+                      placeholder={t('typeEditor.fieldKeyPlaceholder')}
+                      spellCheck={false}
+                    />
+                    <input
+                      style={{ flex: 1 }}
+                      value={f.label}
+                      onChange={(e) => patchFieldLabel(i, e.target.value)}
+                      placeholder={t('typeEditor.fieldLabelPlaceholder')}
+                    />
+                    <select value={f.type} onChange={(e) => patchFieldType(i, e.target.value)}>
+                      <option value="text">{t('typeEditor.fieldType.text')}</option>
+                      <option value="textarea">{t('typeEditor.fieldType.textarea')}</option>
+                      <option value="url">{t('typeEditor.fieldType.url')}</option>
+                      <option value="file">{t('typeEditor.fieldType.file')}</option>
+                    </select>
+                    <label className="tif-check" style={{ margin: 0 }}>
+                      <input type="checkbox" checked={!!f.required} onChange={(e) => patchFieldRequired(i, e.target.checked)} />
+                      {t('typeEditor.fieldRequired')}
+                    </label>
+                    <button type="button" className="icon-btn tiny" title={t('typeEditor.fieldRemove')} onClick={() => removeFieldAt(i)}>
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <button type="button" className="mini-btn" onClick={addField}>
+                  ＋ {t('typeEditor.fieldAdd')}
+                </button>
+              </div>
               <label>
                 {t('typeEditor.aiGuidance')} <span className="muted">{t('typeEditor.aiGuidanceHint')}</span>
                 <textarea value={aiGuidance} onChange={(e) => setAiGuidance(e.target.value)} rows={3} placeholder={t('typeEditor.aiGuidancePlaceholder')} />
@@ -900,34 +964,11 @@ function TypeEditorModal({
             </div>
           )}
 
-          {/* ---- Grants (FR-019; contracts/plugin-grants.md §6) ---- */}
-          <div className="tif-fields">
-            <span className="tif-label">{t('typeEditor.capabilities')}</span>
-            <span className="muted">{t('typeEditor.capabilitiesHint')}</span>
-            <div className="tif-check-group">
-              <span className="muted">{t('typeEditor.skillsLabel')}</span>
-              {(skillsForGrants.length === 0 && <span className="muted">{t('typeEditor.noneImported')}</span>) || null}
-              {skillsForGrants.map((sk: SkillEntry) => (
-                <label key={`skill-${sk.name}`} className="tif-check">
-                  <input type="checkbox" checked={grantSkills.has(sk.name)} onChange={() => toggleGrant(setGrantSkills)(sk.name)} />
-                  {sk.name}
-                </label>
-              ))}
-            </div>
-            <div className="tif-check-group">
-              <span className="muted">{t('typeEditor.serversLabel')}</span>
-              {(serversForGrants.length === 0 && <span className="muted">{t('typeEditor.noneRegistered')}</span>) || null}
-              {serversForGrants.map((sv: McpServerEntry) => (
-                <label key={`server-${sv.name}`} className="tif-check">
-                  <input type="checkbox" checked={grantServers.has(sv.name)} onChange={() => toggleGrant(setGrantServers)(sv.name)} />
-                  {sv.name} <span className="muted">{t('typeEditor.grantReach')}</span>
-                </label>
-              ))}
-            </div>
-            {(grantServers.size > 0 || grantSkills.size > 0) && (
-              <span className="muted">{t('typeEditor.grantHint')}</span>
-            )}
-          </div>
+          {/* NO grants section (D9, FR-015): grants do not exist as a Type
+              declaration in this feature, and a control that changes nothing
+              would tell the user something untrue about their control. The
+              Plugins tab still REGISTERS skills and tool servers; nothing
+              grants them to a Type until the grants feature lands. */}
           {error && <div className="error-text">{error}</div>}
         </div>
         <div className="modal-actions">

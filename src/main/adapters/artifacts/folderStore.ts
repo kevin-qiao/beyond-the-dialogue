@@ -53,11 +53,16 @@ export function ensureDestination(root: string): void {
 
 export class FolderArtifactStore implements ArtifactStorePort {
   async prepare(target: DestinationRef): Promise<void> {
+    // The contract's destination codes (T018): a location that was never set
+    // is `destination.notConfigured` (the finish service refuses it earlier —
+    // this is the backstop), and a location that is GONE — deleted or
+    // unmounted between save and finish — is `destination.unreachable`
+    // (US1-AC5: never half-filed, never a substituted location).
     if (!target.absRoot) {
-      throw new LocalizedError([{ key: 'artifact.destinationUnset' }])
+      throw new LocalizedError([{ key: 'destination.notConfigured' }])
     }
     if (!fs.existsSync(target.absRoot)) {
-      throw new LocalizedError([{ key: 'artifact.folderMissing', params: { path: target.absRoot } }])
+      throw new LocalizedError([{ key: 'destination.unreachable', params: { path: target.absRoot } }])
     }
     if (!isWritableDir(target.absRoot)) {
       throw new LocalizedError([{ key: 'artifact.folderNotWritable', params: { path: target.absRoot } }])
@@ -102,7 +107,8 @@ export class FolderArtifactStore implements ArtifactStorePort {
   }
 
   async snapshot(target: DestinationRef): Promise<SnapshotHandle> {
-    const location = path.join(target.absRoot, '.history', new Date().toISOString().replace(/[:.]/g, '-'))
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const location = path.join(target.absRoot, '.history', stamp)
     const files = listFiles(target.absRoot)
     // Only materialize a backup directory when there is something to protect;
     // an empty `.history` in a user's folder is noise with no undo value.
@@ -119,6 +125,7 @@ export class FolderArtifactStore implements ArtifactStorePort {
       root: target.absRoot,
       subdir: '',
       location: files.length > 0 ? location : null,
+      relLocation: files.length > 0 ? `.history/${stamp}` : null,
       files
     }
   }

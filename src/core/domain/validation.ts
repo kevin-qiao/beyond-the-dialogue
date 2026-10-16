@@ -1,8 +1,8 @@
 import type { TaskTypeDef, TypeInputField } from '../../shared/types'
-import { CATEGORIES, FINISH_BEHAVIOURS, isCategory, isFinishBehaviour, writesArtifact } from './categories'
+import { FAMILIES, isFamily } from './family'
+import { FINISH_BEHAVIOURS, isFinishBehaviour, writesArtifact } from './finish'
 import { validateDestination } from './destination'
 import type { PathPort } from '../ports/paths'
-import { legacyWorkflow } from './taskType'
 import type { MessageIssue } from '../i18n/issues'
 
 // The single validation point for task inputs and type definitions
@@ -115,8 +115,11 @@ export function validateTypeDefinition(def: TaskTypeDef, ctx: TypeDefValidationC
   if (!/^[a-z0-9_]{2,32}$/.test(def.key)) {
     errors.push({ key: 'validation.keyFormat' })
   }
-  if (!isCategory(def.kind)) {
-    errors.push({ key: 'validation.kindUnknown', params: { kinds: CATEGORIES.join(', ') } })
+  // The family is nullable BY DECLARATION (research D1): null/absent means
+  // "needs no assistance" (`plain` and its user-defined equivalents). A value
+  // that is present but not one of the declared families is refused.
+  if (def.family !== null && def.family !== undefined && !isFamily(def.family)) {
+    errors.push({ key: 'validation.familyUnknown', params: { families: FAMILIES.join(', ') } })
   }
   if (!def.label?.trim()) errors.push({ key: 'validation.labelRequired' })
   if (!def.emoji?.trim()) errors.push({ key: 'validation.emojiRequired' })
@@ -129,13 +132,13 @@ export function validateTypeDefinition(def: TaskTypeDef, ctx: TypeDefValidationC
   }
 
   // --- declared finish behaviour ---
+  // Feature 002 deleted the historical fallback with the categories (research
+  // D1): there is no history left to infer from, and Principle I forbids
+  // inferring a behaviour from a type key. Every Type declares its behaviour
+  // outright; an undeclared one is refused.
   const declared = def.finishBehaviour as unknown
   if (declared === undefined || declared === null || declared === '') {
-    // Not declared at all: fall back to what this category did historically.
-    // `meeting` has no history, so an undeclared Meeting type is refused.
-    if (isCategory(def.kind) && legacyWorkflow(def.kind) === null) {
-      errors.push({ key: 'validation.mustDeclareBehaviour', params: { kind: def.kind } })
-    }
+    errors.push({ key: 'validation.mustDeclareBehaviour', params: { type: def.label || def.key } })
   } else if (!isFinishBehaviour(declared)) {
     errors.push({ key: 'validation.behaviourUnknown', params: { behaviours: FINISH_BEHAVIOURS.join(', ') } })
   } else {
@@ -148,21 +151,18 @@ export function validateTypeDefinition(def: TaskTypeDef, ctx: TypeDefValidationC
       errors.push({ key: 'validation.needsDestination', params: { behaviour: declared } })
     }
   }
-  for (const issue of validateDestination(ctx.paths, def.destination)) errors.push(issue)
+  // An empty destination root is legal only on a seeded built-in (Q1); a user
+  // Type is refused at save (FR-013). The built-in's own edit keeps the
+  // allowance: clearing the seeded Document Type's location returns it to the
+  // guided-refusal state rather than stranding it.
+  for (const issue of validateDestination(ctx.paths, def.destination, {
+    seededBuiltin: !!def.isBuiltin || !!ctx.existing?.isBuiltin
+  }))
+    errors.push(issue)
 
-  // --- grants ---
-  if (def.grants) {
-    for (const list of [def.grants.skills, def.grants.toolServers]) {
-      if (list === undefined) continue
-      if (!Array.isArray(list)) {
-        errors.push({ key: 'validation.grantsNotArrays' })
-        continue
-      }
-      if (list.some((n) => typeof n !== 'string' || !n.trim())) {
-        errors.push({ key: 'validation.grantNamesEmpty' })
-      }
-    }
-  }
+  // No grants validation (D9): grants are not a Type declaration in this
+  // feature — the field does not exist on the shape, so there is nothing to
+  // validate and nothing a payload could smuggle in.
 
   // --- create/update identity rules ---
   if (ctx.mode === 'create' && ctx.existing) {
@@ -175,9 +175,13 @@ export function validateTypeDefinition(def: TaskTypeDef, ctx: TypeDefValidationC
     if (!ctx.existing) {
       errors.push({ key: 'validation.typeNotFound', params: { key: def.key } })
     } else if (ctx.existing.isBuiltin) {
-      // FR-017: a built-in's category and behaviour are fixed; its display
-      // fields remain editable (the merge happens in the service).
-      if (def.kind !== ctx.existing.kind) errors.push({ key: 'validation.builtinKindFixed' })
+      // FR-017: a built-in's family and behaviour are fixed; its display
+      // fields and its destination remain editable (the merge happens in the
+      // service — pointing the seeded Document Type at a folder is the
+      // feature's own guided flow, Q1/FR-007).
+      const nextFamily = def.family === undefined ? null : def.family
+      const existingFamily = ctx.existing.family ?? null
+      if (nextFamily !== existingFamily) errors.push({ key: 'validation.builtinFamilyFixed' })
       if (def.finishBehaviour && def.finishBehaviour !== ctx.existing.finishBehaviour) {
         errors.push({ key: 'validation.builtinBehaviourFixed' })
       }

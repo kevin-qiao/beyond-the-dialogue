@@ -51,21 +51,20 @@ export function harness(): { conn: DB; dir: string; task: ReturnType<typeof crea
 
   createTypeDef(conn.db, {
     key: 'notes_type',
-    kind: 'meeting',
+    family: 'document',
     label: 'Notes',
     emoji: '📝',
     inputSchema: [{ key: 'learningNotePath', label: 'Note path', type: 'text' }],
     isBuiltin: false,
     finishBehaviour: 'file-as-is',
-    destination: { store: 'folder', rootPath: firstDir, subdir: '' },
-    grants: { skills: [], toolServers: [] }
+    destination: { store: 'folder', rootPath: firstDir, subdir: '' }
   })
 
   const list = createList(conn.db, 'Work')
   const task = createTask(conn.db, {
     listId: list.id,
     title: 'Weekly sync',
-    type: 'meeting',
+    type: 'plain',
     customTypeKey: 'notes_type',
     inputs: {}
   })

@@ -1,4 +1,4 @@
-import type { Destination, Task, TaskTypeDef } from '../../shared/types'
+import type { Destination, FinishMode, FinishReport, Task, TaskTypeDef } from '../../shared/types'
 import type { PathPort } from '../ports/paths'
 import type { ArtifactStorePort } from '../ports/artifactStore'
 import type { AgentSessionPort } from '../ports/agent'
@@ -8,23 +8,38 @@ import type { StoragePort } from '../ports/storage'
 import { confineOverride, resolveArtifact } from '../domain/destination'
 import { declaredWorkflow, effectiveType } from '../domain/taskType'
 import { hasUnfilledRequiredInputs } from '../domain/validation'
-import { FINISH_STRATEGIES, type FinishContext, type FinishResult } from '../domain/finish'
-import { writesArtifact, type FinishBehaviour } from '../domain/categories'
+import {
+  FINISH_STRATEGIES,
+  fileAsIs,
+  writesArtifact,
+  type FinishBehaviour,
+  type FinishContext,
+  type FinishResult
+} from '../domain/finish'
 import { message, type Language } from '../i18n'
 import { isLocalizedError, LocalizedError, type IssueList } from '../i18n/issues'
 
 // Finish orchestration: the one place a task's completion is decided.
 //
-// Replaces the hardcoded `effectiveKind(...) === 'learning'` branch that used
-// to live in the IPC handler. Dispatch is on the type's DECLARED behaviour, so
-// a user-defined type follows its own declaration with no code change.
+// Dispatch is on the type's DECLARED behaviour (Principle I), and — since
+// feature 002 — on the MODE the user chose at the finish step (research D8):
+// 'assisted' lets the organize step run, 'as-written' files the user's exact
+// words and constructs no session at all. The Type's declaration sets the
+// default the UI presents.
 //
 // Ordering is the load-bearing part. A finish that cannot succeed must fail
 // while the task is still actionable, so validation and the destination check
 // happen BEFORE anything is marked complete:
 //
-//   validate inputs → resolve + confine destination → prepare it → write
-//   → mark complete, clear alarm → report
+//   validate inputs → blank-draft refusal → resolve + confine destination
+//   → prepare it → write → mark complete, clear alarm → report
+//
+// The off state (FR-021): while the assistant switch is off or no model is
+// configured, the resolved mode is 'as-written' — every filing behaviour
+// stays reachable on that path, the board never blocks on AI (FR-006), and no
+// session is constructed. Feature 001's `assistant.disabled` finish refusal is
+// deleted outright: refusing to file the user's own words because the
+// assistant is off was the one flow the board's promise could not keep.
 //
 // Nothing here deletes, moves, or overwrites an existing artifact, and no
 // assistant step inside a finish receives a plugin grant (purpose 'confined').
@@ -33,11 +48,9 @@ export interface FinishDeps {
   /** The language the step labels and toasts are produced in. */
   language: Language
   /**
-   * The assistant-runtime switch (feature 001, research D1). While it is off,
-   * only `complete-only` remains reachable: a type declaring any other
-   * behaviour refuses with `assistant.disabled` BEFORE anything is marked
-   * complete, so Finish never half-writes an artifact the harness is not
-   * allowed to produce.
+   * The assistant-runtime switch. While it is off, the finish mode is forced
+   * to 'as-written' and no session is constructed (FR-021) — the filing
+   * behaviours all stay reachable, on the path that needs no AI.
    */
   assistantEnabled: boolean
   paths: PathPort
@@ -55,9 +68,9 @@ export interface FinishDeps {
   enqueueCurate: (task: Task, depositFiles: string[]) => void
   /**
    * A per-task override of where the artifact goes, when the destination's
-   * store allows the user to name it (a wiki destination lets a learning task
-   * set its own note path). Kept as a hook so the finish service does not
-   * learn any one store's input vocabulary.
+   * store allows the user to name it (a wiki destination lets a task set its
+   * own note path). Kept as a hook so the finish service does not learn any
+   * one store's input vocabulary.
    */
   taskTargetOverride?: (task: Task) => string | undefined
 }
@@ -68,6 +81,12 @@ export interface FinishOutcome {
   result: FinishResult | null
   /** True when the curating step was handed to the background. */
   deferred: boolean
+  /** The mode that actually ran, after the declaration and the off-state
+   *  forcing resolved it (D8). */
+  mode: FinishMode
+  /** The contract report — `tasks:finish`'s result (T019): where the filed
+   *  copy went and which path ran (FR-003). */
+  report: FinishReport
 }
 
 /**
@@ -82,14 +101,52 @@ export class FinishRefused extends LocalizedError {
   }
 }
 
-export async function finishTask(deps: FinishDeps, taskId: string, signal?: AbortSignal): Promise<FinishOutcome> {
+/**
+ * The mode the UI presents as selected, from the declaration alone (D8): an
+ * organize-capable Type defaults to assisted; every other Type — including a
+ * `file-as-is` one — defaults to as-written. No branch on a Type key: the
+ * behaviour declaration is the axis.
+ */
+export function defaultFinishMode(def: TaskTypeDef): FinishMode {
+  return declaredWorkflow(def).finishBehaviour === 'polish-then-file' ? 'assisted' : 'as-written'
+}
+
+/**
+ * The mode that will actually run. The off state wins over any request
+ * (FR-021): while the switch is off or no model is configured, only the
+ * as-written path exists and no session is constructed — the forced path is
+ * the same one the user could have chosen, which is what makes the guarantee
+ * structural rather than a refusal.
+ */
+export function resolveFinishMode(
+  def: TaskTypeDef,
+  requested: FinishMode | undefined,
+  assistantAvailable: boolean
+): FinishMode {
+  if (!assistantAvailable) return 'as-written'
+  return requested ?? defaultFinishMode(def)
+}
+
+export interface FinishOptions {
+  /** The user's choice at the finish step; the declaration sets the default. */
+  mode?: FinishMode
+}
+
+export async function finishTask(
+  deps: FinishDeps,
+  taskId: string,
+  opts?: FinishOptions,
+  signal?: AbortSignal
+): Promise<FinishOutcome> {
   const task = deps.storage.getTask(taskId)
   if (!task) throw new Error('task not found')
   const types = deps.storage.listTypes()
   const def = effectiveType(types, task)
   if (!def) throw new FinishRefused([{ key: 'finish.noTypeDefinition', params: { title: task.title } }])
 
-  const behaviour = resolveBehaviour(def, deps.assistantEnabled)
+  const behaviour = resolveBehaviour(def)
+  const assistantAvailable = deps.assistantEnabled && deps.session.isAvailable()
+  const mode = resolveFinishMode(def, opts?.mode, assistantAvailable)
 
   // 1. Declared inputs gate Finish (spec task-types).
   const missing = hasUnfilledRequiredInputs(def, task.inputs)
@@ -99,7 +156,19 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
     ])
   }
 
-  // 2. Resolve + confine the destination, and make sure it is usable — all
+  const note = deps.storage.getNotes(taskId)
+  const workingContent = note?.content ?? ''
+  const attachmentPath = typeof task.inputs.filePath === 'string' && task.inputs.filePath.trim() ? task.inputs.filePath : undefined
+
+  // 2. A blank working area refuses while the task is still actionable
+  //    (US1-AC6): nothing is filed, and the app explains that there is no
+  //    written content yet. A deposit with an attachment still has material,
+  //    so the refusal applies when there is nothing at all.
+  if (writesArtifact(behaviour) && !workingContent.trim() && !attachmentPath) {
+    throw new FinishRefused([{ key: 'document.empty' }])
+  }
+
+  // 3. Resolve + confine the destination, and make sure it is usable — all
   //    before the task is marked complete.
   //    complete-only writes nothing, so it needs neither a destination nor a
   //    store; supplying one is a type-configuration error, refused at save.
@@ -108,41 +177,40 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
 
   if (behaviour !== 'complete-only') {
     const declared = declaredDestination(def)
-    // A wiki-destined type carries its own directory (there is no global wiki
-    // location and no default); when it has none, refuse while the task is
-    // still actionable and point the user at the type, not at a phantom
-    // setting.
-    if (declared.store === 'wiki' && !(declared.rootPath ?? '').trim()) {
-      throw new FinishRefused([{ key: 'wiki.notConfigured' }])
+    // Both stores declare their own location and there is no default (Q1):
+    // a blank root is the guided refusal, phrased with the contract's
+    // destination.not_configured code, whichever store the Type declares.
+    if (!(declared.rootPath ?? '').trim()) {
+      throw new FinishRefused([{ key: 'destination.notConfigured' }])
     }
     store = deps.storeFor(declared)
     destination = resolveArtifact(deps.paths, declared, task.title, task.id)
     if (!destination.inside) {
-      // Refuse rather than write to an unintended location (FR-006).
+      // Refuse rather than write to an unintended location (FR-007).
       throw new FinishRefused([
-        { key: 'finish.outsideDestination', params: { root: declared.rootPath ?? 'wiki' } }
+        { key: 'finish.outsideDestination', params: { root: declared.rootPath ?? '' } }
       ])
     }
     // A per-task target override (a wiki destination lets the user name the
     // note) is confined the same way, and refused rather than defaulted: a
-    // stored path that no longer resolves — the wiki moved — must be surfaced
-    // while the task is still actionable, never silently replaced.
+    // stored path that no longer resolves — the collection moved — must be
+    // surfaced while the task is still actionable, never silently replaced.
     const override = deps.taskTargetOverride?.(task)
     if (override && !confineOverride(deps.paths, declared, override)) {
       throw new FinishRefused([
-        { key: 'finish.overrideOutside', params: { path: override, root: declared.rootPath ?? 'the wiki' } }
+        { key: 'finish.overrideOutside', params: { path: override, root: declared.rootPath ?? 'the collection' } }
       ])
     }
-    // prepare() rejects a missing or unwritable destination, so the failure
+    // prepare() rejects a missing or unwritable destination
+    // (destination.unreachable / store-specific codes), so the failure
     // surfaces while the task is still actionable.
     await store.prepare(destination)
   }
 
-  const note = deps.storage.getNotes(taskId)
   const activity =
     behaviour === 'deposit-then-curate'
       ? // The curating job owns the record for this behaviour (it does the
-        // deposit), matching the flow the wiki ingestion has always had.
+        // deposit), matching the flow the knowledge base has always had.
         null
       : deps.storage.createActivity({ taskId: task.id, taskTitle: task.title, depositFiles: [] })
 
@@ -151,10 +219,10 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
     language: deps.language,
     typeDef: def,
     destination,
-    workingContent: note?.content ?? '',
+    workingContent,
     declaredInputs: task.inputs,
     // Only reached by 'complete-only', which writes nothing.
-    store: store ?? deps.storeFor({ store: 'folder', rootPath: null, subdir: '' }),
+    store: store ?? deps.storeFor({ store: 'folder', rootPath: '', subdir: '' }),
     session: deps.session,
     clock: deps.clock,
     signal: signal ?? new AbortController().signal,
@@ -162,11 +230,12 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
       deps.notifier.progress(label, progress)
       if (activity) deps.storage.updateActivity(activity.id, { state: 'running' })
     },
-    summary: renderSummary(deps, taskId),
-    attachmentPath: typeof task.inputs.filePath === 'string' ? task.inputs.filePath : undefined
+    // No preprocess summary (D4): a deposit carries the user's own material —
+    // the draft and the optional attachment — never a stale engine block.
+    attachmentPath
   }
 
-  // 3. Perform the behaviour.
+  // 4. Perform the behaviour.
   if (behaviour === 'deposit-then-curate') {
     // Deposit-first is preserved: the raw material is copied synchronously and
     // survives any later failure of the curating agent.
@@ -174,21 +243,44 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
       taskId: task.id,
       title: task.title,
       content: ctx.workingContent,
-      summary: ctx.summary,
       attachmentPath: ctx.attachmentPath
     })
     const completed = markComplete(deps, task)
     deps.enqueueCurate(completed, deposited.files)
-    deps.notifier.toast(message(deps.language, 'toast.finishDeferred'), { view: 'activity' })
-    return { task: completed, behaviour, result: null, deferred: true }
+    // While off or unconfigured the curation will not run (its handler is
+    // registered only while the switch is on): the report says so plainly
+    // rather than promising a background step that cannot start (FR-019).
+    if (assistantAvailable) {
+      deps.notifier.toast(message(deps.language, 'toast.finishDeferred'), { view: 'activity' })
+    } else {
+      deps.notifier.toast(message(deps.language, 'toast.depositOnly'), { view: 'activity' })
+    }
+    return {
+      task: completed,
+      behaviour,
+      result: null,
+      deferred: true,
+      mode,
+      report: {
+        ok: true,
+        path: 'deposited',
+        ...(assistantAvailable ? {} : { assistantStep: 'skipped' as const })
+      }
+    }
   }
+
+  // The mode decides the strategy for an organize-capable Type: 'as-written'
+  // files the exact words and NEVER touches the session seam — the guarantee
+  // that the app will not silently rewrite the user's prose does not depend
+  // on a failure path (D8's rationale).
+  const strategy = behaviour === 'polish-then-file' && mode === 'as-written' ? fileAsIs : FINISH_STRATEGIES[behaviour]
 
   let result: FinishResult
   try {
-    result = await FINISH_STRATEGIES[behaviour](ctx)
+    result = await strategy(ctx)
   } catch (e: any) {
     // The artifact step failed. The task stays incomplete and the user's work
-    // is untouched, so the finish is retriable without retyping (FR-027).
+    // is untouched, so the finish is retriable without retyping.
     //
     // A refusal that already carries codes keeps them, so it arrives localised.
     // Anything else — an adapter's own error, an agent failure — has no codes to
@@ -206,7 +298,7 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
     throw refused
   }
 
-  // 4. Only now is the task complete.
+  // 5. Only now is the task complete.
   const completed = markComplete(deps, task)
 
   if (activity) {
@@ -217,41 +309,71 @@ export async function finishTask(deps: FinishDeps, taskId: string, signal?: Abor
       error: result.assistantError ?? null
     })
   }
+
+  const report = reportFor(behaviour, mode, result, def)
   if (result.artifactPath) {
-    deps.notifier.toast(message(deps.language, 'toast.filedTo', { path: result.artifactPath ?? '' }), {
-      view: 'activity'
-    })
+    // FR-003: the report names where the filed copy went AND which path ran.
+    deps.notifier.toast(
+      message(
+        deps.language,
+        report.path === 'organized' ? 'toast.filedOrganized' : 'toast.filedAsWritten',
+        { path: result.artifactPath }
+      ),
+      { view: 'activity' }
+    )
   }
   if (result.assistantError) {
-    // Reported, never presented as success (FR-024's spirit: a failure the
-    // user is not told about is a failure they will discover later).
+    // Reported, never presented as success: a failure the user is not told
+    // about is a failure they will discover later.
     deps.notifier.toast(message(deps.language, 'toast.filedUnpolished', { error: result.assistantError ?? '' }), {
       view: 'activity'
     })
+  } else if (behaviour === 'polish-then-file' && mode === 'as-written' && !assistantAvailable && deps.assistantEnabled === false) {
+    // US1-AC4: with the switch off the app plainly says the organizing step
+    // did not run — the filing succeeded, the step was skipped.
+    deps.notifier.toast(message(deps.language, 'toast.organizeSkipped'), { view: 'activity' })
   }
 
-  return { task: completed, behaviour, result, deferred: false }
+  return { task: completed, behaviour, result, deferred: false, mode, report }
+}
+
+/** The contract report from what actually happened (contracts table). */
+function reportFor(behaviour: FinishBehaviour, mode: FinishMode, result: FinishResult, def: TaskTypeDef): FinishReport {
+  const artifact = result.artifactPath
+    ? { path: result.artifactPath, store: (declaredWorkflow(def).destination?.store ?? 'folder') }
+    : undefined
+  if (behaviour === 'polish-then-file') {
+    if (mode === 'as-written') {
+      // Chosen or forced: the exact words were filed, no session ran.
+      return { ok: true, ...(artifact ? { artifact } : {}), path: 'as-written', assistantStep: 'skipped' }
+    }
+    return result.assistantStep === 'succeeded'
+      ? { ok: true, ...(artifact ? { artifact } : {}), path: 'organized', assistantStep: 'ran' }
+      : // The organize step failed (or degraded): what was FILED is the user's
+        // words as written, and the step is honestly reported failed (FR-005).
+        { ok: true, ...(artifact ? { artifact } : {}), path: 'as-written', assistantStep: 'failed' }
+  }
+  if (behaviour === 'file-as-is') {
+    return { ok: true, ...(artifact ? { artifact } : {}), path: 'as-written', assistantStep: 'skipped' }
+  }
+  // complete-only writes nothing; 'as-written' is the honest path name — the
+  // user's content stays exactly as it was.
+  return { ok: true, path: 'as-written', assistantStep: 'skipped' }
 }
 
 // ---- helpers ----
 
 /**
- * The behaviour a type declares. A type that declares none falls back to what
- * its category did historically (so no existing task changes behaviour), and a
- * `meeting` type — which has no history — is refused rather than guessed at.
- *
- * The switch gates the RESULT, not the reading: the declaration is still
- * dispatched exactly once (Principle I); with the assistant off, anything
- * beyond `complete-only` is unreachable and refuses with a code (FR-014, D1:
- * "only `complete-only` remains reachable while off").
+ * The behaviour a type declares. Feature 002 deleted both fallbacks that used
+ * to live here: there is no category history to infer from (D1), and the
+ * off-switch no longer gates the RESULT — while off, the mode resolver forces
+ * the as-written path instead of refusing (FR-021 replaces 001's
+ * `assistant.disabled` finish refusal outright).
  */
-export function resolveBehaviour(def: TaskTypeDef, assistantEnabled = true): FinishBehaviour {
+export function resolveBehaviour(def: TaskTypeDef): FinishBehaviour {
   const declared = declaredWorkflow(def)
   if (!declared.finishBehaviour) {
     throw new FinishRefused([{ key: 'finish.noBehaviour', params: { type: def.label } }])
-  }
-  if (!assistantEnabled && declared.finishBehaviour !== 'complete-only') {
-    throw new FinishRefused([{ key: 'assistant.disabled' }])
   }
   return declared.finishBehaviour
 }
@@ -272,20 +394,3 @@ function markComplete(deps: FinishDeps, task: Task): Task {
     alarmAt: null
   })
 }
-
-function renderSummary(deps: FinishDeps, taskId: string): string | undefined {
-  const p = deps.storage.getPreprocess(taskId)
-  if (!p) return undefined
-  return `# AI Pre-process Summary — ${p.taskId}
-
-## Summary
-${p.summary || '(none)'}
-
-## Analysis
-${p.analysis || '(none)'}
-
-## Activity suggestions
-${p.suggestions.map((s) => `- ${s}`).join('\n') || '(none)'}
-`
-}
-

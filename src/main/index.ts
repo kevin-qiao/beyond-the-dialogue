@@ -23,14 +23,13 @@ import {
   rolloverMyDay
 } from './tasks'
 import { JobQueue } from './job-queue'
-import { runSuggestionJob } from './suggestions'
-import { runPreprocessJob } from './preprocess'
 import { runIngestJob } from './wiki/ingest'
 import { configureRuntimeFromSettings, isConfigured, listModelsForProvider, listProviders, testPrompt } from './ai/agent-runtime'
-import { ChatSession } from './ai/chat'
-import { getPreprocess, getNotes, listIngest, listSuggestions, listAllSuggestions, getTask, saveNotes, dismissSuggestion, getJob, updateTask, getAttachment } from './db'
+import { runChatTurn } from './ai/chat'
+import { getNotes, listIngest, getTask, saveNotes, getJob, getAttachment, getIngest as getIngestRecord } from './db'
+import { undoCuration } from './wiki/undo'
 import { notePathFor } from './wiki/vault'
-import { createTypeDef, deleteTypeDef, effectiveKind, effectiveTypeDef, getTypeDef, listTypeDefs, updateTypeDef } from './types'
+import { createTypeDef, deleteTypeDef, effectiveTypeDef, getTypeDef, listTypeDefs, updateTypeDef } from './types'
 import { importSkillFolder } from './skills'
 import { importSkillFromGitHub } from './skills-github'
 import { IPC, type AppCommands, type AppEvents } from '../shared/ipc'
@@ -45,9 +44,16 @@ import { getProviderKey, readSecrets, stripStaleAuthFile, getMcpEnv, storeMcpEnv
 import { loadRuntimeSettings } from './runtimeSettings'
 import { createAttachmentStore } from './adapters/attachments'
 import { LocalizedError } from '../core/i18n/issues'
-import { runPreprocess as runPreprocessService } from '../core/services/preprocessService'
-import { buildSessionContext, createProposalQueue } from '../core/domain/grant'
-import { buildChatContext } from '../core/domain/chatContext'
+import { createProposalQueue } from '../core/domain/grant'
+import {
+  createConversation,
+  deleteConversation,
+  listConversations,
+  listMessages,
+  sendTurn
+} from '../core/services/conversationService'
+import type { ConversationTurnPort } from '../core/ports/conversations'
+import { createSqliteConversationStore } from './adapters/sqlite/conversationStore'
 import { localeOf, message } from '../core/i18n'
 import { localizeThrown } from './errors'
 import {
@@ -65,36 +71,11 @@ import { systemClock } from '../core/ports/clock'
 let mainWindow: BrowserWindow | null = null
 let db: DB | null = null
 let queue: JobQueue | null = null
-// Debug chat + task-grounded working-area chat: one in-memory conversation per
-// SURFACE (design D4), not one per app. A single shared session made every
-// panel share one transcript — opening another task's chat showed the previous
-// task's exchange, and sending from it discarded the other conversation.
-const chatSessions = new Map<string, ChatEntry>()
+// The in-memory per-surface transcript map is deleted (T026/D5): conversations
+// are stored state in the v14 tables, addressed by their own id, and a turn
+// builds one short-lived model call from the stored history. Nothing chat-
+// shaped is retained in this process between turns.
 let alarms: AlarmScheduler | null = null
-
-interface ChatEntry {
-  session: ChatSession
-  // Identifies the grounding this conversation was built from. The session
-  // captures its context on the first message, so without comparing this a
-  // pre-process that landed mid-conversation would never reach the model.
-  grounding: string
-}
-
-// The surface key: a task id, or the debug chat's empty string. The wire
-// carries `null` for the debug surface; this is the in-process key for it.
-function chatKeyOf(taskId: string | null): string {
-  return taskId ?? ''
-}
-
-function chatEntryFor(taskId: string | null): ChatEntry {
-  const key = chatKeyOf(taskId)
-  let entry = chatSessions.get(key)
-  if (!entry) {
-    entry = { session: new ChatSession(), grounding: '' }
-    chatSessions.set(key, entry)
-  }
-  return entry
-}
 
 function rescheduleAlarms(): void {
   alarms?.reschedule()
@@ -132,43 +113,20 @@ function raiseAlarmNotification(fire: { taskId: string; title: string; dueAt: st
   n.show()
 }
 
-// Per-category chat grounding. What each category contributes lives in
-// src/core/domain/chatContext.ts; this is the transport-side wrapper.
-//
-// THE EGRESS BOUNDARY. Once a type has been granted external reach, this
-// session can echo onward whatever it can see — so the full context stops
-// being built for it (FR-029, contracts/plugin-grants.md §3). Filtering at the
-// tool boundary would be too late: the content would already be in the prompt.
-function chatContextFor(d: DatabaseSync, taskId: string): string | undefined {
-  const task = getTask(d, taskId)
-  if (!task) return undefined
-  const def = effectiveTypeDef(d, task)
-  return buildSessionContext({
-    task,
-    typeDef: def,
-    purpose: 'interactive',
-    fullContext: () => fullChatContext(d, task)
-  })
-}
-
-function fullChatContext(d: DatabaseSync, task: Task): string | undefined {
-  // A missing registry entry would silently thin the grounding, which is the
-  // failure this replaced — so it is a registry lookup, never a fallback.
-  return buildChatContext(effectiveKind(d, task), {
-    task,
-    preprocess: getPreprocess(d, task.id),
-    workingContent: getNotes(d, task.id)?.content ?? null
-  })
-}
-
-// What the grounding behind a conversation is worth, as a comparable string.
-// The pre-process is the part that can move under an open conversation: it is
-// written by a background job that may land — or be re-run — while the user is
-// chatting.
-function chatGroundingVersion(d: DatabaseSync, taskId: string | null): string {
-  if (!taskId) return ''
-  const p = getPreprocess(d, taskId)
-  return p ? `${p.status}|${p.updatedAt}|${p.inputsHash}` : 'none'
+// The conversation turn port (research D5): availability is read from the
+// declared switch and the configured model service at call time, and a turn
+// is ONE short-lived stream through the existing SDK seam (runChatTurn →
+// streamChat) — nothing is retained afterwards. Grounding and its egress
+// wrapper live in the conversation service, built from the store's read-only
+// task material (FR-010/FR-011).
+function conversationTurn(d: DatabaseSync): ConversationTurnPort {
+  return {
+    availability: () => {
+      if (!isAssistantEnabled(loadSettings(d))) return 'off'
+      return isConfigured(loadRuntimeSettings(d)) ? 'ready' : 'not-configured'
+    },
+    run: ({ history, onDelta }) => runChatTurn(loadRuntimeSettings(d), history, onDelta)
+  }
 }
 
 /** Attachments ride the task aggregate (contract: "new attachments ride
@@ -187,12 +145,8 @@ function buildSnapshot(): AppSnapshot {
   const d = db!.db
   const lists = serviceLists(d)
   const tasks = serviceListForList(d).map((t) => withAttachments(d, t))
-  const suggestions = listAllSuggestions(d)
-  const preprocess: AppSnapshot['preprocess'] = {}
   const notes: AppSnapshot['notes'] = {}
   for (const t of tasks) {
-    const p = getPreprocess(d, t.id)
-    if (p) preprocess[t.id] = p
     const n = getNotes(d, t.id)
     if (n) notes[t.id] = n
   }
@@ -200,8 +154,6 @@ function buildSnapshot(): AppSnapshot {
   return {
     lists,
     tasks,
-    suggestions,
-    preprocess,
     notes,
     settings: toRedacted(settings, readSecrets().secrets),
     taskTypes: listTypeDefs(d),
@@ -236,25 +188,9 @@ function wireJobEvents(q: JobQueue): void {
       if (t) broadcast(IPC.evTaskUpdated, withAttachments(d(), t))
     }
   })
-  q.on('done', (job) => {
-    if (job.kind === 'preprocess' && job.taskId) {
-      const p = getPreprocess(d(), job.taskId)
-      if (p) broadcast(IPC.evPreprocessUpdated, p)
-      const t = getTask(d(), job.taskId)
-      if (t) broadcast(IPC.evTaskUpdated, t)
-    }
-    if (job.kind === 'suggestion' && job.taskId) {
-      const taskId = job.taskId
-      broadcast(IPC.evSuggestionsUpdated, { taskId, suggestions: listSuggestions(d(), taskId) })
-    }
-  })
+  // The retired preprocess/suggestion job events are gone with the engines
+  // (D4): the queue now carries one kind, `ingest`, whose events follow.
   q.on('failed', (job) => {
-    if (job.kind === 'preprocess' && job.taskId) {
-      // Unstick the task: a failed job must leave preprocessStatus 'failed'
-      // (with the reason) so the band shows Retry instead of a forever
-      // "working…" state.
-      updateTask(d(), job.taskId, { preprocessStatus: 'failed', preprocessError: job.error ?? 'pre-process failed' })
-    }
     if (job.taskId) {
       const t = getTask(d(), job.taskId)
       if (t) broadcast(IPC.evTaskUpdated, withAttachments(d(), t))
@@ -361,9 +297,11 @@ function finishDeps(): FinishDeps {
     taskTargetOverride: (task) =>
       typeof task.inputs.learningNotePath === 'string' ? task.inputs.learningNotePath : undefined,
     // deposit-then-curate hands the long-running curating agent to the queue,
-    // which owns the activity record for that behaviour.
-    enqueueCurate: (task) => {
-      queue!.enqueueIngest(task.id, task.title, [])
+    // which owns the activity record for that behaviour. The synchronous
+    // deposit's files ride the enqueue: the ledger names them, and the job's
+    // strategy reports them instead of depositing twice (D7).
+    enqueueCurate: (task, depositFiles) => {
+      queue!.enqueueIngest(task.id, task.title, depositFiles)
     }
   }
 }
@@ -465,24 +403,17 @@ function registerIpc(): void {
     broadcast(IPC.evTaskUpdated, agg)
     return agg
   })
-  handleCommand(IPC.runPreprocess, (args) => {
-    // The guards live in the service (including the switch refusal —
-    // `assistant.disabled` is raised at the core edge, not here).
-    const outcome = runPreprocessService(createSqliteStorage(d()), args.id, loadSettings(d()))
-    for (const work of outcome.enqueue) queue!.enqueue(work, outcome.task.id)
-    const agg = withAttachments(d(), outcome.task)
-    broadcast(IPC.evTaskUpdated, agg)
-    return agg
-  })
   ipcMain.handle(IPC.deleteTask, (_e, args) => {
     serviceDeleteTask(d(), args.id)
     // A deletion is final: the task, its alarm, and its attachments are gone
     // (FR-004 as clarified). The alarm consumption works through the
     // `deleted_at` filter in AlarmScheduler.pending() — nothing to do here.
     createAttachmentStore(d()).purgeForTask(args.id)
-    // A deleted task's conversation can never be reopened, so it is dropped
-    // rather than kept for the life of the process.
-    chatSessions.delete(chatKeyOf(args.id))
+    // A deletion is final for conversations too (data-model: deleting the
+    // task deletes its conversations, as 001 FR-004): the tombstone keeps the
+    // task out of every view, and its exchanges are dropped with it.
+    const convStore = createSqliteConversationStore(d())
+    for (const c of listConversations(convStore, args.id)) deleteConversation(convStore, c.id)
     rescheduleAlarms()
     broadcast(IPC.evTaskUpdated, { id: args.id, deleted: true })
     return undefined
@@ -562,18 +493,18 @@ function registerIpc(): void {
     return notes
   })
   handleCommand(IPC.finishTask, async (args) => {
-    // Finish is dispatched on the type's DECLARED behaviour, not on a hardcoded
-    // category comparison (contracts/finish-behaviours.md). The service
-    // validates and confines before anything is marked complete, so a bad
-    // destination or a missing input is reported while the task is still
-    // actionable.
-    const stepKey = `finish:${args.id}`
+    // Finish is dispatched on the type's DECLARED behaviour and the user's
+    // MODE choice (contracts/document-assist-ipc.md). The service validates,
+    // refuses a blank draft, and confines the destination before anything is
+    // marked complete, so a bad destination or a missing input is reported
+    // while the task is still actionable — localized by handleCommand.
+    const stepKey = `finish:${args.taskId}`
     try {
-      const outcome = await runFinishTask(finishDeps(), args.id)
+      const outcome = await runFinishTask(finishDeps(), args.taskId, { mode: args.mode })
       broadcast(IPC.evJobProgress, {
         jobId: stepKey,
         kind: 'ingest',
-        taskId: args.id,
+        taskId: args.taskId,
         state: 'done',
         stepLabel: null,
         error: null
@@ -581,18 +512,28 @@ function registerIpc(): void {
       rescheduleAlarms()
       const agg = withAttachments(d(), outcome.task)
       broadcast(IPC.evTaskUpdated, agg)
-      broadcastActivityFor(args.id)
-      return agg
+      // The contract event: after a finish write succeeds, the surface learns
+      // where the filed copy went and which path ran.
+      if (outcome.report.artifact) {
+        broadcast(IPC.evArtifactsFiled, {
+          taskId: args.taskId,
+          path: outcome.report.artifact.path,
+          store: outcome.report.artifact.store,
+          mode: outcome.mode
+        })
+      }
+      broadcastActivityFor(args.taskId)
+      return outcome.report
     } catch (e: any) {
       broadcast(IPC.evJobProgress, {
         jobId: stepKey,
         kind: 'ingest',
-        taskId: args.id,
+        taskId: args.taskId,
         state: 'failed',
         stepLabel: null,
         error: e?.message ?? String(e)
       })
-      broadcastActivityFor(args.id)
+      broadcastActivityFor(args.taskId)
       throw e
     }
   })
@@ -619,16 +560,31 @@ function registerIpc(): void {
   // phrased in the user's language before they cross the IPC boundary.
   handleCommand(IPC.importSkillGitHub, (args) => importSkillFromGitHub(args.url))
   ipcMain.handle(IPC.listTypes, () => listTypeDefs(d()))
-  handleCommand(IPC.saveType, (args) => {
-    const existing = args.type?.key ? getTypeDef(d(), args.type.key) : null
-    const saved = existing ? updateTypeDef(d(), args.type) : createTypeDef(d(), args.type)
-    broadcast(IPC.evTypesUpdated, listTypeDefs(d()))
-    return saved
+  // types:save (contract): family-scoped validation runs in the registry
+  // service; a refusal returns { ok: false, issues } with the sentences
+  // phrased in the user's language rather than throwing. No command exposes
+  // or writes a grants field (D9): upsertType persists the empty default
+  // whatever the payload carried.
+  ipcMain.handle(IPC.saveType, (_e, args: { type: TaskTypeDef }) => {
+    try {
+      const existing = args.type?.key ? getTypeDef(d(), args.type.key) : null
+      if (existing) updateTypeDef(d(), args.type)
+      else createTypeDef(d(), args.type)
+      broadcast(IPC.evTypesUpdated, listTypeDefs(d()))
+      return { ok: true }
+    } catch (e) {
+      const localized = localizeThrown(e, loadSettings(d()).uiLanguage)
+      return { ok: false, issues: [localized instanceof Error ? localized.message : String(localized)] }
+    }
   })
-  handleCommand(IPC.deleteType, (args) => {
-    deleteTypeDef(d(), args.key)
+  // types:remove (contract): tasks using the Type are re-homed to plain —
+  // each re-home is broadcast (contract Events: task.updated "on re-home, on
+  // Type removal") and the result names where they went.
+  handleCommand(IPC.removeType, (args) => {
+    const rehomed = deleteTypeDef(d(), args.key)
+    for (const taskId of rehomed) broadcastTask(taskId)
     broadcast(IPC.evTypesUpdated, listTypeDefs(d()))
-    return undefined
+    return rehomed.length > 0 ? { ok: true, rehomedTo: 'plain' as const } : { ok: true }
   })
   handleCommand(IPC.cancelJob, (args) => {
     requireAssistant(d())
@@ -639,12 +595,7 @@ function registerIpc(): void {
     requireAssistant(d())
     const job = getJob(d(), args.jobId)
     if (!job) throw new Error('job not found')
-    if (job.kind === 'preprocess' && job.taskId) {
-      updateTask(d(), job.taskId, { preprocessStatus: 'queued', preprocessError: null })
-      queue!.retryJob(args.jobId)
-    } else {
-      queue!.retryJob(args.jobId)
-    }
+    queue!.retryJob(args.jobId)
     return undefined
   })
   ipcMain.handle(IPC.getSettings, () => snapshotSettings(d()))
@@ -705,44 +656,36 @@ function registerIpc(): void {
     broadcast(IPC.evSettingsUpdated, toRedacted(stored, readSecrets().secrets))
     return result
   })
-  handleCommand(IPC.sendChat, async (args) => {
-    requireAssistant(d())
-    const settings = loadRuntimeSettings(d())
-    const taskId = args.taskId ?? null
-    // Conversations are per-surface: the entry is created on the surface's
-    // first message and kept for as long as the app runs, so a task's chat is
-    // still there when the user comes back to it.
-    const entry = chatEntryFor(taskId)
-    const context = taskId ? chatContextFor(d(), taskId) : undefined
-    // The same conversation with newer grounding: swap the context in rather
-    // than restarting, so a pre-process that has just landed reaches the reply
-    // without discarding the exchange so far.
-    const grounding = chatGroundingVersion(d(), taskId)
-    if (grounding !== entry.grounding) entry.session.refreshContext(context)
-    entry.grounding = grounding
-    try {
-      const reply = await entry.session.send(
-        args.text,
-        settings,
-        (delta) => broadcast(IPC.evChatDelta, { owner: taskId, delta }),
-        context
-      )
-      broadcast(IPC.evChatDone, { owner: taskId, text: reply })
-    } catch (e: any) {
-      broadcast(IPC.evChatError, { owner: taskId, error: e?.message ?? String(e) })
-    }
+  // ---- conversations (feature 002, US2) ----
+  //
+  // Available on ANY task (FR-008) and NOT assistant-gated for reading: the
+  // history is the user's own record. A send while off/unconfigured does not
+  // throw — it returns the stated reason (US2-AC3), so the surface can say
+  // plainly why it is unavailable while the board carries on.
+  handleCommand(IPC.conversationsList, (args) => listConversations(createSqliteConversationStore(d()), args.taskId))
+  handleCommand(IPC.conversationsCreate, (args) => createConversation(createSqliteConversationStore(d()), args.taskId))
+  handleCommand(IPC.conversationsMessages, (args) => listMessages(createSqliteConversationStore(d()), args.conversationId))
+  handleCommand(IPC.conversationsDelete, (args) => {
+    deleteConversation(createSqliteConversationStore(d()), args.conversationId)
+    return { ok: true }
   })
-  handleCommand(IPC.resetChat, (args) => {
-    requireAssistant(d())
-    const taskId = args?.taskId ?? null
-    chatEntryFor(taskId).session.reset()
-    return undefined
-  })
-  handleCommand(IPC.dismissSuggestion, (args) => {
-    requireAssistant(d())
-    const s = dismissSuggestion(d(), args.suggestionId)
-    broadcast(IPC.evSuggestionsUpdated, { taskId: s.taskId, suggestions: listSuggestions(d(), s.taskId) })
-    return s
+  handleCommand(IPC.conversationsSend, async (args) => {
+    const store = createSqliteConversationStore(d())
+    const conv = store.get(args.conversationId)
+    if (!conv) throw new Error('conversation not found')
+    const outcome = await sendTurn(
+      { store, turn: conversationTurn(d()), language: loadSettings(d()).uiLanguage },
+      { conversationId: args.conversationId, content: args.content },
+      {
+        // Deltas stream against their conversation; the stored turn then
+        // arrives as conversation.updated — no delta exists without its
+        // stored message behind it (contract Events).
+        onDelta: (delta) => broadcast(IPC.evConversationDelta, { conversationId: args.conversationId, delta }),
+        onStored: (m) => broadcast(IPC.evConversationUpdated, { taskId: conv.taskId, conversationId: conv.id, message: m })
+      }
+    )
+    if (!outcome.ok) return { ok: false, error: outcome.error }
+    return { ok: true, message: outcome.message }
   })
   handleCommand(IPC.getProposals, () => {
     requireAssistant(d())
@@ -795,6 +738,20 @@ function registerIpc(): void {
       broadcastTask(task.id)
     }
     return undefined
+  })
+  // The curation undo (FR-020): a code operation on user-owned files — no
+  // session, no model — and NOT assistant-gated: reversing a curation that
+  // already ran is board-adjacent history work that must not depend on the
+  // switch's current position. Refusals arrive phrased in the result.
+  handleCommand(IPC.undoCuration, (args) => {
+    const result = undoCuration(d(), args.recordId)
+    if (!result.ok) {
+      const language = loadSettings(d()).uiLanguage
+      return { ok: false, error: localizeThrown(result.error, language).message }
+    }
+    const rec = getIngestRecord(d(), args.recordId)
+    if (rec) broadcast(IPC.evIngestUpdated, rec)
+    return { ok: true, restored: result.restored }
   })
 }
 
@@ -857,14 +814,13 @@ app.whenReady().then(async () => {
   rolloverMyDay(d.db)
 
   queue = new JobQueue(d.db, loadSettings(d.db).maxConcurrentJobs)
-  // T006 (FR-015): the assistant job kinds are REGISTERED ONLY while the
-  // declared switch says on — registration itself is the reachability, so a
-  // mis-typed enqueue could not even be picked up. wireJobEvents and
-  // requeueInterrupted stay wired regardless: the machinery is board-safe,
-  // and T004 is what prevents unregistered kinds from ever being enqueued.
+  // FR-021 (001's T006, carried): the assistant job kind is REGISTERED ONLY
+  // while the declared switch says on — registration itself is the
+  // reachability, so no session can run while off. The queue carries exactly
+  // one kind since feature 002 (D4): `ingest`, the curation run. The retired
+  // preprocess/suggestion rows are history — requeueInterrupted leaves them
+  // untouched because no handler is registered for them.
   if (isAssistantEnabled(loadSettings(d.db))) {
-    queue.register('preprocess', runPreprocessJob)
-    queue.register('suggestion', runSuggestionJob)
     queue.register('ingest', runIngestJob)
   }
   wireJobEvents(queue)

@@ -4,8 +4,8 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { ensureWikiDir, depositTask, snapshotWikiFiles, diffTouchedFiles, slugify, resolveLearningNotePath } from '../src/main/wiki/wiki'
-import { openDB, migrate, createTask, savePreprocess, saveNotes, listLists } from '../src/main/db'
-import { getTypeDef, updateTypeDef } from '../src/main/types'
+import { openDB, migrate, createTask, saveNotes, listLists } from '../src/main/db'
+import { createTypeDef, getTypeDef, updateTypeDef } from '../src/main/types'
 import { issueKeysOf } from './helpers/issues'
 import { setUserDataRoot } from '../src/main/paths'
 
@@ -36,33 +36,42 @@ test('6.1-6.2 wiki scaffolding creates structure and never overwrites', () => {
   assert.equal(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf-8'), '# CUSTOM SCHEMA')
 })
 
-test('6.3 deposit writes note + AI summary into raw/ under a title-derived name', () => {
+test('6.3 deposit writes the user note into raw/ under a title-derived name', () => {
   const dir = tmpdir()
   const wikiPath = path.join(dir, 'wiki-space')
   setUserDataRoot(dir)
   const conn = openDB(dir)
   migrate(conn.db)
-  // The wiki directory is declared on the TYPE now — there is no global
-  // setting for the deposit to read.
-  updateTypeDef(conn.db, {
-    ...getTypeDef(conn.db, 'learning')!,
+  // The wiki directory is declared on a user-defined wiki-destined Document
+  // Type (spec Seed-set synthesis) — there is no global setting to read and
+  // no built-in wiki row any more.
+  createTypeDef(conn.db, {
+    key: 'kb',
+    family: 'document',
+    label: 'Knowledge base',
+    emoji: '📚',
+    inputSchema: [],
+    isBuiltin: false,
+    finishBehaviour: 'deposit-then-curate',
     destination: { store: 'wiki', rootPath: wikiPath, subdir: 'learning-notes' }
   })
   const l = listLists(conn.db)[0]!
-  const t = createTask(conn.db, { listId: l.id, title: 'Linear algebra review', type: 'learning', inputs: { target: 'eigenvalues' } })
+  const t = createTask(conn.db, { listId: l.id, title: 'Linear algebra review', type: 'plain', customTypeKey: 'kb' })
   const noteFile = path.join(dir, 'note.md')
   fs.writeFileSync(noteFile, '# my note')
   saveNotes(conn.db, { taskId: t.id, notePath: noteFile, content: '# my note' })
-  savePreprocess(conn.db, { taskId: t.id, kind: 'learning', summary: 'A summary.', analysis: 'Review eigenvalues.', suggestions: ['s'], status: 'ready', inputsHash: 'h' })
   const deposit = depositTask(conn.db, t.id)
   assert.ok(deposit.rawDir.startsWith(wikiPath))
   assert.ok(deposit.files.includes('linear-algebra-review.md'), `got ${deposit.files}`)
-  assert.ok(deposit.files.includes('ai-summary.md'))
+  // D4: no AI summary joins the deposit — the preprocess engine is deleted
+  // and its rows are history no live path reads. The deposit is the user's
+  // own material and nothing else.
+  assert.ok(!deposit.files.includes('ai-summary.md'), `got ${deposit.files}`)
   const noteDest = path.join(deposit.rawDir, 'linear-algebra-review.md')
   assert.ok(fs.existsSync(noteDest))
   assert.equal(fs.readFileSync(noteDest, 'utf-8'), '# my note')
 
-  // Duplicate titles disambiguate without overwriting (spec learning-type).
+  // Duplicate titles disambiguate without overwriting (FR-004's rule).
   fs.writeFileSync(noteDest, 'KEEP ME')
   const again = depositTask(conn.db, t.id)
   assert.ok(again.files.includes('linear-algebra-review-2.md'), `got ${again.files}`)
@@ -90,15 +99,21 @@ test('depositing to the wiki refuses when the type declares no directory', () =>
   setUserDataRoot(dir)
   const conn = openDB(dir)
   migrate(conn.db)
-  // The seeded built-in learning destination: store 'wiki', rootPath null.
-  // There is no global wiki location and no built-in default to resolve it
-  // against, so the deposit is refused rather than pointed at a guess.
+  // A wiki destination with no location: legal only on a built-in (an empty
+  // root on a user Type is refused at SAVE, FR-013), and refused at the write
+  // with a code — there is no global wiki location and no built-in default to
+  // resolve it against, so the deposit is refused rather than pointed at a
+  // guess.
+  updateTypeDef(conn.db, {
+    ...getTypeDef(conn.db, 'document')!,
+    destination: { store: 'wiki', rootPath: '', subdir: 'learning-notes' }
+  })
   const l = listLists(conn.db)[0]!
-  const t = createTask(conn.db, { listId: l.id, title: 'Own the wiki location', type: 'learning', inputs: { target: 'x' } })
+  const t = createTask(conn.db, { listId: l.id, title: 'Own the wiki location', type: 'document' })
   assert.throws(
     () => depositTask(conn.db, t.id),
     (e: unknown) => {
-      assert.deepEqual(issueKeysOf(e), ['wiki.notConfigured'])
+      assert.deepEqual(issueKeysOf(e), ['destination.notConfigured'])
       return true
     }
   )

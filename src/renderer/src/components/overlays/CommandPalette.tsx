@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useApp } from '../../store'
-import { isAssistantEnabled } from '../../../../core/domain/assistant'
 import { useT } from '../../lib/useT'
 import type { Task, TaskTypeDef } from '../../../../shared/types'
 import type { Language, Translate } from '../../../../core/i18n'
@@ -98,16 +97,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       ico: '▤',
       run: () => openDrawer('activity')
     })
-    if (snapshot && isAssistantEnabled(snapshot.settings)) {
-      out.push({
-        kind: 'action',
-        id: 'open-chat',
-        title: t('palette.action.chat'),
-        sub: t('palette.action.chat.sub'),
-        ico: '💬',
-        run: () => openDrawer('chat')
-      })
-    }
+    // The open-chat command is retired with the debug drawer (T027):
+    // conversations live on every task, in the focus column.
     out.push({
       kind: 'action',
       id: 'go-today',

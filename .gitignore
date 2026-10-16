@@ -14,3 +14,7 @@ dist/
 
 # Machine-local Claude Code settings (permissions, local paths)
 .claude/settings.local.json
+
+# Environment files — never commit secrets (constitution: secrets live in userData)
+.env
+.env.*

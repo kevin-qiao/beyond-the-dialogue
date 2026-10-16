@@ -1,4 +1,4 @@
-import type { IngestRecord, Settings, Task, TaskNote, TaskPreprocess, TaskTypeDef } from '../../shared/types'
+import type { IngestRecord, Settings, Task, TaskNote, TaskTypeDef } from '../../shared/types'
 
 // StoragePort — the repository seam. Services depend on this, never on a
 // database handle, which is what lets a second host substitute storage without
@@ -44,8 +44,8 @@ export interface StoragePort {
   // working content
   getNotes(taskId: string): TaskNote | null
   saveNotes(note: Omit<TaskNote, 'updatedAt'>): TaskNote
-  // pre-process outputs (the deposit carries the summary)
-  getPreprocess(taskId: string): TaskPreprocess | null
+  // No getPreprocess (D4): the task_preprocess rows are history and no live
+  // code path reads them — the finish path's summary read was the last one.
   // type registry
   listTypes(): TaskTypeDef[]
   getType(key: string): TaskTypeDef | null

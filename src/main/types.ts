@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { deleteType, getType, listTypes, loadSettings, reassignTasksFromType, reconcileInputsForType, upsertType } from './db'
 import { issuesToText } from './errors'
-import type { Task, TaskKind, TaskTypeDef } from '../shared/types'
-import { effectiveCategory as coreEffectiveCategory, effectiveType, legacyWorkflow } from '../core/domain/taskType'
+import type { Task, TaskTypeDef } from '../shared/types'
+import { effectiveType } from '../core/domain/taskType'
 import {
   hasUnfilledRequiredInputs,
   validateInputs as coreValidateInputs,
@@ -10,14 +10,17 @@ import {
   validateTypeDefinition,
   type ValidationResult
 } from '../core/domain/validation'
-import { preprocessInputHash } from '../core/domain/hashing'
 import { nodePathPort } from './adapters/paths'
 
 // The workflow-type registry service: db-bound wrappers over the pure domain
 // rules in src/core/domain. The rules themselves live there so the renderer
 // and a future host can share them; this module supplies the registry.
+//
+// Feature 002: `effectiveKind` is deleted with the category vocabulary (plan
+// project structure — "effectiveTypeDef reads declarations; effectiveKind is
+// deleted"); `preprocessInputHash` and the legacy-workflow normalization went
+// with the preprocess engine (D4).
 
-export { preprocessInputHash }
 export type { ValidationResult }
 
 export function listTypeDefs(db: DatabaseSync): TaskTypeDef[] {
@@ -47,13 +50,8 @@ export function effectiveTypeDef(db: DatabaseSync, task: Pick<Task, 'type' | 'cu
   return getType(db, task.type)
 }
 
-// Behavior kind dispatch key for a task (design D2).
-export function effectiveKind(db: DatabaseSync, task: Pick<Task, 'type' | 'customTypeKey'>): TaskKind {
-  return (effectiveTypeDef(db, task) ?? getType(db, 'plain'))?.kind ?? 'plain'
-}
-
 // Pure variant, for callers that already hold the registry (renderer, services).
-export { effectiveType, coreEffectiveCategory as effectiveCategory }
+export { effectiveType }
 
 // ---- type CRUD ----
 
@@ -68,8 +66,8 @@ export function createTypeDef(db: DatabaseSync, def: TaskTypeDef): TaskTypeDef {
 }
 
 // Update: custom types are fully editable; built-ins only their presentation
-// (label/emoji/description/color) — category, behaviour and inputSchema are
-// fixed (FR-017). A built-in that tries to change its category or behaviour is
+// (label/emoji/description/color) — family, behaviour and inputSchema are
+// fixed (FR-017). A built-in that tries to change its family or behaviour is
 // refused rather than silently ignored, so the user learns why.
 export function updateTypeDef(db: DatabaseSync, def: TaskTypeDef): TaskTypeDef {
   const existing = getType(db, def.key)
@@ -86,13 +84,12 @@ export function updateTypeDef(db: DatabaseSync, def: TaskTypeDef): TaskTypeDef {
         emoji: normalized.emoji,
         description: normalized.description,
         color: normalized.color,
-        // A built-in's IDENTITY is fixed — its category, its behaviour, its
-        // declared inputs (FR-017). Its destination is not identity: "change
-        // the meeting-minutes location" and "change a learning type's note
-        // location" are both user-facing settings (FR-004), and refusing them
-        // would make the feature's own scenario unreachable.
-        destination: normalized.destination,
-        grants: normalized.grants
+        // A built-in's IDENTITY is fixed — its family, its behaviour, its
+        // declared inputs (FR-017). Its destination is not identity: pointing
+        // the seeded Document type at a folder is the feature's own guided
+        // flow (Q1/FR-007), and refusing it would make that scenario
+        // unreachable.
+        destination: normalized.destination
       }
     : normalized
   const saved = upsertType(db, merged)
@@ -105,30 +102,27 @@ export function updateTypeDef(db: DatabaseSync, def: TaskTypeDef): TaskTypeDef {
 }
 
 /**
- * Fill in the fields a caller may legitimately omit. An *unrecognised*
- * behaviour is passed through untouched so validation can reject it — this
- * only supplies the category's historical default when nothing was declared.
+ * Fill in the fields a caller may legitimately omit. Feature 002 deleted the
+ * legacy-workflow fallback (research D1/D2): every row in the registry
+ * declares its behaviour outright (the column is NOT NULL since v5, and
+ * validation refuses an undeclared one), so nothing is inferred from history.
+ * An omitted `family` keeps the stored value — absence means "no assistance",
+ * never a guess.
  */
 function normalizeTypeDef(def: TaskTypeDef, existing: TaskTypeDef | null): TaskTypeDef {
-  const base = existing ?? def
-  const declared = def.finishBehaviour
-  if (declared) return { ...def, grants: def.grants ?? existing?.grants ?? { skills: [], toolServers: [] } }
-  const legacy = legacyWorkflow(base.kind)
-  return {
-    ...def,
-    finishBehaviour: legacy?.finishBehaviour as TaskTypeDef['finishBehaviour'],
-    destination: def.destination ?? legacy?.destination,
-    grants: def.grants ?? existing?.grants ?? { skills: [], toolServers: [] }
-  }
+  return { ...def, family: def.family === undefined ? (existing?.family ?? null) : def.family }
 }
 
 // Delete: built-ins are never deletable (spec). Tasks referencing the type
 // fall back to plain without losing core fields; already-written artifacts
-// are files on disk and are not touched (FR-016).
-export function deleteTypeDef(db: DatabaseSync, key: string): void {
+// are files on disk and are not touched (FR-014/FR-016). Returns the ids of
+// the re-homed tasks (US3-AC4: nothing silently loses its workflow — the
+// transport broadcasts each re-home and reports `rehomedTo: 'plain'`).
+export function deleteTypeDef(db: DatabaseSync, key: string): string[] {
   const existing = getType(db, key)
-  if (!existing) return
+  if (!existing) return []
   if (existing.isBuiltin) throw new Error('built-in types cannot be removed')
-  reassignTasksFromType(db, key)
+  const rehomed = reassignTasksFromType(db, key)
   deleteType(db, key)
+  return rehomed
 }

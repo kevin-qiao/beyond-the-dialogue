@@ -1,390 +1,78 @@
-import { test, before } from 'node:test'
+import { test, before, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { openDB, migrate, saveSettings, loadSettings, getTask, getPreprocess, getNotes, listIngest, listSuggestions, getJob, saveNotes, updateTask, type DB } from '../src/main/db'
-import { message, isMessageKey } from '../src/core/i18n'
+import { openDB, migrate, saveSettings, loadSettings, getTask, getNotes, listIngest, saveNotes, createList, createTask, type DB } from '../src/main/db'
 import { JobQueue } from '../src/main/job-queue'
-import { runPreprocessJob } from '../src/main/preprocess'
-import { runSuggestionJob } from '../src/main/suggestions'
 import { runIngestJob } from '../src/main/wiki/ingest'
-import { setSessionFactory, setSimplePromptOverride, type CreateJobSessionOptions } from '../src/main/ai/session-factory'
-import { setUserDataRoot } from '../src/main/paths'
-import { storeProviderKey } from '../src/main/secrets'
-import { ensureVault, writeNote, notePathFor } from '../src/main/wiki/vault'
-import { serviceCreateList, serviceCreateTask, serviceSetMyDay } from '../src/main/tasks'
-import { effectiveKind, effectiveTypeDef, getTypeDef, updateTypeDef } from '../src/main/types'
-import { ensureDestination, folderArtifactStore } from '../src/main/adapters/artifacts/folderStore'
+import { undoCuration } from '../src/main/wiki/undo'
+import { createTypeDef, getTypeDef, updateTypeDef } from '../src/main/types'
 import { createSqliteStorage } from '../src/main/adapters/sqlite/storageAdapter'
-import { createAgentSessionAdapter } from '../src/main/adapters/agent/sessionAdapter'
+import { artifactStoreFor } from '../src/main/adapters/artifacts'
 import { nodePathPort } from '../src/main/adapters/paths'
 import { systemClock } from '../src/core/ports/clock'
 import { finishTask, type FinishDeps } from '../src/core/services/finishService'
-import { declaredWorkflow } from '../src/core/domain/taskType'
-import { workingAreaFor } from '../src/core/domain/workingArea'
-import { PREPROCESS_INSTRUCTIONS, hasPreprocess, preprocessInstruction } from '../src/core/domain/preprocess'
+import { setSessionFactory, type CreateJobSessionOptions, type JobSessionLike } from '../src/main/ai/session-factory'
+import { setUserDataRoot } from '../src/main/paths'
+import { storeProviderKey } from '../src/main/secrets'
+import { ensureVault, writeNote, notePathFor } from '../src/main/wiki/vault'
 
-const SCRIPTED_PREPROCESS = JSON.stringify({
-  summary: 'A learning task about applying blockchain techniques to math education, based on the NFTrig paper.',
-  suggestions: ['Summarize the paper\'s mechanism in your own words', 'Compare with traditional LMS approaches', 'Sketch a small demo idea']
-})
+// The flagship e2e, feature 002 (T044, quickstart §7):
+//
+//   idea → Document task → draft across a simulated restart → finish
+//   organized → knowledge-base curation → Activity ledger → undo → re-finish
+//   as-written
+//
+// All scripted at the seams — no provider, no network. Two guarantees span
+// the whole loop: the board never blocks on AI (FR-006), and the off-state
+// segments make ZERO outbound calls (FR-021/SC-002).
 
-// A scripted agent session that returns canned outputs; for the ingest job it
-// actually writes the wiki files the real agent would (then diff reports them).
-function makeScriptedSession(kind: 'preprocess' | 'ingest', wikiPath: string, taskId: string) {
-  const messages: any[] = []
-  return {
-    subscribe: () => () => {},
-    messages,
-    async prompt() {
-      if (kind === 'preprocess') {
-        messages.push({ role: 'assistant', content: [{ type: 'text', text: SCRIPTED_PREPROCESS }] })
-      } else {
-        // Simulate the ingestion agent's file operations: write the curated
-        // learning note, update index and log.
-        const slug = `learning-${taskId.slice(0, 6)}`
-        fs.mkdirSync(path.join(wikiPath, 'learning-notes'), { recursive: true })
-        fs.writeFileSync(
-          path.join(wikiPath, 'learning-notes', `${slug}.md`),
-          `# ${slug}\n\nOverview: a scripted curated note.\n\n## Sources\n\n- [[raw/${taskId}]]\n`
-        )
-        const index = fs.readFileSync(path.join(wikiPath, 'index.md'), 'utf-8')
-        fs.writeFileSync(path.join(wikiPath, 'index.md'), index + `\n- [[${slug}]] — scripted curated note\n`)
-        fs.appendFileSync(path.join(wikiPath, 'log.md'), `\n## [${new Date().toISOString().slice(0, 10)}] ingest | ${slug}\n`)
-        messages.push({ role: 'assistant', content: [{ type: 'text', text: 'done' }] })
-      }
-    },
-    async abort() {}
-  }
-}
+const DRAFT_V1 = 'wsl2 networking post — first sitting\n\nNAT hides the host; mirror mode fixes most of it.\n'
+const DRAFT_V2 = DRAFT_V1 + '\nsecond sitting: add the port-forwarding workaround and a diagram.\n'
 
-before(() => {
-  // Settings must be configured so jobs pass the AI-configured guard, but the
-  // scripted session factory means no real provider is contacted.
-  setSessionFactory(async (opts: CreateJobSessionOptions) => {
-    const kind = opts.systemPrompt.includes('wiki') ? 'ingest' : 'preprocess'
-    return makeScriptedSession(kind, opts.cwd, 'scripted')
-  })
-  setSimplePromptOverride(async () =>
-    JSON.stringify(['Break the topic into two sessions.', 'Skim the figures first.', 'Draft the notes in your own words.'])
-  )
-})
+let factoryCalls = 0
 
-async function waitForJob(db: any, jobId: string, kind: string): Promise<void> {
-  const deadline = Date.now() + 20000
-  while (Date.now() < deadline) {
-    const j = getJob(db, jobId)
-    if (j && (j.state === 'done' || j.state === 'failed')) {
-      if (j.state === 'failed') throw new Error(`${kind} job failed: ${j.error}`)
-      return
-    }
-    await new Promise((r) => setTimeout(r, 150))
-  }
-  throw new Error(`${kind} job timed out`)
-}
-
-// Finish a task through the real service with the real folder store, retargeting
-// the built-in Meeting type at this test's folder first (FR-004). The folder is
-// created the way the app creates a declared destination, not by the finish.
-async function finishMeeting(conn: DB, minutesDir: string, taskId: string) {
-  updateTypeDef(conn.db, {
-    ...getTypeDef(conn.db, 'meeting')!,
-    destination: { store: 'folder', rootPath: minutesDir, subdir: '' }
-  })
-  const deps: FinishDeps = {
-    // Tests render English; the language is explicit rather than absent so a
-    // missing one cannot hide as a silent fallback.
-    language: 'en',
-    paths: nodePathPort,
-    storage: createSqliteStorage(conn.db),
-    storeFor: () => folderArtifactStore,
-    session: createAgentSessionAdapter(() => loadSettings(conn.db)),
-    clock: systemClock,
-    notifier: { toast: () => {}, progress: () => {} },
-    enqueueCurate: () => {}
-  }
-  return finishTask(deps, taskId)
-}
-
-async function waitForIngest(db: any, ingestId: string): Promise<void> {
-  const deadline = Date.now() + 20000
-  while (Date.now() < deadline) {
-    const recs = listIngest(db)
-    const r = recs.find((x) => x.id === ingestId)
-    if (r && (r.state === 'done' || r.state === 'failed')) {
-      if (r.state === 'failed') throw new Error(`ingest failed: ${r.error}`)
-      return
-    }
-    await new Promise((r2) => setTimeout(r2, 150))
-  }
-  throw new Error('ingest timed out')
-}
-
-test('8.1 flagship scenario: learning task -> My Day -> preprocess -> note -> Finish -> wiki ingest', { timeout: 30000 }, async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-e2e-'))
-  setUserDataRoot(dir)
-  const wikiPath = path.join(dir, 'wiki-space')
-  const conn = openDB(dir)
-  migrate(conn.db)
-  saveSettings(conn.db, {
-    provider: 'openai',
-    model: 'gpt-4o',
-    hasApiKey: true,
-    defaultListId: null,
-    maxConcurrentJobs: 2, showWelcome: false, theme: 'light', assistantRuntime: 'on', lastCheck: null, skills: [], mcpServers: []
-  })
-  // v10 moved secret values out of the table; the job path resolves the key
-  // from the machine-bound store, so the scripted key lives there now.
-  storeProviderKey('openai', 'sk-scripted')
-  ensureVault()
-
-  // The learning type declares where its wiki lives — there is no global
-  // wiki directory setting anymore, so the flagship runs the configured flow.
-  updateTypeDef(conn.db, {
-    ...getTypeDef(conn.db, 'learning')!,
-    destination: { store: 'wiki', rootPath: wikiPath, subdir: 'learning-notes' }
-  })
-
-  // 1. Create a learning task with its target input.
-  const list = serviceCreateList(conn.db, 'Research')
-  const task = serviceCreateTask(conn.db, {
-    listId: list.id,
-    title: 'NFTrig: Using Blockchain Technologies for Math Education',
-    type: 'learning',
-    inputs: { target: 'How NFTrig applies blockchain to math education', purpose: 'Write a learning note' }
-  })
-  assert.equal(task.type, 'learning')
-  assert.equal(task.preprocessStatus, 'none')
-
-  // 2. Trigger model (spec task-types): first add to My Day fires the
-  // kind's pre-process (AI configured) instead of the plain suggestion job.
-  const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
-  q.register('preprocess', runPreprocessJob)
-  q.register('suggestion', runSuggestionJob)
-  q.register('ingest', runIngestJob)
-  serviceSetMyDay(conn.db, task.id, true)
-  const preJob = q.enqueue('preprocess', task.id)
-  await waitForJob(conn.db, preJob.id, 'preprocess')
-
-  // 3. Pre-process completed and persisted; suggestions landed as chips.
-  const processed = getTask(conn.db, task.id)!
-  assert.equal(processed.preprocessStatus, 'ready')
-  const pp = getPreprocess(conn.db, task.id)!
-  assert.ok(pp.summary.includes('blockchain'), 'summary derived from task context')
-  assert.equal(pp.kind, 'learning')
-  assert.ok(pp.inputsHash, 'inputs hash recorded for the re-run gate')
-  assert.ok(listSuggestions(conn.db, task.id).length >= 2, 'activity suggestions as dismissible chips')
-
-  // 4. Write the working note (file-backed in vault, autosave path).
-  writeNote(task.id, '# Learning Notes\n\nKey insight: blockchain for math education.')
-  saveNotes(conn.db, { taskId: task.id, notePath: notePathFor(task.id), content: '# Learning Notes\n\nKey insight: blockchain for math education.' })
-  const notes = getNotes(conn.db, task.id)
-  assert.ok(notes?.content.includes('Key insight'))
-
-  // 5. Finish -> mark complete + hand off to ingestion (mirrors IPC finishTask).
-  updateTask(conn.db, task.id, { completed: true, completedAt: new Date().toISOString() })
-  const ingestRec = q.enqueueIngest(task.id, task.title, [])
-  await waitForIngest(conn.db, ingestRec.id)
-  const ingest = listIngest(conn.db)
-  assert.equal(ingest.length, 1)
-  assert.equal(ingest[0]!.state, 'done')
-  // Deposit carries a file name generated from the title.
-  assert.ok(
-    ingest[0]!.depositFiles.some((f) => f === 'nftrig-using-blockchain-technologies-for-math-education.md'),
-    `deposit files: ${ingest[0]!.depositFiles}`
-  )
-  assert.ok(ingest[0]!.depositFiles.includes('ai-summary.md'), 'AI summary deposited too')
-  assert.ok(
-    ingest[0]!.touchedFiles.some((f) => f.startsWith('learning-notes/')),
-    `curated learning note reported as touched: ${ingest[0]!.touchedFiles}`
-  )
-
-  // 6. Wiki contains the curated note, updated index, log entry.
-  const curated = fs.readdirSync(path.join(wikiPath, 'learning-notes'))
-  assert.ok(curated.length >= 1, 'curated learning note created')
-  const index = fs.readFileSync(path.join(wikiPath, 'index.md'), 'utf-8')
-  assert.ok(index.includes('learning-'), 'index updated')
-  const log = fs.readFileSync(path.join(wikiPath, 'log.md'), 'utf-8')
-  assert.ok(log.includes('ingest'), 'log entry appended')
-
-  // raw/ contains the deposited note (deposit-first safety net).
-  const rawDir = path.join(wikiPath, 'raw', task.id)
-  assert.ok(fs.readdirSync(rawDir).some((f) => f.endsWith('.md')), 'raw deposit survived')
-
-  // .history snapshot exists.
-  const hist = fs.readdirSync(path.join(wikiPath, '.history'))
-  assert.ok(hist.length >= 1, 'history snapshot present')
-
-  // 7. Task is completed.
-  const finished = getTask(conn.db, task.id)!
-  assert.equal(finished.completed, true)
-
-  conn.close()
-})
-
-test('8.1b re-running after input change refreshes outputs (hash gate)', { timeout: 20000 }, async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-e2e2-'))
-  setUserDataRoot(dir)
-  const conn = openDB(dir)
-  migrate(conn.db)
-  saveSettings(conn.db, {
-    provider: 'openai',
-    model: 'gpt-4o',
-    hasApiKey: true,
-    defaultListId: null,
-    maxConcurrentJobs: 2, showWelcome: false, theme: 'light', assistantRuntime: 'on', lastCheck: null, skills: [], mcpServers: []
-  })
-  // v10 moved secret values out of the table; the job path resolves the key
-  // from the machine-bound store, so the scripted key lives there now.
-  storeProviderKey('openai', 'sk-scripted')
-  ensureVault()
-
-  const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
-  q.register('preprocess', runPreprocessJob)
-  const list = serviceCreateList(conn.db, 'L')
-  const task = serviceCreateTask(conn.db, { listId: list.id, title: 'T', type: 'learning', inputs: { target: 'A' } })
-  serviceSetMyDay(conn.db, task.id, true)
-  const first = q.enqueue('preprocess', task.id)
-  await waitForJob(conn.db, first.id, 'preprocess')
-  const hash1 = getPreprocess(conn.db, task.id)!.inputsHash
-
-  // Edit the target while in My Day → hash changed → re-run allowed.
-  const edited = updateTask(conn.db, task.id, { inputs: { ...task.inputs, target: 'B' } })
-  const { preprocessInputHash } = await import('../src/main/types')
-  const { effectiveTypeDef } = await import('../src/main/types')
-  const def = effectiveTypeDef(conn.db, edited)
-  const newHash = preprocessInputHash(edited, def)
-  assert.notEqual(newHash, hash1)
-
-  const second = q.enqueue('preprocess', edited.id)
-  await waitForJob(conn.db, second.id, 'preprocess')
-  const after = getPreprocess(conn.db, task.id)!
-  assert.notEqual(after.inputsHash, hash1, 'second run recorded the new hash')
-  conn.close()
-})
-
-// ---- US1: the Meeting journey end to end (quickstart S1) ----
-
-const MEETING_PREPROCESS = JSON.stringify({
-  summary:
-    '## Suggested agenda\n1. Roadmap review (10 min)\n2. Beta launch date (15 min)\n\n## Core topics\n- Whether the March beta date still holds\n- The onboarding drop-off Ana raised',
-  analysis: 'The user wants to walk into the weekly sync with a settled beta date.',
-  suggestions: ['Confirm the March date with Ana', 'Bring the onboarding numbers']
-})
-
-const POLISHED_MINUTES = JSON.stringify({
-  polished:
-    'Date: 12 March\n\n**Decision:** we ship the beta in March.\n\nThe roadmap was reviewed and the onboarding drop-off was raised by Ana.',
-  actionItems: ['Ana raised the onboarding drop-off'],
-  preservedFacts: ['we ship the beta in March']
-})
-
-test('8.1c meeting journey: agenda -> minutes -> polished file in a configured folder', { timeout: 30000 }, async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-meeting-'))
-  setUserDataRoot(dir)
-  const minutesDir = path.join(dir, 'meeting-minutes')
-  ensureDestination(minutesDir)
-  const conn = openDB(dir)
-  migrate(conn.db)
-  saveSettings(conn.db, {
-    provider: 'openai',
-    model: 'gpt-4o',
-    hasApiKey: true,
-    defaultListId: null,
-    maxConcurrentJobs: 2,
-    showWelcome: false,
-    theme: 'light',
-    assistantRuntime: 'on',
-    lastCheck: null,
-    skills: [],
-    mcpServers: []
-  })
-  storeProviderKey('openai', 'sk-scripted')
-  ensureVault()
-
-  // The pre-process call returns an agenda; the finish call returns polished
-  // minutes. One scripted factory serves both, distinguished by the system
-  // prompt each path uses.
-  // The discriminator is the prompt, not the system prompt: both calls go
-  // through the same session factory and the category wording lives in the
-  // per-category instruction the registry builds.
-  setSessionFactory(async (_opts: CreateJobSessionOptions) => {
+/** The scripted assistant: organizes faithfully; curates by writing inside
+ *  the collection (what the real agent's tools would do). */
+function scriptAssistant(kbRoot: string): void {
+  setSessionFactory(async (opts: CreateJobSessionOptions): Promise<JobSessionLike> => {
+    factoryCalls++
     const messages: any[] = []
+    const isCuration = opts.tools.length > 0
     return {
       subscribe: () => () => {},
       messages,
       async prompt(text: string) {
-        const reply = /meeting preparation assistant/i.test(text) ? MEETING_PREPROCESS : POLISHED_MINUTES
-        messages.push({ role: 'assistant', content: [{ type: 'text', text: reply }] })
+        if (isCuration) {
+          const notesDir = path.join(kbRoot, 'learning-notes')
+          fs.mkdirSync(notesDir, { recursive: true })
+          fs.writeFileSync(path.join(notesDir, 'curated.md'), '# Curated note\n\nBackpressure and mirror mode.\n')
+          fs.writeFileSync(path.join(kbRoot, 'index.md'), fs.readFileSync(path.join(kbRoot, 'index.md'), 'utf-8') + '\n- [[curated]]\n')
+          messages.push({ role: 'assistant', content: [{ type: 'text', text: 'done' }] })
+          return
+        }
+        const draft = text.split('===DOCUMENT AS WRITTEN BY THE USER===')[1] ?? ''
+        messages.push({
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                polished: `# WSL2 networking\n\n${draft.trim().split('\n').slice(1).join('\n')}`,
+                preservedFacts: ['NAT hides the host', 'mirror mode fixes most of it']
+              })
+            }
+          ]
+        })
       },
-      async abort() {}
+      async abort() {},
+      async dispose() {}
     }
   })
+}
 
-  // Step 1 — create a Meeting task with its required input.
-  const list = serviceCreateList(conn.db, 'Work')
-  const task = serviceCreateTask(conn.db, {
-    listId: list.id,
-    title: 'Weekly sync: beta launch',
-    type: 'meeting',
-    inputs: { target: 'Settle the beta launch date and the onboarding drop-off' }
-  })
-  assert.equal(task.type, 'meeting')
-  assert.equal(effectiveKind(conn.db, task), 'meeting', 'the category is meeting, not plain')
-
-  // Step 2 — first add to My Day fires the MEETING pre-process, not the
-  // plain-task suggestion path.
-  const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
-  q.register('preprocess', runPreprocessJob)
-  q.register('suggestion', runSuggestionJob)
-  serviceSetMyDay(conn.db, task.id, true)
-  const preJob = q.enqueue('preprocess', task.id)
-  await waitForJob(conn.db, preJob.id, 'preprocess')
-
-  // Step 3 — an agenda and core topics are presented.
-  const pp = getPreprocess(conn.db, task.id)!
-  assert.equal(pp.kind, 'meeting')
-  assert.ok(pp.summary.includes('## Suggested agenda'), `expected an agenda, got: ${pp.summary}`)
-  assert.ok(pp.summary.includes('## Core topics'), 'expected core topics')
-  assert.ok(listSuggestions(conn.db, task.id).length >= 2, 'agenda activities as chips')
-
-  // Step 4 — write the minutes through the working area's save path. The
-  // editor autosaves on change (debounced, flushed on blur/unmount) and has no
-  // save button, so one save is the whole of the user's action: there is no
-  // explicit save step for the test to perform on top of it.
-  const minutes = 'Date: 12 March\n\nDecision: we ship the beta in March.\n\nAna raised the onboarding drop-off.'
-  writeNote(task.id, minutes)
-  saveNotes(conn.db, { taskId: task.id, notePath: notePathFor(task.id), content: minutes })
-  assert.equal(getNotes(conn.db, task.id)!.content, minutes, 'minutes persist without an explicit save action')
-  assert.equal(fs.readFileSync(notePathFor(task.id), 'utf-8'), minutes, 'and are on disk in the vault')
-
-  // Step 5 — Finish writes to the configured folder and completes the task.
-  const outcome = await finishMeeting(conn, minutesDir, task.id)
-  assert.equal(outcome.behaviour, 'polish-then-file')
-  assert.equal(getTask(conn.db, task.id)!.completed, true)
-
-  // Step 6 — the file is plain markdown in the configured folder.
-  const files = fs.readdirSync(minutesDir)
-  assert.deepEqual(files, ['weekly-sync-beta-launch.md'])
-  const written = fs.readFileSync(path.join(minutesDir, files[0]!), 'utf-8')
-  assert.ok(written.includes('**Decision:** we ship the beta in March'), 'the polished minutes were filed')
-  assert.ok(/^## Action items$/m.test(written), 'the recorded action items are a distinct section')
-  assert.ok(written.includes('- Ana raised the onboarding drop-off'))
-  // Readable with no workspace, schema, or index alongside it.
-  assert.ok(!fs.existsSync(path.join(minutesDir, 'index.md')))
-  assert.ok(!fs.existsSync(path.join(minutesDir, 'CLAUDE.md')))
-  assert.ok(!fs.existsSync(path.join(minutesDir, '.history')))
-  conn.close()
-})
-
-test('8.1d a polished finish never files a fact the user did not record (FR-009, SC-011)', { timeout: 30000 }, async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-meeting-inject-'))
-  setUserDataRoot(dir)
-  const minutesDir = path.join(dir, 'meeting-minutes')
-  ensureDestination(minutesDir)
-  const conn = openDB(dir)
-  migrate(conn.db)
+function configured(dir: string, conn: DB, assistantRuntime: 'on' | 'off' = 'on'): void {
   saveSettings(conn.db, {
     provider: 'openai',
     model: 'gpt-4o',
@@ -393,88 +81,167 @@ test('8.1d a polished finish never files a fact the user did not record (FR-009,
     maxConcurrentJobs: 2,
     showWelcome: false,
     theme: 'light',
-    assistantRuntime: 'on',
+    uiLanguage: 'en',
+    assistantRuntime,
     lastCheck: null,
     skills: [],
     mcpServers: []
   })
   storeProviderKey('openai', 'sk-scripted')
-  ensureVault()
+}
 
-  // The assistant tries to slip in a decision the user never recorded.
-  setSessionFactory(async () => ({
-    subscribe: () => () => {},
-    messages: [
-      {
-        role: 'assistant',
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              polished: 'The team agreed to hire two engineers.',
-              actionItems: ['Approve the Q3 hiring budget'],
-              preservedFacts: ['we ship the beta in March']
-            })
-          }
-        ]
+function depsFor(conn: DB, assistantEnabled: boolean, enqueue?: (taskId: string, files: string[]) => void): FinishDeps {
+  return {
+    language: 'en',
+    assistantEnabled,
+    paths: nodePathPort,
+    storage: createSqliteStorage(conn.db),
+    storeFor: artifactStoreFor(),
+    session: {
+      isAvailable: () => loadSettings(conn.db).hasApiKey && !!loadSettings(conn.db).model,
+      async run(req) {
+        // Route through the seam so the scripted factory answers (the real
+        // adapter does the same through createJobSession).
+        const session = await (async () => {
+          const mod = await import('../src/main/ai/session-factory')
+          return mod.createJobSession({
+            settings: { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-scripted', hasApiKey: true } as never,
+            cwd: req.cwd,
+            systemPrompt: req.systemPrompt,
+            thinkingLevel: 'medium',
+            tools: req.tools,
+            purpose: req.purpose
+          })
+        })()
+        await session.prompt(req.prompt)
+        const last = [...session.messages].reverse().find((m: any) => m.role === 'assistant')
+        const content = last?.content
+        return Array.isArray(content) ? content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n') : String(content ?? '')
       }
-    ],
-    async prompt() {},
-    async abort() {}
-  }))
+    },
+    clock: systemClock,
+    notifier: { toast: () => {}, progress: () => {} },
+    enqueueCurate: (task, files) => enqueue?.(task.id, files)
+  }
+}
 
-  const list = serviceCreateList(conn.db, 'Work')
-  const task = serviceCreateTask(conn.db, { listId: list.id, title: 'Weekly sync', type: 'meeting', inputs: { target: 'Beta date' } })
-  const minutes = 'Decision: we ship the beta in March.'
-  writeNote(task.id, minutes)
-  saveNotes(conn.db, { taskId: task.id, notePath: notePathFor(task.id), content: minutes })
-
-  const outcome = await finishMeeting(conn, minutesDir, task.id)
-
-  // The finish completes — it never fails outright — but the injection was
-  // caught and the user's own words are what got filed.
-  assert.equal(outcome.result?.assistantStep, 'failed')
-  assert.ok(outcome.result?.assistantError?.includes('introduced content the user did not record'))
-  const written = fs.readFileSync(path.join(minutesDir, 'weekly-sync.md'), 'utf-8')
-  assert.equal(written, minutes)
-  assert.ok(!written.includes('hire'), 'the invented decision is nowhere in the artifact')
-  conn.close()
+before(() => {
+  factoryCalls = 0
 })
 
-// ---- S7: an unrecognised category fails loudly ----
+afterEach(() => setSessionFactory(null))
 
-test('8.1e a meeting task routes to the meeting surface and meeting pre-process, never plain', { timeout: 20000 }, async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-route-'))
+test('8.1 flagship: idea → draft across restart → organized → curation → ledger → undo → re-finish as-written', { timeout: 30000 }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-e2e-'))
   setUserDataRoot(dir)
-  const conn = openDB(dir)
+  const filedDir = path.join(dir, 'filed')
+  const kbRoot = path.join(dir, 'kb-space')
+  fs.mkdirSync(filedDir, { recursive: true })
+
+  let conn: DB = openDB(dir)
   migrate(conn.db)
-  const list = serviceCreateList(conn.db, 'Work')
-  const task = serviceCreateTask(conn.db, { listId: list.id, title: 'Retro', type: 'meeting', inputs: { target: 'x' } })
+  configured(dir, conn)
+  ensureVault()
+  scriptAssistant(kbRoot)
 
-  // The category resolver is the hazard: it falls back to `plain`, so a missing
-  // branch degrades into a plausible-looking task that quietly does the wrong
-  // thing. These assertions are what make that visible.
-  assert.equal(effectiveKind(conn.db, task), 'meeting')
-  assert.equal(workingAreaFor(effectiveKind(conn.db, task)), 'markdown')
+  // -- the idea becomes a Document task; the built-in is pointed at a folder
+  // (the fresh-install guided refusal itself is pinned in freshInstall.test).
+  updateTypeDef(conn.db, {
+    ...getTypeDef(conn.db, 'document')!,
+    destination: { store: 'folder', rootPath: filedDir, subdir: '' }
+  })
+  createTypeDef(conn.db, {
+    key: 'kb_notes',
+    family: 'document',
+    label: 'KB notes',
+    emoji: '📚',
+    inputSchema: [],
+    isBuiltin: false,
+    finishBehaviour: 'deposit-then-curate',
+    destination: { store: 'wiki', rootPath: kbRoot, subdir: 'learning-notes' }
+  })
+  const list = createList(conn.db, 'Writing')
+  const post = createTask(conn.db, { listId: list.id, title: 'WSL2 networking blog', type: 'document' })
 
-  // The pre-process registry has a meeting instruction; it is NOT the jira one.
-  assert.equal(hasPreprocess('meeting'), true)
-  assert.equal(preprocessInstruction('meeting'), PREPROCESS_INSTRUCTIONS.meeting)
-  assert.notEqual(preprocessInstruction('meeting'), PREPROCESS_INSTRUCTIONS.jira)
-  // The declaration holds a message KEY now, since the job that emits it is
-  // what knows the language — so the assertion is on the label it resolves to.
-  const meetingStep = preprocessInstruction('meeting')!.step
-  assert.ok(isMessageKey(meetingStep), 'the step label must be a catalog key')
-  assert.equal(message('en', meetingStep), 'Proposing an agenda')
-  assert.notEqual(message('en', meetingStep), message('en', preprocessInstruction('jira')!.step))
+  // -- drafting, across a simulated restart: the working area survives
+  // because the note store + vault mirror ARE the persistence (FR-002/D3).
+  writeNote(post.id, DRAFT_V1)
+  saveNotes(conn.db, { taskId: post.id, notePath: notePathFor(post.id), content: DRAFT_V1 })
+  conn.close()
 
-  // plain genuinely has none — the fallback would be indistinguishable from a
-  // correct answer if the registry ever lost its meeting entry.
-  assert.equal(hasPreprocess('plain'), false)
-  assert.equal(preprocessInstruction('plain'), null)
+  conn = openDB(dir) // the restart
+  migrate(conn.db)
+  assert.equal(getNotes(conn.db, post.id)!.content, DRAFT_V1, 'the draft returns byte-identical after the restart')
+  assert.equal(fs.readFileSync(notePathFor(post.id), 'utf-8'), DRAFT_V1, 'and it is on disk in the vault')
+  writeNote(post.id, DRAFT_V2)
+  saveNotes(conn.db, { taskId: post.id, notePath: notePathFor(post.id), content: DRAFT_V2 })
 
-  // And the declared behaviour is the Meeting one, not complete-only.
-  const def = effectiveTypeDef(conn.db, task)!
-  assert.equal(declaredWorkflow(def).finishBehaviour, 'polish-then-file')
+  // -- finish organized: the filed copy lands, the draft is untouched.
+  const organized = await finishTask(depsFor(conn, true), post.id, { mode: 'assisted' })
+  assert.equal(organized.report.path, 'organized')
+  assert.equal(organized.report.assistantStep, 'ran')
+  assert.equal(organized.task.completed, true)
+  const filed = path.join(filedDir, 'wsl2-networking-blog.md')
+  assert.ok(fs.readFileSync(filed, 'utf-8').startsWith('# WSL2 networking'))
+  assert.equal(getNotes(conn.db, post.id)!.content, DRAFT_V2, 'the draft survives the finish byte-identical')
+
+  // -- re-finish as-written: a second artifact beside the first, no session.
+  const callsBefore = factoryCalls
+  const asWritten = await finishTask(depsFor(conn, true), post.id, { mode: 'as-written' })
+  assert.equal(asWritten.report.path, 'as-written')
+  assert.equal(asWritten.report.assistantStep, 'skipped')
+  assert.equal(factoryCalls, callsBefore, 'the as-written finish constructed nothing')
+  assert.deepEqual(fs.readdirSync(filedDir).sort(), ['wsl2-networking-blog-2.md', 'wsl2-networking-blog.md'])
+  assert.equal(fs.readFileSync(path.join(filedDir, 'wsl2-networking-blog-2.md'), 'utf-8'), DRAFT_V2)
+
+  // -- the knowledge-base loop: a kb task finishes into the collection —
+  // deposit synchronous, curation in the job, ledger records the run.
+  const kbTask = createTask(conn.db, { listId: list.id, title: 'backpressure notes', type: 'plain', customTypeKey: 'kb_notes' })
+  writeNote(kbTask.id, '# Field notes\n\nThe ingestion pipeline needs backpressure.\n')
+  saveNotes(conn.db, { taskId: kbTask.id, notePath: notePathFor(kbTask.id), content: '# Field notes\n\nThe ingestion pipeline needs backpressure.\n' })
+  const q = new JobQueue(conn.db, 2, { baseRetryMs: 5 })
+  q.register('ingest', runIngestJob)
+  const deposited = await finishTask(depsFor(conn, true, (taskId, files) => q.enqueueIngest(taskId, 'backpressure notes', files)), kbTask.id)
+  assert.equal(deposited.report.path, 'deposited')
+  assert.ok(fs.existsSync(path.join(kbRoot, 'raw', kbTask.id)), 'the deposit landed synchronously at finish')
+
+  const rec = listIngest(conn.db).find((r) => r.taskId === kbTask.id)!
+  const deadline = Date.now() + 20000
+  for (;;) {
+    const cur = listIngest(conn.db).find((r) => r.id === rec.id)!
+    if (cur.state === 'done' || cur.state === 'failed') {
+      assert.equal(cur.state, 'done', cur.error ?? '')
+      break
+    }
+    assert.ok(Date.now() < deadline, 'curation timed out')
+    await new Promise((r) => setTimeout(r, 100))
+  }
+
+  // -- the Activity ledger tells the truth: touched files, the snapshot.
+  const done = listIngest(conn.db).find((r) => r.id === rec.id)!
+  assert.ok(done.touchedFiles.includes('learning-notes/curated.md'))
+  assert.ok(done.snapshotDir && fs.existsSync(path.join(kbRoot, done.snapshotDir)))
+  assert.ok(done.depositFiles.some((f) => f.endsWith('.md')))
+
+  // -- undo reverses the curation; the deposit stands (Q3=A).
+  const undo = undoCuration(conn.db, rec.id)
+  assert.equal(undo.ok, true)
+  assert.equal(fs.existsSync(path.join(kbRoot, 'learning-notes', 'curated.md')), false, 'the curated page returned to its retained state')
+  assert.ok(fs.readdirSync(path.join(kbRoot, 'raw', kbTask.id)).length > 0, 'the deposit stands')
+  assert.equal(listIngest(conn.db).find((r) => r.id === rec.id)!.state, 'undone')
+
+  // -- the board never blocks on AI: with the switch off, a document task
+  // still writes, still finishes (as written), and zero seams are touched.
+  configured(dir, conn, 'off')
+  const callsAfterCuration = factoryCalls
+  const offline = createTask(conn.db, { listId: list.id, title: 'offline diary', type: 'document' })
+  saveNotes(conn.db, { taskId: offline.id, notePath: notePathFor(offline.id), content: 'day one\n' })
+  const offOutcome = await finishTask(depsFor(conn, false), offline.id, { mode: 'assisted' })
+  assert.equal(offOutcome.task.completed, true, 'FR-006: the board never blocks on AI')
+  assert.equal(offOutcome.report.path, 'as-written')
+  assert.equal(offOutcome.report.assistantStep, 'skipped')
+  assert.equal(factoryCalls, callsAfterCuration, 'FR-021: zero outbound calls in the off-state segment')
+  assert.equal(fs.readFileSync(path.join(filedDir, 'offline-diary.md'), 'utf-8'), 'day one\n')
+
   conn.close()
 })

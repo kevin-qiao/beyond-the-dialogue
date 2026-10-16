@@ -137,7 +137,7 @@ export function WelcomeView({ onOpenSettings }: { onOpenSettings?: () => void })
             <span className={testResult.ok ? 'ai-on' : 'error-text'}>
               {testResult.ok
                 ? t('settings.ai.connected', { text: testResult.text || t('common.ok') })
-                : t('settings.ai.failed', { error: testResult.error ?? t('task.preprocess.unknownError') })}
+                : t('settings.ai.failed', { error: testResult.error ?? t('error.unknown') })}
             </span>
           )}
         </div>

@@ -59,7 +59,13 @@ test('core layer contains no bare node builtin imports', () => {
 test('core layer contains no DOM globals', () => {
   // The mirror image of the previous rule: core is also compiled into the
   // main target, which has no DOM.
-  const DOM = /\b(document|window|navigator|localStorage|sessionStorage|indexedDB|HTMLElement|XMLHttpRequest)\s*[.([]/
+  //
+  // The leading lookbehind skips identifiers inside string literals and
+  // member chains: the i18n catalogs hold MESSAGE KEYS like 'document.empty'
+  // (a refusal code, not the DOM global), and data is harmless in both
+  // targets. A bare `document.createElement(...)` in code still fails here —
+  // verified by the drill: adding one to any core file turns this test red.
+  const DOM = /(?<!['"\w.])(document|window|navigator|localStorage|sessionStorage|indexedDB|HTMLElement|XMLHttpRequest)\s*[.([]/
   const offenders: string[] = []
   for (const f of coreFiles()) {
     const code = stripComments(fs.readFileSync(f, 'utf-8'))
@@ -80,7 +86,12 @@ test('renderer imports nothing from src/main', () => {
   const offenders: string[] = []
   for (const f of walk(RENDERER, (f) => /\.tsx?$/.test(f))) {
     const code = stripComments(fs.readFileSync(f, 'utf-8'))
-    for (const m of code.matchAll(/from\s+['"]([^'"]+)['"]/g)) {
+    // Both import forms: `from '…'` AND the bare side-effect `import '…'` —
+    // a guard that only sees the first form passes on the second, and a check
+    // that cannot fail is broken (the drill proved it: a bare
+    // `import '../../../main/db'` walked straight through).
+    const specifiers = [...code.matchAll(/from\s+['"]([^'"]+)['"]/g), ...code.matchAll(/^\s*import\s+['"]([^'"]+)['"]/gm)]
+    for (const m of specifiers) {
       // Only relative specifiers can reach src/main from the renderer.
       const spec = m[1]!
       if (!spec.startsWith('.')) continue

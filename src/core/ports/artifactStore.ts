@@ -61,6 +61,10 @@ export interface SnapshotHandle {
   subdir: string
   /** Absolute location of the backup, when the store keeps one. */
   location: string | null
+  /** The backup location RELATIVE to the collection root, '/'-separated —
+   *  the storable form (FR-024: no absolute path may enter a board row). The
+   *  undo action resolves it against the Type's destination (T040). */
+  relLocation: string | null
   /** Files that existed before the mutation, '/'-separated and root-relative. */
   files: string[]
 }

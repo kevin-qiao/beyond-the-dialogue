@@ -80,6 +80,26 @@ the only remote-mutation path the agent has.
 The user's per-change approval that makes a Proposal executable. Without it the change is
 structurally unmakeable, not merely discouraged.
 
+## Assistance in action
+
+**Conversation**:
+A task-owned, continuing exchange with the assistant, grounded in whatever that task
+holds. Conversations are stored state: they survive restarts, a task may hold several,
+and a conversation never acts on the board.
+
+**Organize step**:
+The assistant's re-organization of a Document task's draft at finish, driven by the
+Type's declared instruction and bounded by a code check: every fact in the filed
+document must be traceable to the user's own words, or the draft is filed as written.
+
+**Deposit**:
+The user's own material handed to a knowledge base at finish, before and above the fate
+of any curation. It is never rolled back — not by a failed curation, not by an undo.
+
+**Curation**:
+The assistant's integration of a deposit into a knowledge base, confined to that
+collection and reversible against the state retained before it ran.
+
 ## Knowledge
 
 **Wiki**:

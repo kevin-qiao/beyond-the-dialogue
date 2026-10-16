@@ -2,82 +2,65 @@ import type { ChatMessage, SettingsInput } from '../../shared/types'
 import { isConfigured } from './ai-config'
 import { message } from '../../core/i18n'
 
-export type ChatStreamFn = (settings: SettingsInput, history: ChatMessage[], onDelta: (delta: string) => void) => Promise<string>
+// The conversation turn runner (feature 002, research D5).
+//
+// The POC kept an in-memory ChatSession per panel: the transcript died with
+// the process, which is exactly what FR-009 forbids. Storage now holds the
+// history (the v14 tables), and this module is what remains of "a session":
+// ONE short-lived model call per turn. Nothing is retained between turns —
+// no open session idles while the panel is closed, so there is no resource to
+// dispose; the standing dispose rule belongs to agent sessions with
+// extensions, and a conversation turn resolves NO_GRANT and constructs none
+// (D9). The history arrives already shaped by the service (stored turns +
+// grounding, assistant entries carrying their stored usage — the
+// chatMessages rule), and the reply returns with the usage the provider
+// reported so the NEXT turn's history satisfies the SDK's estimator.
+//
+// The stream function is injectable so tests can script turns without a
+// provider; the default lazily imports agent-runtime (which statically
+// imports the ESM-only Pi SDK), keeping this module loadable in the CJS test
+// context — the same pattern as session-factory.ts.
 
-// The default stream fn lazily imports agent-runtime (which statically
-// imports the ESM-only Pi SDK) so this module stays loadable in the CJS
-// test context — same pattern as session-factory.ts.
-async function defaultStream(settings: SettingsInput, history: ChatMessage[], onDelta: (delta: string) => void): Promise<string> {
+export type ChatStreamFn = (
+  settings: SettingsInput,
+  history: ChatMessage[],
+  onDelta: (delta: string) => void
+) => Promise<{ text: string; usage?: Record<string, unknown> | null }>
+
+async function defaultStream(
+  settings: SettingsInput,
+  history: ChatMessage[],
+  onDelta: (delta: string) => void
+): Promise<{ text: string; usage?: Record<string, unknown> | null }> {
   const { streamChat } = await import('./agent-runtime')
   return streamChat(settings, history, onDelta)
 }
 
-// In-memory conversation against the configured model — the debug chat, and
-// (since v0.8) the task-grounded working-area chat panels. History is
-// deliberately not persisted — it is a working surface, not a knowledge base.
-// When a conversation starts with a task context block, it is injected ahead
-// of the history so every reply is grounded in the task's inputs, pre-process
-// outputs, and current note (spec learning-type: "Chat uses task context").
-// The stream function is injectable so tests can script deltas without a
-// provider.
-export class ChatSession {
-  private history: ChatMessage[] = []
-  private context: string | null = null
-  private busy = false
+let streamOverride: ChatStreamFn | null = null
 
-  constructor(private streamFn: ChatStreamFn = defaultStream) {}
+/** Test seam: script the turn transport without a provider. */
+export function setChatStreamFn(fn: ChatStreamFn | null): void {
+  streamOverride = fn
+}
 
-  get messages(): ChatMessage[] {
-    return this.history
+export interface ChatTurnResult {
+  text: string
+  usage?: Record<string, unknown> | null
+}
+
+/**
+ * Run one conversation turn. Rejects when the model is not configured or the
+ * provider fails; the caller (the conversation service) keeps the stored
+ * history intact and reports the failure honestly.
+ */
+export async function runChatTurn(
+  settings: SettingsInput,
+  history: ChatMessage[],
+  onDelta: (delta: string) => void,
+  streamFn: ChatStreamFn = streamOverride ?? defaultStream
+): Promise<ChatTurnResult> {
+  if (!isConfigured(settings)) {
+    throw new Error(message(settings.uiLanguage, 'error.aiNotConfigured'))
   }
-
-  async send(userText: string, settings: SettingsInput, onDelta: (delta: string) => void, context?: string): Promise<string> {
-    if (this.busy) throw new Error('a reply is already streaming')
-    if (!isConfigured(settings)) {
-      throw new Error(message(settings.uiLanguage, 'error.aiNotConfigured'))
-    }
-    const trimmed = userText.trim()
-    if (!trimmed) throw new Error('empty message')
-    // The context is captured by the first message of a conversation;
-    // `refreshContext` re-captures it when the grounding has moved.
-    if (context && !this.context) this.context = context
-    this.busy = true
-    this.history.push({ role: 'user', content: trimmed })
-    const messages: ChatMessage[] = this.context
-      ? [
-          { role: 'user', content: `Task context for this conversation (answer grounded in it):\n\n${this.context}` },
-          { role: 'assistant', content: 'Understood — I have the task context. Ask me anything.' },
-          ...this.history
-        ]
-      : this.history
-    try {
-      const reply = await this.streamFn(settings, messages, onDelta)
-      this.history.push({ role: 'assistant', content: reply })
-      return reply
-    } catch (e) {
-      // Roll back the user message so a failed turn doesn't pollute history.
-      this.history.pop()
-      throw e
-    } finally {
-      this.busy = false
-    }
-  }
-
-  /**
-   * Replace the conversation's grounding, keeping its history.
-   *
-   * `send` captures the context with the first message, which is right for
-   * grounding that does not move. A pre-process does move: it can land, or be
-   * re-run, while the conversation is open. Restarting the chat to pick that
-   * up would discard what the user already asked, so the newer picture is
-   * swapped in and reaches the next reply while the exchange stands.
-   */
-  refreshContext(context: string | undefined): void {
-    if (context) this.context = context
-  }
-
-  reset(): void {
-    this.history = []
-    this.context = null
-  }
+  return streamFn(settings, history, onDelta)
 }

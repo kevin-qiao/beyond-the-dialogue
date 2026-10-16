@@ -70,10 +70,9 @@ export const en = {
   'task.capture.ariaLabel': 'Quick add task',
 
   // ---- task status (the dot-chip) ----
+  // The ready/failed/queued states retired with the pre-process pipeline (D4):
+  // the only live dot is a user-started job in flight.
   'task.status.working': 'working',
-  'task.status.ready': 'ready',
-  'task.status.failed': 'failed',
-  'task.status.queued': 'queued',
 
   // ---- one task: the board row and the AI band ----
   'task.title.edit': 'Edit title',
@@ -90,10 +89,15 @@ export const en = {
   'task.delete.message': 'Delete "{title}"? This cannot be undone.',
   'task.finish': 'Finish',
   'task.finish.failed': 'Finish failed',
-  'task.finishEmpty.title': 'Finish without notes?',
-  'task.finishEmpty.message':
-    'Your learning note is empty. Nothing meaningful will be ingested to your wiki if you finish now.',
-  'task.finishEmpty.confirm': 'Finish anyway',
+  // The two-mode finish choice (D8/FR-003): organize the draft as the Type's
+  // instruction describes, or file the exact words. Shown only where an
+  // assistant step would run.
+  'task.finish.modeLabel': 'Finish mode',
+  'task.finish.organize': 'Organize & file',
+  'task.finish.asWritten': 'File as written',
+  // The finishEmpty confirm-dialog keys are deleted with feature 002: a blank
+  // working area is the core's refusal (document.empty, US1-AC6), not a
+  // renderer-side question.
 
   // ---- the alarm ----
   'task.alarm.label': 'Alarm',
@@ -106,23 +110,8 @@ export const en = {
   'alarm.overdue.title': 'Overdue reminder',
   'alarm.overdue.body': '{title} — was due {when}',
 
-  // ---- the pre-process section of the band ----
-  'task.preprocess.title': 'Pre-process',
-  'task.preprocess.runNow': 'Run now',
-  'task.preprocess.rerun': 'Re-run',
-  'task.preprocess.failed': 'Pre-process failed',
-  'task.preprocess.failedWith': 'Pre-process failed: {error}',
-  'task.preprocess.unknownError': 'unknown error',
-  'task.preprocess.aiNotConfigured': 'AI not configured — open Settings to enable pre-processing',
-  'task.preprocess.emptyHint':
-    'No pre-process yet. Add this task to My Day to generate the {kind} summary and suggestions, or click Run now.',
-  'task.preprocess.emptyHintNoAi': 'No pre-process yet. AI is not configured — set up a provider in Settings first.',
-  'task.preprocess.queued': 'queued…',
-  'task.preprocess.summary': 'Summary',
-  'task.preprocess.analysis': 'Analysis',
-  'task.preprocess.suggestions': 'Suggestions',
-  'task.suggestions.dismiss': 'Dismiss this suggestion',
-  'task.suggestions.allDismissed': 'All suggestions dismissed.',
+  // The pre-process section and the suggestion chips retired with the engines
+  // (D4): no key of theirs survives, because no surface reads them.
 
   // ---- the task column ----
   'nav.search': 'Search ({count})',
@@ -164,6 +153,7 @@ export const en = {
 
   // ---- the focus column and its editor ----
   'focus.empty': 'Select a task to open its AI band and working area.',
+  'focus.workingArea': 'Working area',
   'focus.show': 'Show task focus',
   'focus.hide': 'Hide focus column',
   'focus.ai.show': 'Show AI band',
@@ -184,28 +174,26 @@ export const en = {
   'job.step.complete': 'Complete',
   'finish.step.filingUnpolished': 'Filing unpolished',
   'finish.step.noAi': 'AI not configured',
-  'finish.step.polishing': 'Polishing',
-  'finish.step.polishingDetail': 'Re-organizing the minutes',
+  'finish.step.organizing': 'Organizing',
+  'finish.step.organizingDetail': 'Re-organizing your draft',
+  'finish.step.settingUp': 'Setting up',
+  'finish.step.settingUpDetail': 'Establishing the knowledge-base structure (create-only)',
   'finish.step.depositing': 'Depositing',
-  'finish.step.depositingDetail': 'Preserving the raw material',
+  'finish.step.depositingDetail': 'Preserving your material',
   'finish.step.snapshotting': 'Snapshotting',
   'finish.step.snapshottingDetail': 'Backing up files before changes',
   'finish.step.curating': 'Curating',
   'finish.step.curatingDetail': 'The assistant is writing the finished note',
-  'preprocess.step.running': 'Pre-processing',
-  'preprocess.step.learning': 'Generating learning summary',
-  'preprocess.step.jira': 'Summarizing pasted content',
-  'preprocess.step.meeting': 'Proposing an agenda',
-  'preprocess.done': 'Pre-process complete',
-  'suggest.step.running': 'Suggesting',
-  'suggest.step.detail': 'Generating suggestions',
-  'suggest.done.one': '{count} suggestion generated',
-  'suggest.done.other': '{count} suggestions generated',
   'ingest.done': 'Wiki ingestion complete',
 
   // ---- toasts the domain raises ----
   'toast.finishDeferred': 'Task finished — the assistant is writing it up',
-  'toast.filedTo': 'Finished — filed to {path}',
+  // The finish report line names where the artifact went AND which path ran
+  // (FR-003); the skipped-step report is US1-AC4's plain statement.
+  'toast.filedOrganized': 'Finished — organized and filed to {path}',
+  'toast.filedAsWritten': 'Finished — filed as written to {path}',
+  'toast.organizeSkipped': 'The organizing step did not run — the assistant is switched off',
+  'toast.depositOnly': 'Finished — your material is deposited; the curation step did not run (the assistant is off)',
   'toast.filedUnpolished': 'Filed as written — the assistant step failed: {error}',
 
   // ---- refusals the domain states as codes ----
@@ -217,22 +205,22 @@ export const en = {
   'validation.inputNotAnOption': 'input "{input}" must be one of: {options}',
   'validation.inputImmutable': 'input "{input}" cannot be changed after creation',
   'validation.keyFormat': 'key must be 2–32 chars of lowercase letters, digits, underscore',
-  'validation.kindUnknown': 'kind must be one of: {kinds}',
+  'validation.familyUnknown': 'family must be one of: {families} — or empty for a type that needs no assistance',
   'validation.labelRequired': 'label is required',
   'validation.emojiRequired': 'emoji is required',
   'validation.inputSchemaNotArray': 'inputSchema must be an array',
   'validation.fieldKeyInvalid': 'duplicate or empty input field key "{key}"',
   'validation.fieldNeedsLabel': 'input "{key}" needs a label',
-  'validation.mustDeclareBehaviour': 'a "{kind}" type must declare a finishBehaviour',
+  'validation.mustDeclareBehaviour': 'type "{type}" must declare a finishBehaviour',
   'validation.behaviourUnknown': 'finishBehaviour must be one of: {behaviours}',
   'validation.completeOnlyNoDestination': 'a complete-only type must not declare a destination',
   'validation.needsDestination': 'a "{behaviour}" type must declare a destination',
-  'validation.grantsNotArrays': 'grant entries must be arrays of names',
-  'validation.grantNamesEmpty': 'grant names must be non-empty strings',
+  'validation.destinationNeedsRoot':
+    'this behaviour files your work, so the destination needs a location — choose the folder or knowledge base it writes to',
   'validation.keyIsBuiltin': '"{key}" is a built-in type key',
   'validation.keyExists': 'a type with key "{key}" already exists',
   'validation.typeNotFound': 'type "{key}" not found',
-  'validation.builtinKindFixed': 'built-in types cannot change kind',
+  'validation.builtinFamilyFixed': 'built-in types cannot change family',
   'validation.builtinBehaviourFixed': 'built-in types cannot change finishBehaviour',
 
   'destination.storeUnknown': 'destination store must be one of: {stores}',
@@ -265,15 +253,36 @@ export const en = {
   'skill.github.badArchive': 'the downloaded archive was refused — it is malformed or contains an unsafe path',
   'skill.github.noSkillMd': 'no SKILL.md found in {where} — point the URL at the folder that contains it',
 
-  'artifact.destinationUnset': 'destination is not configured',
-  'artifact.folderMissing': 'destination folder does not exist: {path} — create it or choose another in Settings',
+  // The unset/missing/unusable destination codes are retired in favor of the
+  // contract's two (destination.notConfigured / destination.unreachable,
+  // above): one code per situation, for both stores.
   'artifact.folderNotWritable': 'destination folder is not writable: {path}',
-  'artifact.wikiUnusable': 'wiki destination is not usable: {error}',
   'artifact.wikiNotWritable': 'wiki destination is not writable: {path}',
-  'wiki.notConfigured': 'no wiki directory is configured for this type — edit the type in Settings (Types) and set its destination',
   'ingest.typeNotDestined': 'type "{type}" is not destined for the wiki',
   'ingest.notePathOutside': 'learning-note path "{path}" is outside the current wiki — re-point it in the task inputs',
-  'preprocess.noPreprocess': 'this task type has no pre-process',
+
+  // ---- feature 002 refusals (contracts/document-assist-ipc.md) ----
+  // The domain refuses in these codes; handleCommand phrases them before the
+  // throw. `destination.notConfigured` phrases the contract's
+  // `destination.not_configured` refusal (the key convention is dotted
+  // lowerCamelCase — test/i18n.test.ts): the fresh-install guided refusal
+  // (Q1/FR-007) — the seeded Document Type ships with no location, and no
+  // default ever takes its place.
+  'destination.notConfigured':
+    'this Type has no destination location yet — choose the folder (or knowledge base) it files to in Settings → Types, then finish again',
+  'destination.unreachable':
+    'the destination location no longer exists ({path}) — restore it or point the Type somewhere else in Settings → Types',
+  'document.empty': 'nothing is written yet — write your content in the working area before finishing',
+  'conversation.emptyMessage': 'the message is empty — write a question first',
+  'conversation.unavailable.off':
+    'the assistant is switched off — turn on the assistant runtime in Settings to converse',
+  'conversation.unavailable.notConfigured':
+    'no model service is configured — add a provider and key in Settings to converse',
+  'undo.notDone': 'only a completed curation can be undone — this run is "{state}"',
+  'undo.snapshotMissing': 'the retained state for this curation is missing ({snapshot}) — it cannot be restored; nothing was changed',
+  'undo.destinationUnresolved':
+    'the knowledge base location no longer resolves under the Type destination — restore it before undoing, so nothing is mis-restored',
+
   'finish.noTypeDefinition': 'no type definition resolves for task "{title}"',
   'finish.missingInputs': 'cannot finish: missing required input(s): {fields}',
   'finish.outsideDestination': 'refusing to finish: the artifact would be written outside the destination root ({root}) — re-point the destination in Settings',
@@ -285,16 +294,19 @@ export const en = {
   // ---- errors the renderer raises itself ----
   'error.mainUnreachable': 'Could not reach the main process',
   'error.aiNotConfigured': 'AI not configured: open Settings to configure a provider, model and API key',
+  'error.unknown': 'unknown error',
 
-  // ---- the chat ----
-  'chat.title': 'Chat',
-  'chat.newConversation': 'New conversation',
-  'chat.debugIntro': 'Debug: talk to your configured model to verify the connection and model behavior.',
-  'chat.debugEmpty':
-    'No messages yet. Say hello, or ask the model to describe itself — anything that confirms the provider is reachable.',
-  'chat.emptyHint': 'Ask the agent anything',
+  // ---- the task conversation surface (feature 002, US2) ----
+  // The debug-chat keys (title/intro/empty) are retired with the drawer
+  // (T027): conversations are task-owned stored state now.
+  'chat.listLabel': 'Conversations',
+  'chat.new': 'New conversation',
+  'chat.conversationLabel': 'Conversation {n}',
+  'chat.delete': 'Delete this conversation',
+  'chat.sendFailed': 'The reply failed — your stored history is intact',
+  'chat.emptyHint': 'Ask about this task — replies are grounded in its own material',
   'chat.replying': 'The model is replying…',
-  'chat.placeholder': 'Message the agent… (Enter to send)',
+  'chat.placeholder': 'Message the assistant… (Enter to send)',
 
   // ---- the top bar ----
   'app.loading': 'Loading…',
@@ -312,22 +324,26 @@ export const en = {
   'drawer.activity.sub': 'agent jobs · ingest history · live progress',
   'drawer.settings.title': 'Settings',
   'drawer.settings.sub': 'ai provider · theme · preferences',
-  'drawer.chat.title': 'Debug chat',
-  'drawer.chat.sub': 'agent session · stream events',
 
   // ---- activity: jobs and ingest records ----
   'activity.sub': 'Agent work — live',
-  'activity.empty': 'Nothing running yet. Add a typed task to My Day to pre-process it, or finish one to file what you wrote.',
+  'activity.empty': 'Nothing running yet. Finish a task to file what you wrote, and its record appears here.',
   'activity.jobs': 'Running & recent jobs',
   'activity.finished': 'Finished work',
-  'job.kind.preprocess': 'Pre-process',
-  'job.kind.suggestion': 'Suggestions',
-  'job.kind.ingest': 'Wiki ingestion',
+  // The preprocess/suggestion kind labels retired with the engines (D4).
+  'job.kind.ingest': 'Knowledge-base curation',
   'job.state.queued': 'queued',
   'job.state.running': 'running',
   'job.state.done': 'done',
   'job.state.failed': 'failed',
+  'job.state.undone': 'undone',
   'job.state.unpolished': 'done — unpolished',
+  // The curation undo (FR-020): the report names what was restored, and a
+  // refusal's reason arrives already localized from main.
+  'activity.undo': 'Undo curation',
+  'activity.undo.restored': 'Curation undone — restored: {files}. Your deposited material stands.',
+  'activity.undo.restoredNone': 'Curation undone — the collection returned to its retained state. Your deposited material stands.',
+  'activity.undo.at': 'undone {when}',
   'job.step': 'step: {label}',
   'job.autoRetryPending': 'auto-retry pending',
   'job.autoRetryAttempt': 'auto-retry (attempt {n}/3)',
@@ -354,8 +370,6 @@ export const en = {
   'palette.action.settings.sub': 'Types, AI, theme',
   'palette.action.activity': 'Open activity',
   'palette.action.activity.sub': 'Agent job progress',
-  'palette.action.chat': 'Open debug chat',
-  'palette.action.chat.sub': 'Talk to the model directly',
   'palette.action.today': 'Go to My Day',
   'palette.action.today.sub': 'Switch to the My Day view',
   'palette.action.theme': 'Toggle theme',
@@ -403,7 +417,21 @@ export const en = {
   // "untouched", and a type already renamed by the user stays theirs in every
   // language either way.
   'type.plain.label': 'Plain task',
-  'type.plain.description': 'A plain task — notes and suggestions only, no AI pre-process',
+  // Feature 002: the description no longer names the retired engines. The v13
+  // migration rewrites the stored built-in row from the OLD literal, so the
+  // default-detection comparison (stored === en[key]) keeps working.
+  'type.plain.description': 'A plain task — no assistance declared; notes only',
+  'type.document.label': 'Document',
+  'type.document.description':
+    'Write it in the working area; Finish files it at the Type destination — organized as your instruction describes, or as written',
+  // The type.learning.* keys are MIGRATION ERA, not a live type: the v3 step
+  // imports legacy settings-blob custom types with LEARNING_INPUT_SCHEMA and
+  // v4 refreshes historical rows, and both read the field labels. The
+  // label/description keys stay for the same reason the field keys do — a
+  // stored row from that era (or a user type that happens to take the key) is
+  // still recognised as default-or-not by comparison against the catalog. The
+  // learning/jira/meeting BUILT-INS are deleted by v13 (research D11); the
+  // jira/meeting keys died with their seeds and schemas and are pruned.
   'type.learning.label': 'Learning',
   'type.learning.description': 'Learn a concept: AI prompt + summary, markdown note, Finish ingests to the wiki',
   'type.learning.field.target.label': 'Target',
@@ -415,28 +443,6 @@ export const en = {
     'What you want the learning note to cover (injected into the learning prompt)',
   'type.learning.field.learningNotePath.label': 'Learning-note path',
   'type.learning.field.learningNotePath.placeholder': 'Defaults inside the wiki',
-  'type.jira.label': 'JIRA / Confluence',
-  'type.jira.description': 'Work an issue or page from pasted content: summaries, chat, comment drafts',
-  'type.jira.field.sourceKind.label': 'Source kind',
-  'type.jira.field.sourceKind.option.issue': 'JIRA issue',
-  'type.jira.field.sourceKind.option.page': 'Confluence page',
-  'type.jira.field.sourceLink.label': 'Link',
-  'type.jira.field.sourceLink.placeholder': 'Ticket/page URL (reference only in v0.8)',
-  'type.jira.field.sourceText.label': 'Source content',
-  'type.jira.field.sourceText.placeholder': 'Paste the issue/page content',
-  'type.jira.field.target.label': 'Target / Purpose',
-  'type.jira.field.target.placeholder': 'What you want done with it',
-  'type.jira.field.comments.label': 'Comment drafts',
-  'type.jira.field.comments.placeholder': 'Draft comments for the issue/page (local only)',
-  'type.meeting.label': 'Meeting',
-  'type.meeting.description':
-    'Prepare for a meeting: AI agenda + core topics, minutes in the working area, polished into a folder you own',
-  'type.meeting.field.target.label': 'Objective',
-  'type.meeting.field.target.placeholder': 'What the meeting is about and what it should achieve',
-  'type.meeting.field.filePath.label': 'File',
-  'type.meeting.field.filePath.placeholder': 'Optional markdown (.md) attachment',
-  'type.meeting.field.purpose.label': 'Prompt',
-  'type.meeting.field.purpose.placeholder': 'What the agenda and core topics should focus on',
 
   // ---- settings ----
   'settings.sections': 'Settings sections',
@@ -509,9 +515,10 @@ export const en = {
   // ---- what each finish behaviour does (FR-014) ----
   'finishBehaviour.completeOnly': 'Complete only — writes nothing',
   'finishBehaviour.fileAsIs': 'File as-is — saves your content unchanged',
-  'finishBehaviour.polishThenFile': 'Polish then file — the assistant rewrites it, then saves',
+  // Re-argued as the generic organize step (research D2): no meeting framing.
+  'finishBehaviour.polishThenFile': 'Organize then file — the assistant organizes the draft as your instruction describes, then files it',
   'finishBehaviour.depositThenCurate':
-    'Deposit then curate — raw material preserved first, then the assistant authors the artifact',
+    'Deposit then curate — your material is preserved in the knowledge base first, then the assistant curates the collection',
 
   // ---- the workflow-type editor ----
   'typeEditor.newTag': 'NEW',
@@ -526,15 +533,30 @@ export const en = {
   'typeEditor.labelPlaceholder': 'e.g. Code review',
   'typeEditor.description': 'Description',
   'typeEditor.descriptionPlaceholder': 'What this type is for',
-  'typeEditor.kind': 'Behavior kind',
-  'typeEditor.kind.plain': 'plain — notes & suggestion chips only',
-  'typeEditor.kind.learning': 'learning — prompt/summary, note editor, curated on Finish',
-  'typeEditor.kind.jira': 'jira — pasted source, chat, comment drafts',
-  'typeEditor.kind.meeting': 'meeting — agenda/core topics, minutes editor',
-  'typeEditor.fields': 'Input fields (from this kind)',
-  'typeEditor.aiGuidance': 'AI guidance',
-  'typeEditor.aiGuidanceHint': "(optional — appended to this type's pre-process prompt)",
-  'typeEditor.aiGuidancePlaceholder': 'e.g. Focus on security review angles.',
+  'typeEditor.family': 'Family',
+  'typeEditor.family.none': 'No family — a type that needs no assistance',
+  'typeEditor.family.document': 'document — write in the working area, organize and file on Finish',
+  'typeEditor.family.workingSystem': 'working-system — external work systems (not live yet)',
+  'typeEditor.family.coding': 'coding — code-centered assistance (not live yet)',
+  'typeEditor.family.noneHint': 'Without a family this type gets no assistant step: Finish completes or files as declared.',
+  'typeEditor.family.documentHint': 'Document types write in the working area; Finish offers organize & file or file as written.',
+  'typeEditor.family.notLiveHint':
+    'This family has no live assistance yet — the type saves and behaves like a family-less one until its feature lands.',
+  'typeEditor.fields': 'Declared inputs',
+  'typeEditor.fieldsHint': 'The fields a task of this type asks for. Empty means the task carries only title, background, target and the working area.',
+  'typeEditor.fieldKeyPlaceholder': 'key',
+  'typeEditor.fieldLabelPlaceholder': 'Label shown on the task',
+  'typeEditor.fieldType.text': 'text',
+  'typeEditor.fieldType.textarea': 'textarea',
+  'typeEditor.fieldType.url': 'url',
+  'typeEditor.fieldType.file': 'file',
+  'typeEditor.fieldRequired': 'required',
+  'typeEditor.fieldRemove': 'Remove this field',
+  'typeEditor.fieldAdd': 'Add field',
+  'typeEditor.fieldDuplicate': 'Duplicate input field key "{key}"',
+  'typeEditor.aiGuidance': 'Assistant instruction',
+  'typeEditor.aiGuidanceHint': "(optional — the instruction the organize step follows for this type)",
+  'typeEditor.aiGuidancePlaceholder': 'e.g. File my diary as date-prefixed notes; keep a feelings section.',
   'typeEditor.finishBehaviour': 'Finish behaviour',
   'typeEditor.finishFixed': 'fixed for a built-in type',
   'typeEditor.finishHint': 'What happens to your work when you press Finish on a task of this type.',
@@ -546,15 +568,9 @@ export const en = {
   'typeEditor.folderHint':
     'Plain markdown files land here. Nothing else is written, and an existing file is never overwritten.',
   'typeEditor.wikiResolved': 'Resolved as {dest} — the wiki structure is created there on first use; your existing files are never overwritten.',
-  'typeEditor.capabilities': 'Assistant capabilities',
-  'typeEditor.capabilitiesHint':
-    'Skills and tool servers let the assistant do more on a task of this type. Granting external reach means the assistant can act on that system — and that sessions for this type will no longer see your notes and minutes.',
-  'typeEditor.skillsLabel': 'Skills — capabilities the assistant can load:',
-  'typeEditor.serversLabel': 'Tool servers — external systems the assistant can read from and act on:',
-  'typeEditor.noneImported': 'none imported yet',
-  'typeEditor.noneRegistered': 'none registered yet',
-  'typeEditor.grantReach': '— grants external reach',
-  'typeEditor.grantHint': 'A change here takes effect on the next session; existing tasks do not need recreating.',
+  // The grants/capabilities keys are pruned with the grants section (D9):
+  // showing a control that changes nothing would tell the user something
+  // untrue about their control.
   'typeEditor.keyRequired': 'Key is required',
   'typeEditor.keyFormat': 'Key must be lowercase letters, digits, underscore (2–32 chars)',
   'typeEditor.keyTaken': 'Key "{key}" is already used',
