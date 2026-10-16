@@ -8,7 +8,6 @@ import { describeDestination } from '../../../../core/domain/destination'
 import { describeMcpServer, parseMcpJsonPaste } from '../../../../core/domain/mcpConfig'
 import { LANGUAGES, LANGUAGE_NAMES, isLanguage, type MessageKey } from '../../../../core/i18n'
 import { useLanguage, useT } from '../../lib/useT'
-import { isAssistantEnabled } from '../../../../core/domain/assistant'
 import { allTypeConfigs, displayTypeDescription, displayTypeLabel } from '../../lib/typeCatalog'
 import { useDialog } from '../ui/Dialog'
 
@@ -50,11 +49,16 @@ export function SettingsView() {
   const t = useT()
   const language = useLanguage()
   const [tab, setTab] = useState<Tab>('general')
-  // D1: the Types tab configures the assistant's type engine — an assistant
-  // surface, hidden while the switch is off. The model-service tab stays:
-  // FR-013 makes provider/skill/tool-server configuration the app's own,
-  // configurable and honestly inert.
-  const assistantOn = !!snapshot && isAssistantEnabled(snapshot.settings)
+  // HOTFIX (002): NO part of this drawer is gated on the assistant switch.
+  // Feature 001 hid the Types tab while the switch was off; feature 002 made
+  // the Type registry configuration the off state depends on: the seeded
+  // Document Type ships without a location (Q1), its first Finish — with the
+  // switch off by default on a fresh install — is the guided
+  // `destination.notConfigured` refusal that points the user at Settings →
+  // Types, and destinations drive as-written filing whatever the switch says.
+  // Gating the settings behind the switch they configure inverts the
+  // dependency and dead-ends the guided flow. (test/settingsSurface.test.ts
+  // pins the rule mechanically.)
 
   const [draft, setDraft] = useState<RedactedSettings | null>(snapshot?.settings ?? null)
   // Write-only key (FR-020/T017): what the user types is stored on save and
@@ -173,18 +177,16 @@ export function SettingsView() {
           <span className="tab-ico">⚙</span>
           {t('settings.tab.general')}
         </button>
-        {assistantOn && (
-          <button
-            role="tab"
-            aria-selected={tab === 'types'}
-            className={`settings-tab ${tab === 'types' ? 'on' : ''}`}
-            onClick={() => setTab('types')}
-          >
-            <span className="tab-ico">▤</span>
-            {t('settings.tab.types')}
-            {customTypes.length > 0 && <span className="tab-count">{customTypes.length}</span>}
-          </button>
-        )}
+        <button
+          role="tab"
+          aria-selected={tab === 'types'}
+          className={`settings-tab ${tab === 'types' ? 'on' : ''}`}
+          onClick={() => setTab('types')}
+        >
+          <span className="tab-ico">▤</span>
+          {t('settings.tab.types')}
+          {customTypes.length > 0 && <span className="tab-count">{customTypes.length}</span>}
+        </button>
         <button
           role="tab"
           aria-selected={tab === 'plugins'}
@@ -258,7 +260,7 @@ export function SettingsView() {
         </>
       )}
 
-      {tab === 'types' && assistantOn && (
+      {tab === 'types' && (
         <>
           {typeError && <div className="warning-box"><p>{typeError}</p><button className="mini-btn" onClick={() => setTypeError(null)}>×</button></div>}
           <section className="settings-section">
